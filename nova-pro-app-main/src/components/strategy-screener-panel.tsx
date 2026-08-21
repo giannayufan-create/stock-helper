@@ -147,7 +147,7 @@ const fieldTips = {
         affect: '軟條件至少要命中幾項才進結果',
         range: '建議 1～6（介面允許 1～6）',
         meaning:
-            '1～2＝鬆、名單多；3＝一般；4＝偏嚴（現在）；5～6＝很嚴、常常沒結果。數字越大候選越少。',
+            '1～2＝鬆、名單多；3＝一般（預設）；4＝偏嚴；5～6＝很嚴、常常沒結果。數字越大候選越少。',
     },
     rrMin: {
         affect: '報酬／風險比下限，未達就不進結果',
@@ -347,7 +347,7 @@ export function StrategyScreenerPanel({
     onAddPrediction: (record: PredictionRecord) => void;
 }) {
     const [mode, setMode] = useState<StrategyMode>('daytrade');
-    const [kValue, setKValue] = useState(4);
+    const [kValue, setKValue] = useState(3);
     const [stopLossPct, setStopLossPct] = useState(1);
     const [takeProfitPct, setTakeProfitPct] = useState(2);
     const [rrMin, setRrMin] = useState(2);
@@ -357,7 +357,7 @@ export function StrategyScreenerPanel({
 
     const [pools, setPools] = useState<Record<PoolKey, boolean>>({
         volumeTop50: true,
-        amountTop50: false,
+        amountTop50: true,
         gainersTop50: false,
         watchlist: false,
     });
