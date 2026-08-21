@@ -193,42 +193,48 @@ const fieldTips = {
 function Tip({
     label,
     tip,
+    short,
     children,
 }: {
     label: string;
     tip: TipBody;
+    short: string;
     children?: React.ReactNode;
 }) {
-    const wrapRef = useRef<HTMLSpanElement>(null);
+    const wrapRef = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const [pos, setPos] = useState({ top: 0, left: 0 });
 
     useLayoutEffect(() => {
         if (!open || !wrapRef.current) return;
         const r = wrapRef.current.getBoundingClientRect();
-        const width = Math.min(280, window.innerWidth - 16);
+        const width = Math.min(300, window.innerWidth - 16);
         let left = r.left;
         if (left + width > window.innerWidth - 8) {
             left = Math.max(8, window.innerWidth - width - 8);
         }
         let top = r.bottom + 6;
-        if (top + 140 > window.innerHeight) {
-            top = Math.max(8, r.top - 146);
+        if (top + 160 > window.innerHeight) {
+            top = Math.max(8, r.top - 166);
         }
         setPos({ top, left });
     }, [open]);
 
     return (
-        <span
+        <div
             ref={wrapRef}
-            className={styles.tipWrap}
+            className={styles.fieldCard}
             onMouseEnter={() => setOpen(true)}
             onMouseLeave={() => setOpen(false)}
-            onFocus={() => setOpen(true)}
-            onBlur={() => setOpen(false)}
         >
-            <span className={styles.label}>{label}</span>
-            {children}
+            <div className={styles.fieldHead}>
+                <span className={styles.fieldTitle}>{label}</span>
+                <span className={styles.fieldHelpMark} aria-hidden>
+                    ?
+                </span>
+            </div>
+            <div className={styles.fieldControl}>{children}</div>
+            <div className={styles.fieldShort}>{short}</div>
             {open &&
                 createPortal(
                     <div
@@ -248,7 +254,7 @@ function Tip({
                     </div>,
                     document.body,
                 )}
-        </span>
+        </div>
     );
 }
 
@@ -497,8 +503,12 @@ export function StrategyScreenerPanel({
     return (
         <div className={styles.wrap}>
             <div className={styles.controls}>
-                <div className={styles.row}>
-                    <Tip label='模式' tip={fieldTips.mode}>
+                <div className={styles.fieldGrid}>
+                    <Tip
+                        label='交易模式'
+                        short='當沖＝看今天漲跌；波段＝看收盤強弱'
+                        tip={fieldTips.mode}
+                    >
                         <select
                             className={styles.select}
                             value={mode}
@@ -510,7 +520,11 @@ export function StrategyScreenerPanel({
                             <option value='swing'>波段</option>
                         </select>
                     </Tip>
-                    <Tip label='K 值' tip={fieldTips.kValue}>
+                    <Tip
+                        label='命中數門檻（K）'
+                        short='1～6；越大越嚴。4＝要湊滿 4 個軟條件'
+                        tip={fieldTips.kValue}
+                    >
                         <input
                             className={styles.miniInput}
                             value={kValue}
@@ -522,7 +536,11 @@ export function StrategyScreenerPanel({
                             }
                         />
                     </Tip>
-                    <Tip label='RR≥' tip={fieldTips.rrMin}>
+                    <Tip
+                        label='賺賠比下限（RR）'
+                        short='常用 2＝賺至少是虧的 2 倍；低於就刷掉'
+                        tip={fieldTips.rrMin}
+                    >
                         <input
                             className={styles.miniInput}
                             value={rrMin}
@@ -535,9 +553,11 @@ export function StrategyScreenerPanel({
                             }
                         />
                     </Tip>
-                </div>
-                <div className={styles.row}>
-                    <Tip label='停損%' tip={fieldTips.stopLoss}>
+                    <Tip
+                        label='停損％'
+                        short='建議 0.5～2；1＝虧 1% 就砍，用來算風險'
+                        tip={fieldTips.stopLoss}
+                    >
                         <input
                             className={styles.miniInput}
                             value={stopLossPct}
@@ -549,7 +569,11 @@ export function StrategyScreenerPanel({
                             }
                         />
                     </Tip>
-                    <Tip label='停利%' tip={fieldTips.takeProfit}>
+                    <Tip
+                        label='停利％'
+                        short='建議設成停損的 2 倍；用來算能賺多少'
+                        tip={fieldTips.takeProfit}
+                    >
                         <input
                             className={styles.miniInput}
                             value={takeProfitPct}
@@ -561,9 +585,13 @@ export function StrategyScreenerPanel({
                             }
                         />
                     </Tip>
-                    <Tip label='股價≤' tip={fieldTips.maxPrice}>
+                    <Tip
+                        label='最高股價（元）'
+                        short='空白＝不限；填 100＝只要 100 元以下'
+                        tip={fieldTips.maxPrice}
+                    >
                         <input
-                            className={styles.miniInput}
+                            className={styles.miniInputWide}
                             value={maxPrice}
                             min={0}
                             step={1}
@@ -583,7 +611,7 @@ export function StrategyScreenerPanel({
                 </div>
 
                 <div className={styles.row}>
-                    <Tip label='候選池' tip={fieldTips.pools} />
+                    <span className={styles.sectionTitle}>候選池（從哪裡找股票）</span>
                     <div className={styles.section}>
                         {(Object.keys(pools) as PoolKey[]).map((key) => (
                             <TipCheck
@@ -604,7 +632,9 @@ export function StrategyScreenerPanel({
                 </div>
 
                 <div className={styles.row}>
-                    <Tip label='產業複選' tip={fieldTips.industries} />
+                    <span className={styles.sectionTitle}>
+                        產業（取消勾＝該類不出現）
+                    </span>
                     <div className={styles.section}>
                         {(Object.keys(industries) as IndustryKey[]).map(
                             (key) => (
@@ -627,7 +657,9 @@ export function StrategyScreenerPanel({
                 </div>
 
                 <div className={styles.row}>
-                    <Tip label='軟條件' tip={fieldTips.softs} />
+                    <span className={styles.sectionTitle}>
+                        軟條件（命中數要 ≥ 上面的 K 門檻）
+                    </span>
                     <div className={styles.section}>
                         {(Object.keys(softs) as SoftKey[]).map((key) => (
                             <TipCheck

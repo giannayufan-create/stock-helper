@@ -31,7 +31,8 @@ export const label = style({
 });
 
 export const select = style({
-    background: vars.color.panel,
+    width: '100%',
+    background: vars.color.inset,
     color: vars.color.foreground,
     border: `1px solid ${vars.color.border}`,
     borderRadius: vars.radius.sm,
@@ -40,8 +41,9 @@ export const select = style({
 });
 
 export const miniInput = style({
-    width: '4.2rem',
-    background: vars.color.panel,
+    width: '100%',
+    maxWidth: '5rem',
+    background: vars.color.inset,
     color: vars.color.foreground,
     border: `1px solid ${vars.color.border}`,
     borderRadius: vars.radius.sm,
@@ -144,6 +146,78 @@ export const pickBtn = style({
     padding: '3px 8px',
     fontSize: '0.68rem',
     cursor: 'pointer',
+});
+
+export const fieldGrid = style({
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(11.5rem, 1fr))',
+    gap: vars.space.sm,
+});
+
+export const fieldCard = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    padding: '6px 8px',
+    background: vars.color.panel,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.sm,
+    minWidth: 0,
+});
+
+export const fieldHead = style({
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '4px',
+});
+
+export const fieldTitle = style({
+    fontSize: '0.7rem',
+    fontWeight: 700,
+    color: vars.color.foreground,
+});
+
+export const fieldHelpMark = style({
+    fontSize: '0.62rem',
+    fontWeight: 700,
+    color: vars.color.mutedForeground,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: '999px',
+    width: '1rem',
+    height: '1rem',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+});
+
+export const fieldControl = style({
+    display: 'flex',
+});
+
+export const fieldShort = style({
+    fontSize: '0.6rem',
+    lineHeight: 1.35,
+    color: vars.color.mutedForeground,
+});
+
+export const sectionTitle = style({
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    color: vars.color.foreground,
+    width: '100%',
+});
+
+export const miniInputWide = style({
+    width: '100%',
+    maxWidth: '7rem',
+    background: vars.color.inset,
+    color: vars.color.foreground,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.sm,
+    padding: '3px 6px',
+    fontSize: '0.72rem',
 });
 
 export const tipWrap = style({
