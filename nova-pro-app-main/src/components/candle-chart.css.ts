@@ -323,6 +323,30 @@ export const aiLevels = style({
     },
 });
 
+export const coachInline = style({
+    flex: '1 1 12rem',
+    minWidth: '8rem',
+    maxWidth: '100%',
+    fontSize: '0.66rem',
+    lineHeight: 1.35,
+    color: vars.color.foreground,
+    background: 'rgba(224, 164, 60, 0.1)',
+    border: `1px solid rgba(224, 164, 60, 0.4)`,
+    borderRadius: vars.radius.sm,
+    padding: '3px 8px',
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+    '@media': {
+        'screen and (max-width: 900px)': {
+            flexBasis: '100%',
+            WebkitLineClamp: 3,
+            fontSize: '0.7rem',
+        },
+    },
+});
+
 export const aiHint = style({
     fontSize: '0.58rem',
     color: vars.color.mutedForeground,

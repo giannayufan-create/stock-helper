@@ -18,6 +18,7 @@ import { bollinger, ema, rsi, sma, vwap } from '../lib/indicators';
 import { analyzeWithServer } from '../lib/ai-analyze';
 import {
     buildAiAlerts,
+    buildLocalCoach,
     describeAiScore,
 } from '../lib/ai-score-label';
 import { cancelOrder, fetchKbars, updateOrderPrice } from '../lib/backend';
@@ -217,7 +218,9 @@ export function CandleChart({
                     reasons: ['資料量不足，至少需要 30 根 K 棒'],
                     at: atLocal,
                     source: extra?.source ?? 'local',
-                    coach: extra?.coach,
+                    coach:
+                        extra?.coach ||
+                        '教練：K 棒不足 30 根，先不要判定方向，等資料夠再按 AI判定。',
                 });
                 return;
             }
@@ -324,7 +327,17 @@ export function CandleChart({
                 take,
                 rr,
                 source: extra?.source ?? 'local',
-                coach: extra?.coach,
+                coach:
+                    extra?.coach ||
+                    buildLocalCoach({
+                        score,
+                        stance,
+                        reasons: reasons.slice(0, 4),
+                        entry,
+                        stop,
+                        take,
+                        rr,
+                    }),
             });
         };
 
@@ -342,6 +355,15 @@ export function CandleChart({
                 })),
                 withCoach: true,
             });
+            const localCoach = buildLocalCoach({
+                score: result.score,
+                stance: result.stance,
+                reasons: result.reasons ?? [],
+                entry: result.entry,
+                stop: result.stop,
+                take: result.take,
+                rr: result.rr,
+            });
             setAiDecision({
                 score: result.score,
                 stance: result.stance,
@@ -352,12 +374,12 @@ export function CandleChart({
                 take: result.take,
                 rr: result.rr,
                 source: result.source,
-                coach: result.coach,
+                coach: result.coach?.trim() || localCoach,
             });
         } catch {
             applyLocal({
                 source: 'local',
-                coach: '（後端 AI 暫不可用，已改用本地規則）',
+                coach: undefined,
             });
         } finally {
             setAiBusy(false);
@@ -1212,6 +1234,11 @@ export function CandleChart({
                 >
                     {aiBusy ? '分析中…' : 'AI判定'}
                 </button>
+                {aiDecision?.coach && (
+                    <span className={styles.coachInline} title={aiDecision.coach}>
+                        {aiDecision.coach}
+                    </span>
+                )}
             </div>
             <div ref={hostRef} className={styles.chartHost}>
                 {empty && (

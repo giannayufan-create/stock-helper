@@ -90,3 +90,29 @@ export function buildAiAlerts(input: {
 
     return alerts;
 }
+
+/** Always-on coach paragraph (local). Gemini text can replace/prepend this. */
+export function buildLocalCoach(input: {
+    score: number;
+    stance: AiStance;
+    reasons?: string[];
+    entry?: number;
+    stop?: number;
+    take?: number;
+    rr?: number;
+}): string {
+    const meaning = describeAiScore(input.score, input.stance);
+    const alerts = buildAiAlerts(input);
+    const reasonBit =
+        input.reasons && input.reasons.length > 0
+            ? `依據：${input.reasons.slice(0, 2).join('、')}。`
+            : '';
+    const plan =
+        input.entry != null && input.stop != null && input.take != null
+            ? `若要做：參考進 ${input.entry}、停損 ${input.stop}、停利 ${input.take}${
+                  input.rr != null ? `（RR ${input.rr}）` : ''
+              }。`
+            : '方向不明時先空手觀望。';
+    const warn = alerts[0] ? `${alerts[0]}。` : '';
+    return `教練：${meaning}。${reasonBit}${plan}${warn}`.replace(/。。+/g, '。');
+}
