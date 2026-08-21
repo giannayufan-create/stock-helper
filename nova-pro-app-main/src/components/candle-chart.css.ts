@@ -267,11 +267,10 @@ export const aiBadge = style({
 export const aiDragBar = style({
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: '6px',
     cursor: 'grab',
     userSelect: 'none',
-    paddingBottom: '2px',
+    paddingBottom: '4px',
     borderBottom: `1px solid ${vars.color.border}`,
     marginBottom: '2px',
     ':active': {
@@ -279,21 +278,47 @@ export const aiDragBar = style({
     },
 });
 
+export const aiDragHint = style({
+    flexShrink: 0,
+    fontSize: '0.62rem',
+    color: vars.color.mutedForeground,
+    letterSpacing: '-0.05em',
+});
+
 export const aiClose = style({
     flexShrink: 0,
-    border: `1px solid ${vars.color.border}`,
-    background: vars.color.inset,
-    color: vars.color.mutedForeground,
+    marginLeft: 'auto',
+    border: `1px solid ${vars.color.amber}`,
+    background: 'rgba(224, 164, 60, 0.2)',
+    color: vars.color.amber,
     borderRadius: vars.radius.sm,
-    width: '1.3rem',
-    height: '1.3rem',
-    fontSize: '0.64rem',
+    minWidth: '1.8rem',
+    height: '1.8rem',
+    fontSize: '0.9rem',
+    fontWeight: 700,
     cursor: 'pointer',
     lineHeight: 1,
-    padding: 0,
+    padding: '0 4px',
     ':hover': {
-        color: vars.color.foreground,
-        borderColor: vars.color.borderBright,
+        background: vars.color.amber,
+        color: '#111',
+    },
+});
+
+export const aiCloseFull = style({
+    marginTop: '4px',
+    width: '100%',
+    border: `1px solid ${vars.color.border}`,
+    background: vars.color.inset,
+    color: vars.color.foreground,
+    borderRadius: vars.radius.sm,
+    padding: '5px 8px',
+    fontSize: '0.7rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    ':hover': {
+        borderColor: vars.color.amber,
+        color: vars.color.amber,
     },
 });
 

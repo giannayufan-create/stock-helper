@@ -1459,8 +1459,9 @@ export function CandleChart({
                                 aiDragRef.current = null;
                             }}
                         >
+                            <span className={styles.aiDragHint}>⋮⋮ 拖曳</span>
                             <span className={styles.aiTitle}>
-                                AI 綜合判斷 · {aiDecision.at}
+                                AI · {aiDecision.at}
                                 {aiDecision.source
                                     ? ` · ${aiDecision.source}`
                                     : ''}
@@ -1468,8 +1469,11 @@ export function CandleChart({
                             <button
                                 type='button'
                                 className={styles.aiClose}
-                                title='關閉'
-                                onClick={() => setAiDecision(null)}
+                                title='關閉視窗'
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAiDecision(null);
+                                }}
                                 onPointerDown={(e) => e.stopPropagation()}
                             >
                                 ✕
@@ -1556,6 +1560,13 @@ export function CandleChart({
                                 {aiDecision.coach}
                             </span>
                         )}
+                        <button
+                            type='button'
+                            className={styles.aiCloseFull}
+                            onClick={() => setAiDecision(null)}
+                        >
+                            關閉 ✕
+                        </button>
                     </div>
                 )}
                 {(workingOrders.length > 0 || triggers.length > 0) && (
