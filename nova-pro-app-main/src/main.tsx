@@ -3,6 +3,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { ErrorBoundary } from './components/error-boundary';
 import './index.css';
 import { initTheme } from './lib/theme-store';
 import { startTriggerEngine } from './lib/trigger-engine';
@@ -17,6 +18,8 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
     <StrictMode>
-        <App />
+        <ErrorBoundary>
+            <App />
+        </ErrorBoundary>
     </StrictMode>,
 );

@@ -34,6 +34,7 @@ import { TickTape } from './components/tick-tape';
 import { Watchlist } from './components/watchlist';
 import * as panel from './components/panel.css';
 import { useHotkeys } from './hooks/use-hotkeys';
+import { useMediaQuery } from './hooks/use-media-query';
 import { usePoll } from './hooks/use-poll';
 import { useWatchlist } from './hooks/use-watchlist';
 import { ensureContract, useContract } from './lib/contracts-cache';
@@ -597,15 +598,23 @@ export default function App() {
 
     const jumpToCode = useCallback(
         async (code: string) => {
-            const existing = items.find((i) => i.contract.code === code);
-            if (existing) {
-                setSelected(existing.contract);
-                return;
+            try {
+                const existing = items.find((i) => i.contract.code === code);
+                if (existing) {
+                    setSelected(existing.contract);
+                    return;
+                }
+                const c = (await addSymbol(code, 'STK').catch(() =>
+                    addSymbol(code, 'FUT'),
+                )) as ContractInfo;
+                setSelected(c);
+            } catch (err) {
+                notify({
+                    kind: 'err',
+                    title: '無法開啟商品',
+                    body: err instanceof Error ? err.message : String(err),
+                });
             }
-            const c = (await addSymbol(code, 'STK').catch(() =>
-                addSymbol(code, 'FUT'),
-            )) as ContractInfo;
-            setSelected(c);
         },
         [items, addSymbol],
     );
@@ -623,6 +632,7 @@ export default function App() {
     );
 
     const booting = loading && items.length === 0;
+    const isMobile = useMediaQuery('screen and (max-width: 900px)');
 
     if (POPOUT_TYPE && POPOUT_TYPES.has(POPOUT_TYPE)) {
         return <PopoutView type={POPOUT_TYPE} code={POPOUT_CODE} />;
@@ -663,7 +673,7 @@ export default function App() {
                 onJump={jumpToCode}
             />
 
-            {!booting && (
+            {!booting && isMobile && (
                 <MobileShell
                     contract={selected}
                     snapshot={selectedSnapshot}
@@ -678,6 +688,7 @@ export default function App() {
                 />
             )}
 
+            {!isMobile && (
             <div className={grid.gridWrap} ref={containerRef}>
                 {booting && (
                     <div className={styles.loading}>
@@ -729,6 +740,7 @@ export default function App() {
                     </GridLayout>
                 )}
             </div>
+            )}
         </div>
     );
 }

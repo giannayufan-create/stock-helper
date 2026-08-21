@@ -20,12 +20,19 @@ export function loadEnvFile(): void {
             if (eq <= 0) continue;
             const key = line.slice(0, eq).trim();
             let val = line.slice(eq + 1).trim();
+            // strip inline comments: KEY=value # comment
+            const hash = val.indexOf(' #');
+            if (hash >= 0) val = val.slice(0, hash).trim();
             if (
                 (val.startsWith('"') && val.endsWith('"')) ||
                 (val.startsWith("'") && val.endsWith("'"))
             ) {
                 val = val.slice(1, -1);
             }
+            // Common paste junk around secrets: 你的「KEY」API key
+            val = val.replace(/^你的/, '').trim();
+            val = val.replace(/\s*API key$/i, '').trim();
+            val = val.replace(/^[「『"']+/, '').replace(/[」』"']+$/, '').trim();
             if (process.env[key] === undefined) {
                 process.env[key] = val;
             }
