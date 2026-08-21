@@ -9,5 +9,5 @@ export const isTauri =
 export function getApiBase(): string {
     const env = import.meta.env.VITE_API_BASE as string | undefined;
     if (env) return env;
-    return isTauri ? 'http://127.0.0.1:8080' : '';
+    return isTauri ? 'http://127.0.0.1:8787' : '';
 }
