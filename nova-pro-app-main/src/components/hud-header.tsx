@@ -1,7 +1,9 @@
 // src/components/hud-header.tsx — top status bar with workspace menus
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStreamStatus } from '../hooks/use-stream';
+import { useMediaQuery } from '../hooks/use-media-query';
 import { getLastHeartbeat } from '../lib/stream';
 import {
     getDailyPnl,
@@ -56,6 +58,8 @@ const FONT_SCALE_OPTIONS: { key: FontScale; label: string }[] = [
     { key: 125, label: '特大' },
 ];
 
+const MENU_WIDTH = 280;
+
 function Menu({
     label,
     children,
@@ -64,25 +68,93 @@ function Menu({
     children: (close: () => void) => React.ReactNode;
 }) {
     const [open, setOpen] = useState(false);
+    const close = () => setOpen(false);
+
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') close();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open]);
+
     return (
         <div className={styles.settingsWrap}>
             <button
                 className={styles.resetBtn}
+                type='button'
+                aria-expanded={open}
                 onClick={() => setOpen((o) => !o)}
             >
                 {label}
             </button>
-            {open && (
-                <>
+            {open &&
+                createPortal(
                     <div
-                        className={styles.popoverBackdrop}
-                        onClick={() => setOpen(false)}
-                    />
-                    <div className={styles.popover}>
-                        {children(() => setOpen(false))}
-                    </div>
-                </>
-            )}
+                        className={styles.menuLayer}
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            zIndex: 2147483000,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: 16,
+                            boxSizing: 'border-box',
+                        }}
+                        role='dialog'
+                        aria-modal='true'
+                        aria-label={label}
+                    >
+                        <button
+                            type='button'
+                            aria-label='關閉選單'
+                            onClick={close}
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                border: 'none',
+                                margin: 0,
+                                padding: 0,
+                                background: 'rgba(0,0,0,0.55)',
+                                cursor: 'pointer',
+                            }}
+                        />
+                        <div
+                            className={styles.popover}
+                            style={{
+                                position: 'relative',
+                                zIndex: 1,
+                                width: `min(${MENU_WIDTH}px, calc(100vw - 32px))`,
+                                maxHeight: 'min(70vh, 32rem)',
+                                overflowY: 'auto',
+                                overflowX: 'hidden',
+                                margin: 0,
+                                top: 'auto',
+                                left: 'auto',
+                                right: 'auto',
+                                bottom: 'auto',
+                                transform: 'none',
+                            }}
+                        >
+                            <div className={styles.popoverHead}>
+                                <span className={styles.popoverTitle}>
+                                    {label}
+                                </span>
+                                <button
+                                    type='button'
+                                    className={styles.popoverClose}
+                                    onClick={close}
+                                >
+                                    關閉
+                                </button>
+                            </div>
+                            {children(close)}
+                        </div>
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 }
@@ -519,6 +591,7 @@ export function HudHeader({
     const [serverMgrOpen, setServerMgrOpen] = useState(false);
     const [jumpCode, setJumpCode] = useState('');
     const [jumpBusy, setJumpBusy] = useState(false);
+    const isMobile = useMediaQuery('screen and (max-width: 900px)');
 
     useEffect(() => {
         let cleanup: (() => void) | undefined;
@@ -650,24 +723,30 @@ export function HudHeader({
                 open={serverMgrOpen}
                 onToggle={setServerMgrOpen}
             />
-            <MarketSourceMenu />
-            <RiskMenu />
-            <AddBlockMenu
-                addableTypes={addableTypes}
-                onAddBlock={onAddBlock}
-            />
-            <ProfilesMenu
-                profiles={profiles}
-                onSaveProfile={onSaveProfile}
-                onLoadProfile={onLoadProfile}
-                onDeleteProfile={onDeleteProfile}
-                onResetWorkspace={onResetWorkspace}
-            />
-            <ThemeSettings />
+            {!isMobile && <MarketSourceMenu />}
+            {!isMobile && <RiskMenu />}
 
-            <span className={styles.clock}>
-                {now.toLocaleTimeString('en-GB', { hour12: false })}
-            </span>
+            <div className={styles.toolsRow}>
+                {!isMobile && (
+                    <AddBlockMenu
+                        addableTypes={addableTypes}
+                        onAddBlock={onAddBlock}
+                    />
+                )}
+                {!isMobile && (
+                    <ProfilesMenu
+                        profiles={profiles}
+                        onSaveProfile={onSaveProfile}
+                        onLoadProfile={onLoadProfile}
+                        onDeleteProfile={onDeleteProfile}
+                        onResetWorkspace={onResetWorkspace}
+                    />
+                )}
+                <ThemeSettings />
+                <span className={styles.clock}>
+                    {now.toLocaleTimeString('en-GB', { hour12: false })}
+                </span>
+            </div>
         </header>
     );
 }

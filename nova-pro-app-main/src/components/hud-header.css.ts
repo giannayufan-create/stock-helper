@@ -12,6 +12,9 @@ export const header = style({
     borderBottom: `1px solid ${vars.color.border}`,
     flexShrink: 0,
     flexWrap: 'wrap',
+    overflow: 'visible',
+    position: 'relative',
+    zIndex: 40,
     '@media': {
         'screen and (max-width: 900px)': {
             gap: vars.space.sm,
@@ -187,28 +190,77 @@ export const prodBadge = style({
 
 export const settingsWrap = style({
     position: 'relative',
+    flexShrink: 0,
+});
+
+export const toolsRow = style({
+    display: 'flex',
+    alignItems: 'center',
+    gap: vars.space.xs,
+    flexWrap: 'wrap',
+    width: '100%',
+    order: 30,
+    paddingTop: '2px',
+    borderTop: `1px solid ${vars.color.border}`,
+    marginTop: '2px',
+});
+
+export const menuLayer = style({
+    boxSizing: 'border-box',
+});
+
+export const popoverBackdrop = style({
+    appearance: 'none',
 });
 
 export const popover = style({
-    position: 'absolute',
-    top: 'calc(100% + 8px)',
-    right: 0,
-    zIndex: 200,
-    width: '15rem',
     background: vars.color.panelRaised,
     border: `1px solid ${vars.color.borderBright}`,
     borderRadius: vars.radius.md,
-    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
+    boxShadow: '0 16px 48px rgba(0, 0, 0, 0.55)',
     padding: vars.space.md,
     display: 'flex',
     flexDirection: 'column',
     gap: vars.space.sm,
+    direction: 'ltr',
+    textAlign: 'left',
+    top: 'auto',
+    left: 'auto',
+    right: 'auto',
+    bottom: 'auto',
+    transform: 'none',
 });
 
-export const popoverBackdrop = style({
-    position: 'fixed',
-    inset: 0,
-    zIndex: 199,
+export const popoverHead = style({
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: vars.space.sm,
+    paddingBottom: '4px',
+    borderBottom: `1px solid ${vars.color.border}`,
+    marginBottom: '2px',
+});
+
+export const popoverTitle = style({
+    fontFamily: vars.font.display,
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    color: vars.color.foreground,
+});
+
+export const popoverClose = style({
+    fontFamily: vars.font.body,
+    fontSize: '0.68rem',
+    color: vars.color.mutedForeground,
+    background: vars.color.inset,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.sm,
+    padding: '2px 8px',
+    cursor: 'pointer',
+    ':hover': {
+        color: vars.color.foreground,
+        borderColor: vars.color.borderBright,
+    },
 });
 
 export const settingLabel = style({

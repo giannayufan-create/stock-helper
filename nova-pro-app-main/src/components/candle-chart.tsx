@@ -16,6 +16,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuote } from '../hooks/use-stream';
 import { bollinger, ema, rsi, sma, vwap } from '../lib/indicators';
 import { analyzeWithServer } from '../lib/ai-analyze';
+import {
+    buildAiAlerts,
+    describeAiScore,
+} from '../lib/ai-score-label';
 import { cancelOrder, fetchKbars, updateOrderPrice } from '../lib/backend';
 import { setPickedPrice } from '../lib/price-sync';
 import { notify, placeQuickOrder } from '../lib/trade';
@@ -58,16 +62,52 @@ const TRADE_MODES: { key: TradeMode; label: string }[] = [
     { key: 'alert', label: '警示' },
 ];
 
-const INDICATORS: { key: string; label: string; color: string }[] = [
-    { key: 'ma5', label: 'MA5', color: '#e0a43c' },
-    { key: 'ma10', label: 'MA10', color: '#e8b84a' },
-    { key: 'ma20', label: 'MA20', color: '#b06fff' },
-    { key: 'ma60', label: 'MA60', color: '#7e8798' },
-    { key: 'ema12', label: 'EMA12', color: '#19b6c9' },
-    { key: 'bb', label: 'BB(20,2)', color: '#8b94a7' },
-    { key: 'vwap', label: 'VWAP', color: '#f5f7fa' },
-    { key: 'rsi14', label: 'RSI(14)', color: '#ffcf66' },
+const INDICATOR_DEFS: {
+    key: string;
+    label: string;
+    color: string;
+    kind: 'ma' | 'ema' | 'bb' | 'vwap' | 'rsi';
+    defaultPeriod?: number;
+}[] = [
+    { key: 'ma5', label: 'MA', color: '#e0a43c', kind: 'ma', defaultPeriod: 5 },
+    { key: 'ma10', label: 'MA', color: '#e8b84a', kind: 'ma', defaultPeriod: 10 },
+    { key: 'ma20', label: 'MA', color: '#b06fff', kind: 'ma', defaultPeriod: 20 },
+    { key: 'ma60', label: 'MA', color: '#7e8798', kind: 'ma', defaultPeriod: 60 },
+    { key: 'ema12', label: 'EMA12', color: '#19b6c9', kind: 'ema', defaultPeriod: 12 },
+    { key: 'bb', label: 'BB(20,2)', color: '#8b94a7', kind: 'bb' },
+    { key: 'vwap', label: 'VWAP', color: '#f5f7fa', kind: 'vwap' },
+    { key: 'rsi14', label: 'RSI(14)', color: '#ffcf66', kind: 'rsi' },
 ];
+
+const DEFAULT_MA_PERIODS: Record<string, number> = {
+    ma5: 5,
+    ma10: 10,
+    ma20: 20,
+    ma60: 60,
+};
+
+function loadIndicators(): Set<string> {
+    try {
+        const raw = localStorage.getItem('sj-pro-indicators');
+        if (raw) return new Set(JSON.parse(raw));
+    } catch {
+        // defaults
+    }
+    return new Set(['ma5', 'ma10', 'ma20']);
+}
+
+function loadMaPeriods(): Record<string, number> {
+    try {
+        const raw = localStorage.getItem('sj-pro-ma-periods');
+        if (raw) {
+            const parsed = JSON.parse(raw) as Record<string, number>;
+            return { ...DEFAULT_MA_PERIODS, ...parsed };
+        }
+    } catch {
+        // defaults
+    }
+    return { ...DEFAULT_MA_PERIODS };
+}
 
 function formatTickTime(time: unknown): string {
     if (typeof time !== 'number') return '';
@@ -86,16 +126,6 @@ function formatTickDate(time: unknown): string {
     const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
     const year = String(d.getUTCFullYear()).slice(-2);
     return `${day} ${month} '${year}`;
-}
-
-function loadIndicators(): Set<string> {
-    try {
-        const raw = localStorage.getItem('sj-pro-indicators');
-        if (raw) return new Set(JSON.parse(raw));
-    } catch {
-        // defaults
-    }
-    return new Set();
 }
 
 export function CandleChart({
@@ -122,7 +152,10 @@ export function CandleChart({
     const [mode, setMode] = useState<TradeMode>('observe');
     const [tradeQty, setTradeQty] = useState(1);
     const [indicators, setIndicators] = useState<Set<string>>(loadIndicators);
+    const [maPeriods, setMaPeriods] = useState<Record<string, number>>(loadMaPeriods);
     const [indMenuOpen, setIndMenuOpen] = useState(false);
+    const [indMenuPos, setIndMenuPos] = useState({ top: 0, left: 0 });
+    const indBtnRef = useRef<HTMLButtonElement>(null);
     const [dataVersion, setDataVersion] = useState(0);
     const [aiDecision, setAiDecision] = useState<{
         score: number;
@@ -684,20 +717,24 @@ export function CandleChart({
             indSeriesRef.current.push(series);
             return series;
         };
-        for (const ind of INDICATORS) {
+        for (const ind of INDICATOR_DEFS) {
             if (!indicators.has(ind.key)) continue;
-            if (ind.key.startsWith('ma')) {
-                addLine(sma(bars, Number(ind.key.slice(2))), ind.color);
-            } else if (ind.key === 'ema12') {
-                addLine(ema(bars, 12), ind.color);
-            } else if (ind.key === 'vwap') {
+            if (ind.kind === 'ma') {
+                const period = Math.max(
+                    2,
+                    maPeriods[ind.key] ?? ind.defaultPeriod ?? 5,
+                );
+                addLine(sma(bars, period), ind.color);
+            } else if (ind.kind === 'ema') {
+                addLine(ema(bars, ind.defaultPeriod ?? 12), ind.color);
+            } else if (ind.kind === 'vwap') {
                 addLine(vwap(bars), ind.color, 2);
-            } else if (ind.key === 'bb') {
+            } else if (ind.kind === 'bb') {
                 const b = bollinger(bars);
                 addLine(b.mid, ind.color);
                 addLine(b.upper, ind.color);
                 addLine(b.lower, ind.color);
-            } else if (ind.key === 'rsi14') {
+            } else if (ind.kind === 'rsi') {
                 // paneIndex 1 auto-creates an RSI pane under the main chart
                 addLine(rsi(bars, 14), ind.color, 1, {
                     priceScaleId: 'right',
@@ -723,7 +760,7 @@ export function CandleChart({
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dataVersion, indicators]);
+    }, [dataVersion, indicators, maPeriods]);
 
     // draw highest/lowest guide lines for the current loaded range
     useEffect(() => {
@@ -791,6 +828,25 @@ export function CandleChart({
             const next = new Set(prev);
             if (next.has(key)) next.delete(key);
             else next.add(key);
+            localStorage.setItem(
+                'sj-pro-indicators',
+                JSON.stringify([...next]),
+            );
+            return next;
+        });
+    };
+
+    const setMaPeriod = (key: string, value: number) => {
+        const period = Math.min(240, Math.max(2, Math.round(value) || 2));
+        setMaPeriods((prev) => {
+            const next = { ...prev, [key]: period };
+            localStorage.setItem('sj-pro-ma-periods', JSON.stringify(next));
+            return next;
+        });
+        setIndicators((prev) => {
+            if (prev.has(key)) return prev;
+            const next = new Set(prev);
+            next.add(key);
             localStorage.setItem(
                 'sj-pro-indicators',
                 JSON.stringify([...next]),
@@ -1002,16 +1058,65 @@ export function CandleChart({
                         if (Number.isInteger(v) && v >= 1) setTradeQty(v);
                     }}
                 />
+                <div className={styles.maQuickRow}>
+                    {INDICATOR_DEFS.filter((ind) => ind.kind === 'ma').map(
+                        (ind) => {
+                            const period =
+                                maPeriods[ind.key] ?? ind.defaultPeriod ?? 5;
+                            const on = indicators.has(ind.key);
+                            return (
+                                <button
+                                    key={ind.key}
+                                    type='button'
+                                    className={
+                                        styles.modeBtn[on ? 'active' : 'normal']
+                                    }
+                                    title={`均線 MA${period}（點擊開關）`}
+                                    onClick={() => toggleIndicator(ind.key)}
+                                >
+                                    <span
+                                        className={styles.indSwatch}
+                                        style={{ background: ind.color }}
+                                    />
+                                    MA{period}
+                                </button>
+                            );
+                        },
+                    )}
+                </div>
                 <div style={{ position: 'relative' }}>
                     <button
+                        ref={indBtnRef}
                         className={
                             styles.modeBtn[
                                 indicators.size > 0 ? 'active' : 'normal'
                             ]
                         }
-                        onClick={() => setIndMenuOpen((o) => !o)}
+                        onClick={() => {
+                            const next = !indMenuOpen;
+                            if (next && indBtnRef.current) {
+                                const r =
+                                    indBtnRef.current.getBoundingClientRect();
+                                const width = Math.min(
+                                    200,
+                                    window.innerWidth - 16,
+                                );
+                                let left = r.right - width;
+                                if (left < 8) left = 8;
+                                setIndMenuPos({
+                                    top: Math.min(
+                                        r.bottom + 4,
+                                        window.innerHeight - 200,
+                                    ),
+                                    left,
+                                });
+                            }
+                            setIndMenuOpen(next);
+                        }}
+                        title='開關均線／指標，並可改均線天數'
                     >
-                        ⚙ 指標設定{indicators.size > 0 ? ` ${indicators.size}` : ''}
+                        ⚙ 均線設定
+                        {indicators.size > 0 ? ` ${indicators.size}` : ''}
                     </button>
                     {indMenuOpen && (
                         <>
@@ -1019,10 +1124,69 @@ export function CandleChart({
                                 className={styles.indBackdrop}
                                 onClick={() => setIndMenuOpen(false)}
                             />
-                            <div className={styles.indMenu}>
-                                {INDICATORS.map((ind) => (
+                            <div
+                                className={styles.indMenu}
+                                style={{
+                                    top: indMenuPos.top,
+                                    left: indMenuPos.left,
+                                }}
+                            >
+                                <div className={styles.indSection}>
+                                    均線天數（可改）
+                                </div>
+                                {INDICATOR_DEFS.filter(
+                                    (ind) => ind.kind === 'ma',
+                                ).map((ind) => {
+                                    const period =
+                                        maPeriods[ind.key] ??
+                                        ind.defaultPeriod ??
+                                        5;
+                                    const on = indicators.has(ind.key);
+                                    return (
+                                        <div
+                                            className={styles.indMaRow}
+                                            key={ind.key}
+                                        >
+                                            <button
+                                                type='button'
+                                                className={styles.indItem}
+                                                onClick={() =>
+                                                    toggleIndicator(ind.key)
+                                                }
+                                            >
+                                                <span
+                                                    className={styles.indSwatch}
+                                                    style={{
+                                                        background: ind.color,
+                                                    }}
+                                                />
+                                                MA
+                                                {on ? ' ✓' : ''}
+                                            </button>
+                                            <input
+                                                className={styles.indPeriod}
+                                                type='number'
+                                                min={2}
+                                                max={240}
+                                                value={period}
+                                                title='均線天數／根數'
+                                                onChange={(e) =>
+                                                    setMaPeriod(
+                                                        ind.key,
+                                                        Number(e.target.value),
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                    );
+                                })}
+                                <div className={styles.indSection}>其他指標</div>
+                                {INDICATOR_DEFS.filter(
+                                    (ind) => ind.kind !== 'ma',
+                                ).map((ind) => (
                                     <button
                                         key={ind.key}
+                                        type='button'
                                         className={styles.indItem}
                                         onClick={() =>
                                             toggleIndicator(ind.key)
@@ -1087,8 +1251,12 @@ export function CandleChart({
                                       : panel.dirText.flat
                             }`}
                         >
-                            {aiDecision.stance} {aiDecision.score > 0 ? '+' : ''}
-                            {aiDecision.score}
+                            {describeAiScore(
+                                aiDecision.score,
+                                aiDecision.stance,
+                            )}{' '}
+                            ({aiDecision.score > 0 ? '+' : ''}
+                            {aiDecision.score})
                         </span>
                         {aiDecision.entry != null &&
                             aiDecision.stop != null &&
@@ -1109,14 +1277,16 @@ export function CandleChart({
                         <span className={styles.aiReason}>
                             {aiDecision.reasons.join(' · ')}
                         </span>
+                        {buildAiAlerts(aiDecision).map((tip) => (
+                            <span className={styles.aiAlert} key={tip}>
+                                {tip}
+                            </span>
+                        ))}
                         {aiDecision.coach && (
                             <span className={styles.aiCoach}>
                                 {aiDecision.coach}
                             </span>
                         )}
-                        <span className={styles.aiHint}>
-                            紀律輔助 · 非下單建議
-                        </span>
                     </div>
                 )}
                 {(workingOrders.length > 0 || triggers.length > 0) && (

@@ -116,26 +116,63 @@ export const indBackdrop = style({
     zIndex: 90,
 });
 
+export const maQuickRow = style({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+    flexWrap: 'wrap',
+});
+
 export const indMenu = style({
-    position: 'absolute',
-    top: 'calc(100% + 4px)',
-    right: 0,
+    position: 'fixed',
     zIndex: 91,
     display: 'flex',
     flexDirection: 'column',
-    gap: '1px',
-    width: '10.5rem',
+    gap: '2px',
+    width: '12.5rem',
+    maxWidth: 'calc(100vw - 16px)',
+    maxHeight: 'min(70vh, 24rem)',
+    overflowY: 'auto',
     background: vars.color.panelRaised,
     border: `1px solid ${vars.color.borderBright}`,
     borderRadius: vars.radius.md,
     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
-    padding: '4px',
+    padding: '6px',
+});
+
+export const indSection = style({
+    fontSize: '0.6rem',
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    color: vars.color.mutedForeground,
+    padding: '4px 6px 2px',
+});
+
+export const indMaRow = style({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+});
+
+export const indPeriod = style({
+    width: '3.2rem',
+    fontFamily: vars.font.mono,
+    fontSize: '0.66rem',
+    textAlign: 'right',
+    color: vars.color.foreground,
+    background: vars.color.inset,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.sm,
+    padding: '2px 4px',
+    outline: 'none',
+    ':focus': { borderColor: vars.color.accent },
 });
 
 export const indItem = style({
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
+    flex: 1,
     fontFamily: vars.font.mono,
     fontSize: '0.66rem',
     textAlign: 'left',
@@ -290,6 +327,21 @@ export const aiHint = style({
     fontSize: '0.58rem',
     color: vars.color.mutedForeground,
     opacity: 0.85,
+});
+
+export const aiAlert = style({
+    fontSize: '0.62rem',
+    lineHeight: 1.35,
+    color: vars.color.amber,
+    background: 'rgba(224, 164, 60, 0.1)',
+    border: `1px solid rgba(224, 164, 60, 0.35)`,
+    borderRadius: vars.radius.sm,
+    padding: '3px 6px',
+    '@media': {
+        'screen and (max-width: 900px)': {
+            fontSize: '0.7rem',
+        },
+    },
 });
 
 export const aiCoach = style({

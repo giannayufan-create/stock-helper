@@ -26,6 +26,8 @@ export const label = style({
     fontSize: '0.68rem',
     color: vars.color.mutedForeground,
     minWidth: '5.2rem',
+    cursor: 'help',
+    borderBottom: `1px dotted ${vars.color.mutedForeground}`,
 });
 
 export const select = style({
@@ -59,6 +61,7 @@ export const checkbox = style({
     gap: '6px',
     fontSize: '0.7rem',
     color: vars.color.foreground,
+    cursor: 'help',
 });
 
 export const runBtn = style({
@@ -141,6 +144,34 @@ export const pickBtn = style({
     padding: '3px 8px',
     fontSize: '0.68rem',
     cursor: 'pointer',
+});
+
+export const tipWrap = style({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: vars.space.xs,
+    position: 'relative',
+});
+
+export const tipBubble = style({
+    position: 'fixed',
+    zIndex: 2147483000,
+    width: 'min(280px, calc(100vw - 16px))',
+    background: vars.color.panelRaised,
+    border: `1px solid ${vars.color.borderBright}`,
+    borderRadius: vars.radius.md,
+    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.45)',
+    padding: '8px 10px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    pointerEvents: 'none',
+});
+
+export const tipLine = style({
+    fontSize: '0.68rem',
+    lineHeight: 1.4,
+    color: vars.color.foreground,
 });
 
 export const empty = style({
