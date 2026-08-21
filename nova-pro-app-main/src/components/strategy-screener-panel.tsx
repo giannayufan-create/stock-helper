@@ -70,6 +70,7 @@ export function StrategyScreenerPanel({
     const [stopLossPct, setStopLossPct] = useState(1);
     const [takeProfitPct, setTakeProfitPct] = useState(2);
     const [rrMin, setRrMin] = useState(2);
+    const [maxPrice, setMaxPrice] = useState<number | ''>('');
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState<Scored[]>([]);
 
@@ -163,7 +164,9 @@ export function StrategyScreenerPanel({
             mode === 'daytrade' ? row.change_price > 0 : row.close >= row.open;
         const liquidity = row.total_volume >= 500 || row.rank_value > 0;
         const rrPass = rr >= rrMin;
-        const hardPass = coreDirection && liquidity && rrPass;
+        const pricePass =
+            maxPrice === '' || maxPrice <= 0 || row.close <= maxPrice;
+        const hardPass = coreDirection && liquidity && rrPass && pricePass;
 
         const hitMap: Record<SoftKey, boolean> = {
             momentum: pct(row.change_price, row.close - row.change_price || row.close) > 0.8,
@@ -267,6 +270,25 @@ export function StrategyScreenerPanel({
                         min={0.1}
                         type='number'
                         onChange={(e) => setTakeProfitPct(Number(e.target.value) || 2)}
+                    />
+                    <span className={styles.label}>股價≤</span>
+                    <input
+                        className={styles.miniInput}
+                        value={maxPrice}
+                        min={0}
+                        step={1}
+                        type='number'
+                        placeholder='不限'
+                        title='只找現價在此金額以下的股票，空白＝不限'
+                        onChange={(e) => {
+                            const v = e.target.value.trim();
+                            if (v === '') {
+                                setMaxPrice('');
+                                return;
+                            }
+                            const n = Number(v);
+                            setMaxPrice(Number.isFinite(n) ? n : '');
+                        }}
                     />
                 </div>
 
