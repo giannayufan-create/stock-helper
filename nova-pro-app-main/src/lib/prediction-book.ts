@@ -37,6 +37,10 @@ export function loadPredictions(): PredictionRecord[] {
 
 export function savePredictions(rows: PredictionRecord[]): void {
     localStorage.setItem(KEY, JSON.stringify(rows));
+    // Fire-and-forget cloud sync (no-op until Auth/Firestore are enabled)
+    void import('./cloud-sync')
+        .then((m) => m.pushCloudPredictions(rows))
+        .catch(() => undefined);
 }
 
 export function appendPrediction(

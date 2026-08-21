@@ -68,6 +68,7 @@ import {
     savePredictions,
     type PredictionRecord,
 } from './lib/prediction-book';
+import { bootstrapCloudSync } from './lib/cloud-sync';
 
 const GRID_COLS = 24;
 
@@ -381,6 +382,13 @@ export default function App() {
     const clearPredictions = useCallback(() => {
         savePredictions([]);
         setPredictions([]);
+    }, []);
+
+    // Pull Firestore copy on boot (falls back to localStorage)
+    useEffect(() => {
+        void bootstrapCloudSync().then((cloud) => {
+            if (cloud) setPredictions(cloud);
+        });
     }, []);
 
     // first loaded watchlist item becomes the active symbol

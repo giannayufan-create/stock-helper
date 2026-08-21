@@ -49,6 +49,9 @@ function loadState(): JournalState {
 
 function saveState(state: JournalState): void {
     localStorage.setItem(KEY, JSON.stringify(state));
+    void import('./cloud-sync')
+        .then((m) => m.pushCloudBacktest())
+        .catch(() => undefined);
 }
 
 export function loadBacktestJournal(): JournalState {
