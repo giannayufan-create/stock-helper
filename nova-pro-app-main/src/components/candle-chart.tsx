@@ -395,10 +395,8 @@ export function CandleChart({
         chart.priceScale('vol').applyOptions({
             scaleMargins: { top: 0.80, bottom: 0.02 },
         });
-        chart.priceScale('rsi').applyOptions({
-            scaleMargins: { top: 0.66, bottom: 0.24 },
-            visible: false,
-        });
+        // RSI uses a separate pane created lazily when the indicator is on —
+        // do not call priceScale('rsi') here (scale does not exist yet).
         chartRef.current = chart;
         candleSeriesRef.current = candles;
         volSeriesRef.current = vol;
@@ -661,16 +659,22 @@ export function CandleChart({
             data: { time: number; value: number }[],
             color: string,
             width: 1 | 2 = 1,
-            priceScaleId?: string,
+            opts?: { priceScaleId?: string; paneIndex?: number },
         ) => {
-            const series = chart.addSeries(LineSeries, {
-                color,
-                lineWidth: width,
-                priceLineVisible: false,
-                lastValueVisible: false,
-                crosshairMarkerVisible: false,
-                ...(priceScaleId ? { priceScaleId } : {}),
-            });
+            const series = chart.addSeries(
+                LineSeries,
+                {
+                    color,
+                    lineWidth: width,
+                    priceLineVisible: false,
+                    lastValueVisible: false,
+                    crosshairMarkerVisible: false,
+                    ...(opts?.priceScaleId
+                        ? { priceScaleId: opts.priceScaleId }
+                        : {}),
+                },
+                opts?.paneIndex,
+            );
             series.setData(
                 data.map((d) => ({
                     time: d.time as UTCTimestamp,
@@ -678,6 +682,7 @@ export function CandleChart({
                 })),
             );
             indSeriesRef.current.push(series);
+            return series;
         };
         for (const ind of INDICATORS) {
             if (!indicators.has(ind.key)) continue;
@@ -693,19 +698,28 @@ export function CandleChart({
                 addLine(b.upper, ind.color);
                 addLine(b.lower, ind.color);
             } else if (ind.key === 'rsi14') {
-                addLine(rsi(bars, 14), ind.color, 1, 'rsi');
+                // paneIndex 1 auto-creates an RSI pane under the main chart
+                addLine(rsi(bars, 14), ind.color, 1, {
+                    priceScaleId: 'right',
+                    paneIndex: 1,
+                });
                 addLine(
                     bars.map((b) => ({ time: b.time, value: 70 })),
                     '#d06767',
                     1,
-                    'rsi',
+                    { priceScaleId: 'right', paneIndex: 1 },
                 );
                 addLine(
                     bars.map((b) => ({ time: b.time, value: 30 })),
                     '#58a978',
                     1,
-                    'rsi',
+                    { priceScaleId: 'right', paneIndex: 1 },
                 );
+                try {
+                    chart.panes()[1]?.setHeight(90);
+                } catch {
+                    // pane may not exist if library version differs
+                }
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
