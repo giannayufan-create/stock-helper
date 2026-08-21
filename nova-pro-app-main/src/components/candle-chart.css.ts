@@ -248,30 +248,81 @@ export const rangeBadge = style({
 
 export const aiBadge = style({
     position: 'absolute',
-    top: '58px',
-    right: '8px',
-    zIndex: 5,
+    zIndex: 8,
     display: 'flex',
     flexDirection: 'column',
     gap: '3px',
     fontFamily: vars.font.body,
     fontSize: '0.64rem',
     background: vars.color.panelRaised,
-    border: `1px solid ${vars.color.border}`,
+    border: `1px solid ${vars.color.borderBright}`,
     borderRadius: vars.radius.sm,
     padding: '6px 8px',
     color: vars.color.foreground,
-    maxWidth: '14rem',
-    '@media': {
-        'screen and (max-width: 900px)': {
-            top: '38px',
-            left: '8px',
-            right: '8px',
-            maxWidth: 'none',
-            padding: '8px 10px',
-            gap: '5px',
-        },
+    maxWidth: 'min(16rem, calc(100% - 16px))',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+    touchAction: 'none',
+});
+
+export const aiDragBar = style({
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '6px',
+    cursor: 'grab',
+    userSelect: 'none',
+    paddingBottom: '2px',
+    borderBottom: `1px solid ${vars.color.border}`,
+    marginBottom: '2px',
+    ':active': {
+        cursor: 'grabbing',
     },
+});
+
+export const aiClose = style({
+    flexShrink: 0,
+    border: `1px solid ${vars.color.border}`,
+    background: vars.color.inset,
+    color: vars.color.mutedForeground,
+    borderRadius: vars.radius.sm,
+    width: '1.3rem',
+    height: '1.3rem',
+    fontSize: '0.64rem',
+    cursor: 'pointer',
+    lineHeight: 1,
+    padding: 0,
+    ':hover': {
+        color: vars.color.foreground,
+        borderColor: vars.color.borderBright,
+    },
+});
+
+export const aiStructure = style({
+    display: 'grid',
+    gap: '4px',
+    paddingTop: '2px',
+    borderTop: `1px solid ${vars.color.border}`,
+});
+
+export const aiStructureBias = style({
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: vars.color.accent,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    'em': {
+        fontStyle: 'normal',
+        fontWeight: 500,
+        fontSize: '0.62rem',
+        color: vars.color.mutedForeground,
+    },
+});
+
+export const aiStructureHint = style({
+    fontSize: '0.62rem',
+    lineHeight: 1.4,
+    color: vars.color.foreground,
 });
 
 export const aiTitle = style({

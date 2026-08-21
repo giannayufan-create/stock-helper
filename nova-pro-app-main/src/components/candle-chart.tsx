@@ -21,6 +21,16 @@ import {
     buildLocalCoach,
     describeAiScore,
 } from '../lib/ai-score-label';
+import {
+    detectInstTraps,
+    reasonTone,
+    type TradeAction,
+    type TrapHit,
+} from '../lib/inst-trap';
+import {
+    analyzePriceStructure,
+    type PriceStructure,
+} from '../lib/price-structure';
 import { cancelOrder, fetchKbars, updateOrderPrice } from '../lib/backend';
 import { setPickedPrice } from '../lib/price-sync';
 import { notify, placeQuickOrder } from '../lib/trade';
@@ -169,10 +179,22 @@ export function CandleChart({
         rr?: number;
         source?: string;
         coach?: string;
+        structure?: PriceStructure | null;
+        action?: TradeAction;
+        actionReason?: string;
+        traps?: TrapHit[];
     } | null>(null);
     const [aiBusy, setAiBusy] = useState(false);
+    const [aiPanelPos, setAiPanelPos] = useState({ x: 8, y: 48 });
+    const aiDragRef = useRef<{
+        startX: number;
+        startY: number;
+        origX: number;
+        origY: number;
+    } | null>(null);
     const barsRef = useRef<Candle[]>([]);
     const indSeriesRef = useRef<ISeriesApi<'Line'>[]>([]);
+    const structureLinesRef = useRef<IPriceLine[]>([]);
     const triggers = useTriggers().filter((t) => t.code === contract.code);
     const workingOrders = useMemo(
         () =>
@@ -203,6 +225,10 @@ export function CandleChart({
     contractRef.current = contract;
     const lastPriceRef = useRef<number | null>(null);
 
+    useEffect(() => {
+        setAiDecision(null);
+    }, [contract.code]);
+
     const runAiDecision = async () => {
         if (aiBusy) return;
         const bars = barsRef.current;
@@ -211,7 +237,9 @@ export function CandleChart({
         });
 
         const applyLocal = (extra?: { source?: string; coach?: string }) => {
+            const structure = analyzePriceStructure(bars);
             if (bars.length < 30) {
+                const trap = detectInstTraps(bars, '盤整', 0, structure);
                 setAiDecision({
                     score: 0,
                     stance: '盤整',
@@ -220,7 +248,12 @@ export function CandleChart({
                     source: extra?.source ?? 'local',
                     coach:
                         extra?.coach ||
+                        structure?.hint ||
                         '教練：K 棒不足 30 根，先不要判定方向，等資料夠再按 AI判定。',
+                    structure,
+                    action: '無法判定',
+                    actionReason: trap.actionReason,
+                    traps: trap.traps,
                 });
                 return;
             }
@@ -317,6 +350,14 @@ export function CandleChart({
                 rr = +(takePct / stopPct).toFixed(1);
             }
 
+            const trap = detectInstTraps(bars, stance, score, structure);
+            if (trap.blocked || trap.action === '無法判定') {
+                entry = undefined;
+                stop = undefined;
+                take = undefined;
+                rr = undefined;
+            }
+
             setAiDecision({
                 score,
                 stance,
@@ -327,17 +368,27 @@ export function CandleChart({
                 take,
                 rr,
                 source: extra?.source ?? 'local',
+                structure,
+                action: trap.action,
+                actionReason: trap.actionReason,
+                traps: trap.traps,
                 coach:
                     extra?.coach ||
-                    buildLocalCoach({
-                        score,
-                        stance,
-                        reasons: reasons.slice(0, 4),
-                        entry,
-                        stop,
-                        take,
-                        rr,
-                    }),
+                    [
+                        `建議：${trap.action}。${trap.actionReason}`,
+                        structure?.hint,
+                        buildLocalCoach({
+                            score,
+                            stance,
+                            reasons: reasons.slice(0, 4),
+                            entry,
+                            stop,
+                            take,
+                            rr,
+                        }),
+                    ]
+                        .filter(Boolean)
+                        .join(' '),
             });
         };
 
@@ -355,26 +406,55 @@ export function CandleChart({
                 })),
                 withCoach: true,
             });
-            const localCoach = buildLocalCoach({
-                score: result.score,
-                stance: result.stance,
-                reasons: result.reasons ?? [],
-                entry: result.entry,
-                stop: result.stop,
-                take: result.take,
-                rr: result.rr,
-            });
+            const structure = analyzePriceStructure(bars);
+            const trap = detectInstTraps(
+                bars,
+                result.stance,
+                result.score,
+                structure,
+            );
+            let entry = result.entry;
+            let stop = result.stop;
+            let take = result.take;
+            let rr = result.rr;
+            if (trap.blocked || trap.action === '無法判定') {
+                entry = undefined;
+                stop = undefined;
+                take = undefined;
+                rr = undefined;
+            }
+            const localCoach = [
+                `建議：${trap.action}。${trap.actionReason}`,
+                structure?.hint,
+                buildLocalCoach({
+                    score: result.score,
+                    stance: result.stance,
+                    reasons: result.reasons ?? [],
+                    entry,
+                    stop,
+                    take,
+                    rr,
+                }),
+            ]
+                .filter(Boolean)
+                .join(' ');
             setAiDecision({
                 score: result.score,
                 stance: result.stance,
                 reasons: result.reasons ?? [],
                 at: result.at ?? atLocal,
-                entry: result.entry,
-                stop: result.stop,
-                take: result.take,
-                rr: result.rr,
+                entry,
+                stop,
+                take,
+                rr,
                 source: result.source,
-                coach: result.coach?.trim() || localCoach,
+                structure,
+                action: trap.action,
+                actionReason: trap.actionReason,
+                traps: trap.traps,
+                coach: result.coach?.trim()
+                    ? `${structure?.hint ? structure.hint + ' ' : ''}建議：${trap.action}。${result.coach.trim()}`
+                    : localCoach,
             });
         } catch {
             applyLocal({
@@ -845,6 +925,64 @@ export function CandleChart({
         };
     }, [dataVersion, contract.code, colors.up, colors.down, visibleRange]);
 
+    // Draw support / resistance / target after AI structure analysis
+    useEffect(() => {
+        const series = candleSeriesRef.current;
+        for (const line of structureLinesRef.current) {
+            try {
+                series?.removePriceLine(line);
+            } catch {
+                // chart may have been torn down
+            }
+        }
+        structureLinesRef.current = [];
+        const s = aiDecision?.structure;
+        if (!series || !s) return;
+
+        const add = (
+            price: number,
+            color: string,
+            title: string,
+            style: 0 | 1 | 2 | 3 = 2,
+        ) => {
+            structureLinesRef.current.push(
+                series.createPriceLine({
+                    price,
+                    color,
+                    lineWidth: 1,
+                    lineStyle: style,
+                    axisLabelVisible: true,
+                    title,
+                }),
+            );
+        };
+
+        add(s.resistance, '#e0a43c', `壓力 ${fmtPrice(s.resistance)}`);
+        add(s.support, '#5a9e6f', `支撐 ${fmtPrice(s.support)}`);
+        if (s.target != null) {
+            add(s.target, '#b06fff', `預測 ${fmtPrice(s.target)}`, 1);
+        }
+        if (s.invalidation != null) {
+            add(
+                s.invalidation,
+                '#8b94a7',
+                `失效 ${fmtPrice(s.invalidation)}`,
+                3,
+            );
+        }
+
+        return () => {
+            for (const line of structureLinesRef.current) {
+                try {
+                    series.removePriceLine(line);
+                } catch {
+                    // ignore
+                }
+            }
+            structureLinesRef.current = [];
+        };
+    }, [aiDecision?.structure, contract.code, themeKey]);
+
     const toggleIndicator = (key: string) => {
         setIndicators((prev) => {
             const next = new Set(prev);
@@ -1262,13 +1400,81 @@ export function CandleChart({
                     </div>
                 )}
                 {aiDecision && (
-                    <div className={styles.aiBadge}>
-                        <span className={styles.aiTitle}>
-                            AI 綜合判斷 · {aiDecision.at}
-                            {aiDecision.source
-                                ? ` · ${aiDecision.source}`
-                                : ''}
-                        </span>
+                    <div
+                        className={styles.aiBadge}
+                        style={{
+                            left: aiPanelPos.x,
+                            top: aiPanelPos.y,
+                            right: 'auto',
+                        }}
+                    >
+                        <div
+                            className={styles.aiDragBar}
+                            title='按住拖曳，移開不要擋圖'
+                            onPointerDown={(e) => {
+                                e.preventDefault();
+                                (e.currentTarget as HTMLElement).setPointerCapture(
+                                    e.pointerId,
+                                );
+                                aiDragRef.current = {
+                                    startX: e.clientX,
+                                    startY: e.clientY,
+                                    origX: aiPanelPos.x,
+                                    origY: aiPanelPos.y,
+                                };
+                            }}
+                            onPointerMove={(e) => {
+                                const d = aiDragRef.current;
+                                if (!d) return;
+                                const host = hostRef.current;
+                                const maxX = Math.max(
+                                    0,
+                                    (host?.clientWidth ?? 320) - 180,
+                                );
+                                const maxY = Math.max(
+                                    0,
+                                    (host?.clientHeight ?? 240) - 80,
+                                );
+                                setAiPanelPos({
+                                    x: Math.min(
+                                        maxX,
+                                        Math.max(
+                                            0,
+                                            d.origX + (e.clientX - d.startX),
+                                        ),
+                                    ),
+                                    y: Math.min(
+                                        maxY,
+                                        Math.max(
+                                            0,
+                                            d.origY + (e.clientY - d.startY),
+                                        ),
+                                    ),
+                                });
+                            }}
+                            onPointerUp={() => {
+                                aiDragRef.current = null;
+                            }}
+                            onPointerCancel={() => {
+                                aiDragRef.current = null;
+                            }}
+                        >
+                            <span className={styles.aiTitle}>
+                                AI 綜合判斷 · {aiDecision.at}
+                                {aiDecision.source
+                                    ? ` · ${aiDecision.source}`
+                                    : ''}
+                            </span>
+                            <button
+                                type='button'
+                                className={styles.aiClose}
+                                title='關閉'
+                                onClick={() => setAiDecision(null)}
+                                onPointerDown={(e) => e.stopPropagation()}
+                            >
+                                ✕
+                            </button>
+                        </div>
                         <span
                             className={`${styles.aiScore} ${
                                 aiDecision.stance === '看漲'
@@ -1285,6 +1491,42 @@ export function CandleChart({
                             ({aiDecision.score > 0 ? '+' : ''}
                             {aiDecision.score})
                         </span>
+                        {aiDecision.structure && (
+                            <div className={styles.aiStructure}>
+                                <span className={styles.aiStructureBias}>
+                                    {aiDecision.structure.bias}
+                                    <em>信心{aiDecision.structure.confidence}</em>
+                                </span>
+                                <div className={styles.aiLevels}>
+                                    <span>
+                                        壓力{' '}
+                                        {fmtPrice(aiDecision.structure.resistance)}
+                                    </span>
+                                    <span>
+                                        支撐{' '}
+                                        {fmtPrice(aiDecision.structure.support)}
+                                    </span>
+                                    {aiDecision.structure.target != null && (
+                                        <span>
+                                            預測{' '}
+                                            {fmtPrice(aiDecision.structure.target)}
+                                        </span>
+                                    )}
+                                    {aiDecision.structure.invalidation !=
+                                        null && (
+                                        <span>
+                                            失效{' '}
+                                            {fmtPrice(
+                                                aiDecision.structure.invalidation,
+                                            )}
+                                        </span>
+                                    )}
+                                </div>
+                                <span className={styles.aiStructureHint}>
+                                    {aiDecision.structure.hint}
+                                </span>
+                            </div>
+                        )}
                         {aiDecision.entry != null &&
                             aiDecision.stop != null &&
                             aiDecision.take != null && (
