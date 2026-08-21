@@ -24,7 +24,7 @@ import {
     removeTrigger,
     useTriggers,
 } from '../lib/trigger-engine';
-import type { ContractBase } from '../lib/types/contract';
+import type { ContractInfo } from '../lib/types/contract';
 import type { Candle } from '../lib/types/market';
 import { ACTIVE_ORDER_STATUSES, type Trade } from '../lib/types/order';
 import { fmtPrice } from '../lib/utils/format';
@@ -103,7 +103,7 @@ export function CandleChart({
     trades = [],
     onOrdersChanged,
 }: {
-    contract: ContractBase;
+    contract: ContractInfo;
     trades?: Trade[];
     onOrdersChanged?: () => void;
 }) {
@@ -363,7 +363,10 @@ export function CandleChart({
                 borderColor: c.border,
                 timeVisible: true,
                 secondsVisible: false,
-                tickMarkFormatter: (time, tickMarkType) => {
+                tickMarkFormatter: (
+                    time: import('lightweight-charts').Time,
+                    tickMarkType: import('lightweight-charts').TickMarkType,
+                ) => {
                     // 0=Year, 1=Month, 2=DayOfMonth, 3=Time, 4=TimeWithSeconds
                     const type = Number(tickMarkType);
                     if (type <= 2) return formatTickDate(time);
