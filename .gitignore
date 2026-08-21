@@ -1,0 +1,33 @@
+# Root repo — keep only the real app; ignore scratch / secrets / junk
+
+# Secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.local
+
+# Dependencies & build
+**/node_modules/
+**/dist/
+**/src-tauri/target/
+
+# Archives & Office scratch
+*.zip
+*.docx
+~$*
+
+# Loose files outside nova-pro-app-main (old experiments)
+/index.html
+/package.json
+/tsconfig.json
+/vite.config.ts
+
+# Nested ZIP extract duplicate
+nova-pro-app-main/nova-pro-app-main/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
