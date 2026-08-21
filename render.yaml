@@ -1,0 +1,47 @@
+# Render Blueprint — 股市小幫手
+# Connect this GitHub repo in Render → New → Blueprint
+# Free tier services sleep when idle (first open may take ~30–60s).
+
+services:
+  # Frontend + Node API (same origin → no CORS pain)
+  - type: web
+    name: stock-helper-api
+    runtime: node
+    plan: free
+    rootDir: nova-pro-app-main
+    buildCommand: corepack enable && pnpm install && pnpm build
+    startCommand: pnpm --filter nova-pro-server start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: MARKET_PROVIDER
+        value: fugle
+      - key: TRADE_PROVIDER
+        value: mock
+      - key: FUGLE_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANALYZER_URL
+        fromService:
+          name: stock-helper-analyzer
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+  # Optional Python analyzer (no API key required for scoring)
+  - type: web
+    name: stock-helper-analyzer
+    runtime: python
+    plan: free
+    rootDir: nova-pro-app-main/analyzer
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: GEMINI_API_KEY
+        sync: false

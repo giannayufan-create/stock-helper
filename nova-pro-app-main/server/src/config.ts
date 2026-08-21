@@ -38,7 +38,7 @@ function pick<T extends string>(
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     return {
         port: Number(env.PORT) || 8080,
-        host: '127.0.0.1',
+        host: env.HOST || '0.0.0.0',
         marketProvider: pick(env.MARKET_PROVIDER, ['mock', 'fugle'], 'mock'),
         tradeProvider: pick(
             env.TRADE_PROVIDER,

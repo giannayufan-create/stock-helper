@@ -88,7 +88,7 @@ async function main(): Promise<void> {
         startedAt: Date.now(),
     };
 
-    const app = buildApp(ctx);
+    const app = await buildApp(ctx);
     await app.listen({ port: config.port, host: config.host });
     console.log(
         `nova-pro-server listening on http://${config.host}:${config.port}` +
