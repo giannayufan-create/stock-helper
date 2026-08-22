@@ -13,8 +13,9 @@ export async function geminiCoach(opts: {
     rr?: number;
 }): Promise<string> {
     const prompt =
-        '你是台股當沖紀律教練，不是投顧。根據下列量化結果給 2-4 句繁中提醒，' +
-        '強調風險與條件，禁止保證獲利，禁止「建議買入/賣出」用語。\n' +
+        '你是台股當沖教練，講話要像跟朋友講盤：白話、短句、不要術語堆疊。' +
+        '例如不要說「停利相對停損不夠遠」，要說「賺的目標太近、賠的距離卻比較遠，划不來」。' +
+        '用 2-4 句繁中。不要保證會賺，不要寫「建議買入／賣出」。\n' +
         `代碼=${opts.code} 名稱=${opts.name ?? ''} ` +
         `stance=${opts.stance} score=${opts.score} ` +
         `reasons=${opts.reasons.join('、')} ` +
