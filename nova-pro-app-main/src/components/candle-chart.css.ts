@@ -248,7 +248,7 @@ export const rangeBadge = style({
 
 export const aiBadge = style({
     position: 'absolute',
-    zIndex: 8,
+    zIndex: 40,
     display: 'flex',
     flexDirection: 'column',
     gap: '3px',
@@ -257,11 +257,32 @@ export const aiBadge = style({
     background: vars.color.panelRaised,
     border: `1px solid ${vars.color.borderBright}`,
     borderRadius: vars.radius.sm,
-    padding: '6px 8px',
+    padding: '10px 40px 10px 10px',
     color: vars.color.foreground,
-    maxWidth: 'min(16rem, calc(100% - 16px))',
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
-    touchAction: 'none',
+    width: 'min(16rem, calc(100% - 16px))',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+    pointerEvents: 'auto',
+});
+
+export const aiClose = style({
+    position: 'absolute',
+    top: '6px',
+    right: '6px',
+    zIndex: 41,
+    border: `2px solid ${vars.color.amber}`,
+    background: vars.color.amber,
+    color: '#111',
+    borderRadius: vars.radius.sm,
+    width: '28px',
+    height: '28px',
+    fontSize: '1.05rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    lineHeight: 1,
+    padding: 0,
+    ':hover': {
+        filter: 'brightness(1.1)',
+    },
 });
 
 export const aiDragBar = style({
@@ -271,6 +292,7 @@ export const aiDragBar = style({
     cursor: 'grab',
     userSelect: 'none',
     paddingBottom: '4px',
+    paddingRight: '4px',
     borderBottom: `1px solid ${vars.color.border}`,
     marginBottom: '2px',
     ':active': {
@@ -285,41 +307,17 @@ export const aiDragHint = style({
     letterSpacing: '-0.05em',
 });
 
-export const aiClose = style({
-    flexShrink: 0,
-    marginLeft: 'auto',
-    border: `1px solid ${vars.color.amber}`,
-    background: 'rgba(224, 164, 60, 0.2)',
-    color: vars.color.amber,
-    borderRadius: vars.radius.sm,
-    minWidth: '1.8rem',
-    height: '1.8rem',
-    fontSize: '0.9rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    lineHeight: 1,
-    padding: '0 4px',
-    ':hover': {
-        background: vars.color.amber,
-        color: '#111',
-    },
-});
-
 export const aiCloseFull = style({
     marginTop: '4px',
     width: '100%',
-    border: `1px solid ${vars.color.border}`,
-    background: vars.color.inset,
-    color: vars.color.foreground,
+    border: `1px solid ${vars.color.amber}`,
+    background: 'rgba(224, 164, 60, 0.15)',
+    color: vars.color.amber,
     borderRadius: vars.radius.sm,
-    padding: '5px 8px',
-    fontSize: '0.7rem',
-    fontWeight: 600,
+    padding: '6px 8px',
+    fontSize: '0.74rem',
+    fontWeight: 700,
     cursor: 'pointer',
-    ':hover': {
-        borderColor: vars.color.amber,
-        color: vars.color.amber,
-    },
 });
 
 export const aiStructure = style({
@@ -473,6 +471,7 @@ export const triggerList = style({
     fontFamily: vars.font.mono,
     fontSize: '0.64rem',
     fontVariantNumeric: 'tabular-nums',
+    pointerEvents: 'auto',
 });
 
 export const triggerRow = style({
@@ -515,10 +514,12 @@ export const triggerRemove = style({
     ':hover': { color: vars.color.danger },
 });
 
-export const chartHost = style({
+export const chartStage = style({
     flex: 1,
     minHeight: 0,
     position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
     '@media': {
         'screen and (max-width: 900px)': {
             minHeight: '24rem',
@@ -526,7 +527,19 @@ export const chartHost = style({
     },
 });
 
-export const emptyMsg = style({
+export const chartHost = style({
+    flex: 1,
+    minHeight: 0,
+    position: 'relative',
+    zIndex: 1,
+});
+
+export const chartOverlay = style({
+    position: 'absolute',
+    inset: 0,
+    zIndex: 30,
+    pointerEvents: 'none',
+});
     position: 'absolute',
     inset: 0,
     display: 'flex',

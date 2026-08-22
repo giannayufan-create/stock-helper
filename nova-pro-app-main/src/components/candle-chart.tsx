@@ -185,7 +185,7 @@ export function CandleChart({
         traps?: TrapHit[];
     } | null>(null);
     const [aiBusy, setAiBusy] = useState(false);
-    const [aiPanelPos, setAiPanelPos] = useState({ x: 8, y: 48 });
+    const [aiPanelPos, setAiPanelPos] = useState({ x: 8, y: 8 });
     const aiDragRef = useRef<{
         startX: number;
         startY: number;
@@ -1378,7 +1378,9 @@ export function CandleChart({
                     </span>
                 )}
             </div>
-            <div ref={hostRef} className={styles.chartHost}>
+            <div className={styles.chartStage}>
+            <div ref={hostRef} className={styles.chartHost} />
+            <div className={styles.chartOverlay}>
                 {empty && (
                     <div className={styles.emptyMsg}>
                         <span className={panel.mono}>無 K 線資料</span>
@@ -1408,6 +1410,16 @@ export function CandleChart({
                             right: 'auto',
                         }}
                     >
+                        <button
+                            type='button'
+                            className={styles.aiClose}
+                            aria-label='關閉'
+                            title='關閉'
+                            onClick={() => setAiDecision(null)}
+                            onPointerDown={(e) => e.stopPropagation()}
+                        >
+                            ✕
+                        </button>
                         <div
                             className={styles.aiDragBar}
                             title='按住拖曳，移開不要擋圖'
@@ -1466,18 +1478,6 @@ export function CandleChart({
                                     ? ` · ${aiDecision.source}`
                                     : ''}
                             </span>
-                            <button
-                                type='button'
-                                className={styles.aiClose}
-                                title='關閉視窗'
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAiDecision(null);
-                                }}
-                                onPointerDown={(e) => e.stopPropagation()}
-                            >
-                                ✕
-                            </button>
                         </div>
                         <span
                             className={`${styles.aiScore} ${
@@ -1646,6 +1646,7 @@ export function CandleChart({
                         ))}
                     </div>
                 )}
+            </div>
             </div>
         </div>
     );
