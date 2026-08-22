@@ -243,7 +243,7 @@ def _gemini_coach(key: str, req: AnalyzeRequest, core: dict[str, Any]) -> str:
     }
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.0-flash:generateContent?key={key}"
+        f"gemini-3.6-flash:generateContent?key={key}"
     )
     http_req = urllib.request.Request(
         url,

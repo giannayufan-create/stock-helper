@@ -28,12 +28,12 @@ export function CommandPalette({
     if (!open) return null;
 
     const submit = async () => {
-        const code = value.trim().toUpperCase();
-        if (!code || busy) return;
+        const q = value.trim();
+        if (!q || busy) return;
         setBusy(true);
         setError(false);
         try {
-            await onJump(code);
+            await onJump(q);
             onClose();
         } catch {
             setError(true);
@@ -48,7 +48,7 @@ export function CommandPalette({
                 <input
                     ref={inputRef}
                     className={styles.input}
-                    placeholder='輸入代碼跳轉商品（2330、TXFR1…）'
+                    placeholder='代碼或名稱（2330、台積、TXFR1…）'
                     value={value}
                     onChange={(e) => {
                         setValue(e.target.value);

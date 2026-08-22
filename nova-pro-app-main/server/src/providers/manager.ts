@@ -126,6 +126,12 @@ export class MarketManager implements MarketDataProvider, PriceFeed {
         return this.active.resolveContract(code, type);
     }
 
+    searchSymbols(
+        q: string,
+    ): Promise<Array<{ code: string; name: string }>> {
+        return this.active.searchSymbols(q);
+    }
+
     listOptionContracts(): Promise<OptContract[]> {
         return this.active.listOptionContracts();
     }

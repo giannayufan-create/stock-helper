@@ -56,6 +56,32 @@ export class MockMarketDataProvider implements MarketDataProvider {
         };
     }
 
+    async searchSymbols(
+        q: string,
+    ): Promise<Array<{ code: string; name: string }>> {
+        const needle = q.trim();
+        if (!needle) return [];
+        const nq = needle.toLowerCase();
+        const hits: Array<{ code: string; name: string; score: number }> = [];
+        for (const code of this.engine.listStockCodes()) {
+            const inst = this.engine.getInstrument(code);
+            if (!inst) continue;
+            const name = inst.name;
+            let score = -1;
+            if (code.toLowerCase() === nq || name === needle) score = 0;
+            else if (
+                code.toLowerCase().startsWith(nq) ||
+                name.startsWith(needle)
+            )
+                score = 1;
+            else if (name.includes(needle) || name.toLowerCase().includes(nq))
+                score = 2;
+            if (score >= 0) hits.push({ code, name, score });
+        }
+        hits.sort((a, b) => a.score - b.score || a.code.localeCompare(b.code));
+        return hits.slice(0, 25).map(({ code, name }) => ({ code, name }));
+    }
+
     async resolveContract(
         code: string,
         type: SecurityType,

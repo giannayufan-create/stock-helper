@@ -14,6 +14,16 @@ export function registerDataRoutes(
     app: FastifyInstance,
     ctx: AppContext,
 ): void {
+    app.get<{ Querystring: { q?: string } }>(
+        '/api/v1/data/search',
+        async (req) => {
+            const q = (req.query.q ?? '').trim();
+            if (!q) return { hits: [] };
+            const hits = await ctx.market.searchSymbols(q);
+            return { hits };
+        },
+    );
+
     app.get<{ Params: { code: string }; Querystring: ContractsQuery }>(
         '/api/v1/data/contracts/:code',
         async (req, reply) => {

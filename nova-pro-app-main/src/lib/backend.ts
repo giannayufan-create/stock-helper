@@ -87,6 +87,22 @@ export function fetchAccounts() {
 
 // ---- contracts ----
 
+export function fetchSymbolSearch(q: string) {
+    const qs = new URLSearchParams({ q: q.trim() });
+    return apiGet<{ hits: Array<{ code: string; name: string }> }>(
+        `/api/v1/data/search?${qs.toString()}`,
+    );
+}
+
+/** ticker stays uppercase; Chinese names resolve via search API */
+export async function resolveSymbolQuery(q: string): Promise<string | null> {
+    const raw = q.trim();
+    if (!raw) return null;
+    if (/^[0-9A-Za-z.]+$/.test(raw)) return raw.toUpperCase();
+    const { hits } = await fetchSymbolSearch(raw);
+    return hits[0]?.code ?? null;
+}
+
 export function fetchContract(
     code: string,
     securityType: SecurityType = 'STK',

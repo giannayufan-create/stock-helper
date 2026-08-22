@@ -656,10 +656,10 @@ export function HudHeader({
                     className={styles.quickJumpWrap}
                     onSubmit={(e) => {
                         e.preventDefault();
-                        const code = jumpCode.trim().toUpperCase();
-                        if (!code || jumpBusy) return;
+                        const q = jumpCode.trim();
+                        if (!q || jumpBusy) return;
                         setJumpBusy(true);
-                        void onJump(code)
+                        void onJump(q)
                             .catch(() => undefined)
                             .finally(() => {
                                 setJumpBusy(false);
@@ -670,7 +670,7 @@ export function HudHeader({
                     <input
                         className={styles.quickJumpInput}
                         value={jumpCode}
-                        placeholder="輸入代碼跳股"
+                        placeholder="代碼或名稱，例如 2330、台積"
                         inputMode="search"
                         autoComplete="off"
                         onChange={(e) => setJumpCode(e.target.value)}

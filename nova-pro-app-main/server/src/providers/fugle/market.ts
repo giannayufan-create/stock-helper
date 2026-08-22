@@ -100,6 +100,8 @@ export class FugleMarketDataProvider implements MarketDataProvider {
     private contractCache = new Map<string, ContractInfo>();
     private optChain: OptContract[] | null = null;
     private optChainAt = 0;
+    private equityTickers: Array<{ code: string; name: string }> | null = null;
+    private equityTickersAt = 0;
     private futTickers: any[] | null = null;
     private futTickersAt = 0;
     private aliasMap = new Map<string, string>(); // TXFR1 → TXFF6
@@ -364,6 +366,60 @@ export class FugleMarketDataProvider implements MarketDataProvider {
 
     aliasTarget(code: string): string | undefined {
         return this.aliasMap.get(code);
+    }
+
+    private async equityTickerList(): Promise<Array<{ code: string; name: string }>> {
+        if (
+            this.equityTickers &&
+            Date.now() - this.equityTickersAt < TICKERS_TTL_MS
+        ) {
+            return this.equityTickers;
+        }
+        const [twse, tpex] = await Promise.all([
+            this.rest.stock.intraday.tickers({
+                type: 'EQUITY',
+                exchange: 'TWSE',
+            }),
+            this.rest.stock.intraday.tickers({
+                type: 'EQUITY',
+                exchange: 'TPEx',
+            }),
+        ]);
+        const rows = [
+            ...(Array.isArray(twse?.data) ? twse.data : []),
+            ...(Array.isArray(tpex?.data) ? tpex.data : []),
+        ];
+        this.equityTickers = rows
+            .map((r: any) => ({
+                code: String(r.symbol ?? '').trim(),
+                name: String(r.name ?? '').trim(),
+            }))
+            .filter((x: { code: string }) => x.code);
+        this.equityTickersAt = Date.now();
+        return this.equityTickers;
+    }
+
+    async searchSymbols(
+        q: string,
+    ): Promise<Array<{ code: string; name: string }>> {
+        const needle = q.trim();
+        if (!needle) return [];
+        const nq = needle.toLowerCase();
+        const list = await this.equityTickerList();
+        const scored: Array<{ code: string; name: string; score: number }> = [];
+        for (const t of list) {
+            const code = t.code.toLowerCase();
+            const name = t.name.toLowerCase();
+            let score = -1;
+            if (code === nq || t.name === needle) score = 0;
+            else if (code.startsWith(nq) || t.name.startsWith(needle)) score = 1;
+            else if (name.includes(nq) || t.name.includes(needle)) score = 2;
+            if (score >= 0) scored.push({ ...t, score });
+        }
+        scored.sort(
+            (a, b) => a.score - b.score || a.code.localeCompare(b.code),
+        );
+        return scored.slice(0, 25).map(({ code, name }) => ({ code, name }));
     }
 
     async resolveContract(

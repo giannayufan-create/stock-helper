@@ -107,7 +107,7 @@ export const addRow = style({
 export const addInput = style({
     flex: 1,
     minWidth: 0,
-    fontFamily: vars.font.mono,
+    fontFamily: vars.font.body,
     fontSize: '0.76rem',
     color: vars.color.foreground,
     background: vars.color.inset,

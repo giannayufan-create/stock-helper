@@ -13,6 +13,7 @@ import {
     type UTCTimestamp,
 } from 'lightweight-charts';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuote } from '../hooks/use-stream';
 import { bollinger, ema, rsi, sma, vwap } from '../lib/indicators';
 import { analyzeWithServer } from '../lib/ai-analyze';
@@ -185,7 +186,13 @@ export function CandleChart({
         traps?: TrapHit[];
     } | null>(null);
     const [aiBusy, setAiBusy] = useState(false);
-    const [aiPanelPos, setAiPanelPos] = useState({ x: 8, y: 8 });
+    const [aiPanelPos, setAiPanelPos] = useState(() => ({
+        x:
+            typeof window === 'undefined'
+                ? 8
+                : Math.max(12, window.innerWidth - 300),
+        y: 64,
+    }));
     const aiDragRef = useRef<{
         startX: number;
         startY: number;
@@ -228,6 +235,17 @@ export function CandleChart({
     useEffect(() => {
         setAiDecision(null);
     }, [contract.code]);
+
+    useEffect(() => {
+        if (!aiDecision) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setAiDecision(null);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [aiDecision]);
+
+    const closeAiDecision = () => setAiDecision(null);
 
     const runAiDecision = async () => {
         if (aiBusy) return;
@@ -1372,6 +1390,16 @@ export function CandleChart({
                 >
                     {aiBusy ? '分析中…' : 'AI判定'}
                 </button>
+                {aiDecision && (
+                    <button
+                        type='button'
+                        className={styles.modeBtn.armed}
+                        onClick={closeAiDecision}
+                        title='關閉 AI 判定視窗（Esc 也可以）'
+                    >
+                        關閉判定
+                    </button>
+                )}
                 {aiDecision?.coach && (
                     <span className={styles.coachInline} title={aiDecision.coach}>
                         {aiDecision.coach}
@@ -1401,7 +1429,8 @@ export function CandleChart({
                         <span>最低 {fmtPrice(rangeMarks.low)}</span>
                     </div>
                 )}
-                {aiDecision && (
+                {aiDecision &&
+                    createPortal(
                     <div
                         className={styles.aiBadge}
                         style={{
@@ -1410,74 +1439,77 @@ export function CandleChart({
                             right: 'auto',
                         }}
                     >
-                        <button
-                            type='button'
-                            className={styles.aiClose}
-                            aria-label='關閉'
-                            title='關閉'
-                            onClick={() => setAiDecision(null)}
-                            onPointerDown={(e) => e.stopPropagation()}
-                        >
-                            ✕
-                        </button>
-                        <div
-                            className={styles.aiDragBar}
-                            title='按住拖曳，移開不要擋圖'
-                            onPointerDown={(e) => {
-                                e.preventDefault();
-                                (e.currentTarget as HTMLElement).setPointerCapture(
-                                    e.pointerId,
-                                );
-                                aiDragRef.current = {
-                                    startX: e.clientX,
-                                    startY: e.clientY,
-                                    origX: aiPanelPos.x,
-                                    origY: aiPanelPos.y,
-                                };
-                            }}
-                            onPointerMove={(e) => {
-                                const d = aiDragRef.current;
-                                if (!d) return;
-                                const host = hostRef.current;
-                                const maxX = Math.max(
-                                    0,
-                                    (host?.clientWidth ?? 320) - 180,
-                                );
-                                const maxY = Math.max(
-                                    0,
-                                    (host?.clientHeight ?? 240) - 80,
-                                );
-                                setAiPanelPos({
-                                    x: Math.min(
-                                        maxX,
-                                        Math.max(
-                                            0,
-                                            d.origX + (e.clientX - d.startX),
+                        <div className={styles.aiHeader}>
+                            <div
+                                className={styles.aiDragBar}
+                                title='按住拖曳，移開不要擋圖'
+                                onPointerDown={(e) => {
+                                    e.preventDefault();
+                                    (
+                                        e.currentTarget as HTMLElement
+                                    ).setPointerCapture(e.pointerId);
+                                    aiDragRef.current = {
+                                        startX: e.clientX,
+                                        startY: e.clientY,
+                                        origX: aiPanelPos.x,
+                                        origY: aiPanelPos.y,
+                                    };
+                                }}
+                                onPointerMove={(e) => {
+                                    const d = aiDragRef.current;
+                                    if (!d) return;
+                                    const maxX = Math.max(
+                                        0,
+                                        window.innerWidth - 180,
+                                    );
+                                    const maxY = Math.max(
+                                        0,
+                                        window.innerHeight - 80,
+                                    );
+                                    setAiPanelPos({
+                                        x: Math.min(
+                                            maxX,
+                                            Math.max(
+                                                0,
+                                                d.origX +
+                                                    (e.clientX - d.startX),
+                                            ),
                                         ),
-                                    ),
-                                    y: Math.min(
-                                        maxY,
-                                        Math.max(
-                                            0,
-                                            d.origY + (e.clientY - d.startY),
+                                        y: Math.min(
+                                            maxY,
+                                            Math.max(
+                                                0,
+                                                d.origY +
+                                                    (e.clientY - d.startY),
+                                            ),
                                         ),
-                                    ),
-                                });
-                            }}
-                            onPointerUp={() => {
-                                aiDragRef.current = null;
-                            }}
-                            onPointerCancel={() => {
-                                aiDragRef.current = null;
-                            }}
-                        >
-                            <span className={styles.aiDragHint}>⋮⋮ 拖曳</span>
-                            <span className={styles.aiTitle}>
-                                AI · {aiDecision.at}
-                                {aiDecision.source
-                                    ? ` · ${aiDecision.source}`
-                                    : ''}
-                            </span>
+                                    });
+                                }}
+                                onPointerUp={() => {
+                                    aiDragRef.current = null;
+                                }}
+                                onPointerCancel={() => {
+                                    aiDragRef.current = null;
+                                }}
+                            >
+                                <span className={styles.aiDragHint}>⋮⋮</span>
+                                <span className={styles.aiTitle}>
+                                    AI 綜合判斷 · {aiDecision.at}
+                                    {aiDecision.source
+                                        ? ` · ${aiDecision.source}`
+                                        : ''}
+                                </span>
+                            </div>
+                            <button
+                                type='button'
+                                className={styles.aiClose}
+                                aria-label='關閉 AI 判定'
+                                title='關閉'
+                                onClick={closeAiDecision}
+                                onPointerDown={(e) => e.stopPropagation()}
+                            >
+                                ✕
+                            </button>
                         </div>
                         <span
                             className={`${styles.aiScore} ${
@@ -1563,11 +1595,12 @@ export function CandleChart({
                         <button
                             type='button'
                             className={styles.aiCloseFull}
-                            onClick={() => setAiDecision(null)}
+                            onClick={closeAiDecision}
                         >
                             關閉 ✕
                         </button>
-                    </div>
+                    </div>,
+                    document.body,
                 )}
                 {(workingOrders.length > 0 || triggers.length > 0) && (
                     <div className={styles.triggerList}>

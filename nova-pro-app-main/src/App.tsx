@@ -45,6 +45,7 @@ import {
     fetchMargin,
     fetchPositions,
     fetchTrades,
+    resolveSymbolQuery,
 } from './lib/backend';
 import { notify } from './lib/trade';
 import type { ContractInfo } from './lib/types/contract';
@@ -597,8 +598,22 @@ export default function App() {
     });
 
     const jumpToCode = useCallback(
-        async (code: string) => {
+        async (query: string) => {
             try {
+                const q = query.trim();
+                const byName = items.find(
+                    (i) =>
+                        i.contract.code.toUpperCase() === q.toUpperCase() ||
+                        i.contract.name.includes(q),
+                );
+                if (byName) {
+                    setSelected(byName.contract);
+                    return;
+                }
+                const code = await resolveSymbolQuery(q);
+                if (!code) {
+                    throw new Error(`找不到「${q}」，請改打代碼或完整名稱`);
+                }
                 const existing = items.find((i) => i.contract.code === code);
                 if (existing) {
                     setSelected(existing.contract);
@@ -614,6 +629,7 @@ export default function App() {
                     title: '無法開啟商品',
                     body: err instanceof Error ? err.message : String(err),
                 });
+                throw err;
             }
         },
         [items, addSymbol],

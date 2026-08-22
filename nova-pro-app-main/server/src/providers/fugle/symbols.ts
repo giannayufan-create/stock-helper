@@ -4,6 +4,9 @@
 /** app code ↔ fugle symbol for indices */
 const INDEX_MAP: Record<string, string> = {
     '001': 'IX0001', // 加權指數
+    '002': 'IX0043', // 櫃買指數
+    '009': 'IX0009', // 電子類股指數
+    '015': 'IX0015', // 金融保險類股指數
 };
 
 export function toFugleSymbol(code: string): string {

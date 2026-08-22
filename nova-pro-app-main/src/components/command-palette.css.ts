@@ -25,7 +25,7 @@ export const box = style({
 
 export const input = style({
     width: '100%',
-    fontFamily: vars.font.mono,
+    fontFamily: vars.font.body,
     fontSize: '1rem',
     fontWeight: 600,
     color: vars.color.foreground,
@@ -34,7 +34,6 @@ export const input = style({
     borderBottom: `1px solid ${vars.color.border}`,
     padding: `${vars.space.md} ${vars.space.lg}`,
     outline: 'none',
-    textTransform: 'uppercase',
     '::placeholder': {
         color: vars.color.mutedForeground,
         textTransform: 'none',

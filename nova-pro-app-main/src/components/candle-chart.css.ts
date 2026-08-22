@@ -247,8 +247,8 @@ export const rangeBadge = style({
 });
 
 export const aiBadge = style({
-    position: 'absolute',
-    zIndex: 40,
+    position: 'fixed',
+    zIndex: 10000,
     display: 'flex',
     flexDirection: 'column',
     gap: '3px',
@@ -257,25 +257,38 @@ export const aiBadge = style({
     background: vars.color.panelRaised,
     border: `1px solid ${vars.color.borderBright}`,
     borderRadius: vars.radius.sm,
-    padding: '10px 40px 10px 10px',
+    padding: '8px',
     color: vars.color.foreground,
-    width: 'min(16rem, calc(100% - 16px))',
+    width: 'min(18rem, calc(100vw - 24px))',
+    maxHeight: 'min(70vh, calc(100% - 24px))',
+    overflowY: 'auto',
+    overflowX: 'hidden',
     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
     pointerEvents: 'auto',
 });
 
+export const aiHeader = style({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexShrink: 0,
+    position: 'sticky',
+    top: 0,
+    zIndex: 2,
+    background: vars.color.panelRaised,
+    paddingBottom: '4px',
+});
+
 export const aiClose = style({
-    position: 'absolute',
-    top: '6px',
-    right: '6px',
-    zIndex: 41,
+    flexShrink: 0,
+    marginLeft: 'auto',
     border: `2px solid ${vars.color.amber}`,
     background: vars.color.amber,
     color: '#111',
     borderRadius: vars.radius.sm,
-    width: '28px',
-    height: '28px',
-    fontSize: '1.05rem',
+    minWidth: '32px',
+    height: '32px',
+    fontSize: '1.15rem',
     fontWeight: 800,
     cursor: 'pointer',
     lineHeight: 1,
@@ -289,12 +302,12 @@ export const aiDragBar = style({
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
+    flex: 1,
+    minWidth: 0,
     cursor: 'grab',
     userSelect: 'none',
     paddingBottom: '4px',
-    paddingRight: '4px',
     borderBottom: `1px solid ${vars.color.border}`,
-    marginBottom: '2px',
     ':active': {
         cursor: 'grabbing',
     },
@@ -350,15 +363,12 @@ export const aiStructureHint = style({
 
 export const aiTitle = style({
     fontFamily: vars.font.display,
-    fontSize: '0.62rem',
-    color: vars.color.mutedForeground,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    '@media': {
-        'screen and (max-width: 900px)': {
-            fontSize: '0.68rem',
-        },
-    },
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: vars.color.foreground,
+    letterSpacing: '0.02em',
+    minWidth: 0,
+    flex: 1,
 });
 
 export const aiScore = style({
@@ -540,6 +550,8 @@ export const chartOverlay = style({
     zIndex: 30,
     pointerEvents: 'none',
 });
+
+export const emptyMsg = style({
     position: 'absolute',
     inset: 0,
     display: 'flex',

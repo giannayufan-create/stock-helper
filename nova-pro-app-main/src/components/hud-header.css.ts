@@ -92,7 +92,7 @@ export const quickJumpInput = style({
     outline: 'none',
     background: 'transparent',
     color: vars.color.foreground,
-    fontFamily: vars.font.mono,
+    fontFamily: vars.font.body,
     fontSize: '0.72rem',
     '::placeholder': {
         color: vars.color.mutedForeground,

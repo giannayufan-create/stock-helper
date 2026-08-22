@@ -23,7 +23,7 @@ export async function geminiCoach(opts: {
 
     const url =
         'https://generativelanguage.googleapis.com/v1beta/models/' +
-        `gemini-2.0-flash:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
+        `gemini-3.6-flash:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
 
     const res = await fetch(url, {
         method: 'POST',

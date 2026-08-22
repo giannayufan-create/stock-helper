@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuote } from '../hooks/use-stream';
 import type { WatchItem } from '../hooks/use-watchlist';
+import { resolveSymbolQuery } from '../lib/backend';
 import { useRegulatoryFlag } from '../lib/regulatory';
 import type { ContractInfo, SecurityType } from '../lib/types/contract';
 import { fmtPct, fmtPrice, fmtSigned } from '../lib/utils/format';
@@ -105,10 +106,12 @@ export function Watchlist({
     const [busy, setBusy] = useState(false);
 
     const submit = async () => {
-        const code = input.trim().toUpperCase();
-        if (!code || busy) return;
+        const q = input.trim();
+        if (!q || busy) return;
         setBusy(true);
         try {
+            const code = await resolveSymbolQuery(q);
+            if (!code) throw new Error('找不到此股票');
             await onAdd(code, type);
             setInput('');
         } catch {
@@ -136,7 +139,7 @@ export function Watchlist({
             <div className={styles.addRow}>
                 <input
                     className={styles.addInput}
-                    placeholder='代碼 e.g. 2330'
+                    placeholder='代碼或名稱，例如 2330、台積'
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && submit()}

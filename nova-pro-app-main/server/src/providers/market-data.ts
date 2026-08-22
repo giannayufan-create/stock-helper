@@ -34,6 +34,8 @@ export interface MarketDataProvider {
         code: string,
         type: SecurityType,
     ): Promise<ContractInfo | null>;
+    /** search stocks by code or Chinese name */
+    searchSymbols(q: string): Promise<Array<{ code: string; name: string }>>;
     listOptionContracts(): Promise<OptContract[]>;
 
     snapshots(keys: ContractKey[]): Promise<Snapshot[]>;
