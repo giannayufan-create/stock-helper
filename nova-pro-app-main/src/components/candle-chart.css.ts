@@ -416,6 +416,31 @@ export const aiPriceRow = style({
     fontWeight: 600,
 });
 
+export const aiContextBox = style({
+    display: 'grid',
+    gap: '3px',
+    padding: '6px 0',
+    borderTop: `1px solid ${vars.color.border}`,
+});
+
+export const aiContextTitle = style({
+    fontSize: '0.7rem',
+    fontWeight: 700,
+    color: vars.color.accent,
+});
+
+export const aiContextText = style({
+    fontSize: '0.64rem',
+    lineHeight: 1.4,
+    color: vars.color.mutedForeground,
+});
+
+export const aiNewsLine = style({
+    fontSize: '0.62rem',
+    lineHeight: 1.35,
+    color: vars.color.foreground,
+});
+
 export const aiReason = style({
     fontSize: '0.62rem',
     color: vars.color.mutedForeground,

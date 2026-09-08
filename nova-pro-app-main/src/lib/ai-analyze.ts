@@ -23,6 +23,25 @@ export interface AiAnalyzeResult {
     source?: string;
     coach?: string;
     at?: string;
+    context_adj?: number;
+    news?: {
+        bias: string;
+        summary: string;
+        score_adj: number;
+        headlines: Array<{
+            title: string;
+            source: string;
+            sentiment: string;
+        }>;
+    };
+    heat?: {
+        session: string;
+        label: string;
+        score: number;
+        score_adj: number;
+        buy_vol_ratio: number;
+        notes: string[];
+    };
 }
 
 export interface AiStatus {

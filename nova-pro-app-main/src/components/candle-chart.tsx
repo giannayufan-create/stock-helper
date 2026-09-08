@@ -187,6 +187,17 @@ export function CandleChart({
         action?: TradeAction;
         actionReason?: string;
         traps?: TrapHit[];
+        news?: {
+            bias: string;
+            summary: string;
+            headlines: Array<{ title: string; sentiment: string }>;
+        };
+        heat?: {
+            session: string;
+            label: string;
+            score: number;
+            notes: string[];
+        };
     } | null>(null);
     const [aiBusy, setAiBusy] = useState(false);
     const [aiPanelPos, setAiPanelPos] = useState(() => ({
@@ -479,6 +490,26 @@ export function CandleChart({
                 action: trap.action,
                 actionReason: trap.actionReason,
                 traps: trap.traps,
+                news: result.news
+                    ? {
+                          bias: result.news.bias,
+                          summary: result.news.summary,
+                          headlines: (result.news.headlines ?? []).map(
+                              (h) => ({
+                                  title: h.title,
+                                  sentiment: h.sentiment,
+                              }),
+                          ),
+                      }
+                    : undefined,
+                heat: result.heat
+                    ? {
+                          session: result.heat.session,
+                          label: result.heat.label,
+                          score: result.heat.score,
+                          notes: result.heat.notes ?? [],
+                      }
+                    : undefined,
                 coach: result.coach?.trim()
                     ? `${structure?.hint ? structure.hint + ' ' : ''}建議：${trap.action}。${result.coach.trim()}`
                     : localCoach,
@@ -1552,6 +1583,38 @@ export function CandleChart({
                                 >
                                     {aiDecision.upProb}%
                                 </span>
+                            </div>
+                        )}
+                        {aiDecision.heat && (
+                            <div className={styles.aiContextBox}>
+                                <span className={styles.aiContextTitle}>
+                                    {aiDecision.heat.session}買氣 ·{' '}
+                                    {aiDecision.heat.label}（
+                                    {aiDecision.heat.score}）
+                                </span>
+                                <span className={styles.aiContextText}>
+                                    {aiDecision.heat.notes[0] ?? ''}
+                                </span>
+                            </div>
+                        )}
+                        {aiDecision.news && (
+                            <div className={styles.aiContextBox}>
+                                <span className={styles.aiContextTitle}>
+                                    網路消息 · {aiDecision.news.bias}
+                                </span>
+                                <span className={styles.aiContextText}>
+                                    {aiDecision.news.summary}
+                                </span>
+                                {aiDecision.news.headlines
+                                    .slice(0, 3)
+                                    .map((h) => (
+                                        <span
+                                            className={styles.aiNewsLine}
+                                            key={h.title}
+                                        >
+                                            [{h.sentiment}] {h.title}
+                                        </span>
+                                    ))}
                             </div>
                         )}
                         {(aiDecision.lastPrice != null ||

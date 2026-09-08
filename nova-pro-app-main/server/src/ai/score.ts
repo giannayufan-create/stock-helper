@@ -173,3 +173,49 @@ export function scoreBars(
         up_prob: scoreToUpProb(score),
     };
 }
+
+/** Recompute stance / levels after news + heat adjustments. */
+export function finalizeScore(
+    base: AnalyzeCore,
+    adj: number,
+    extraReasons: string[],
+    stopPct = 0.01,
+    takePct = 0.02,
+    lastClose?: number,
+): AnalyzeCore {
+    let score = Math.max(
+        -100,
+        Math.min(100, Math.round(base.score + adj)),
+    );
+    const reasons = [...extraReasons, ...base.reasons].slice(0, 6);
+    const stance: Stance =
+        score >= 18 ? '看漲' : score <= -18 ? '看跌' : '盤整';
+
+    const close = lastClose ?? base.entry ?? 0;
+    let entry: number | undefined;
+    let stop: number | undefined;
+    let take: number | undefined;
+    let rr: number | undefined;
+    if (stance === '看漲' && close > 0) {
+        entry = +close.toFixed(2);
+        stop = +(close * (1 - stopPct)).toFixed(2);
+        take = +(close * (1 + takePct)).toFixed(2);
+        rr = +(takePct / stopPct).toFixed(1);
+    } else if (stance === '看跌' && close > 0) {
+        entry = +close.toFixed(2);
+        stop = +(close * (1 + stopPct)).toFixed(2);
+        take = +(close * (1 - takePct)).toFixed(2);
+        rr = +(takePct / stopPct).toFixed(1);
+    }
+
+    return {
+        score,
+        stance,
+        reasons,
+        entry,
+        stop,
+        take,
+        rr,
+        up_prob: scoreToUpProb(score),
+    };
+}
