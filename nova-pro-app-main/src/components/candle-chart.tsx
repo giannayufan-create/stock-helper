@@ -1579,7 +1579,9 @@ export function CandleChart({
                             <div className={styles.aiStructure}>
                                 <span className={styles.aiStructureBias}>
                                     {aiDecision.structure.bias}
-                                    <em>信心{aiDecision.structure.confidence}</em>
+                                    <em className={styles.aiStructureConfidence}>
+                                        信心{aiDecision.structure.confidence}
+                                    </em>
                                 </span>
                                 <div className={styles.aiLevels}>
                                     <span>
