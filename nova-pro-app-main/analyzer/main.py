@@ -51,9 +51,18 @@ class AnalyzeResponse(BaseModel):
     stop: float | None = None
     take: float | None = None
     rr: float | None = None
+    up_prob: int = 50
     source: str = "python"
     coach: str | None = None
     at: str | None = None
+
+
+def score_to_up_prob(score: int) -> int:
+    import math
+
+    clamped = max(-100, min(100, score))
+    p = 1 / (1 + math.exp(-clamped / 22))
+    return max(5, min(95, round(p * 100)))
 
 
 def _sma(closes: list[float], n: int) -> float | None:
@@ -103,6 +112,7 @@ def score_bars(bars: list[Bar], stop_pct: float, take_pct: float) -> dict[str, A
             "stop": None,
             "take": None,
             "rr": None,
+            "up_prob": 50,
         }
 
     closes = [b.close for b in bars]
@@ -190,6 +200,7 @@ def score_bars(bars: list[Bar], stop_pct: float, take_pct: float) -> dict[str, A
         "stop": stop,
         "take": take,
         "rr": rr,
+        "up_prob": score_to_up_prob(int(score)),
     }
 
 

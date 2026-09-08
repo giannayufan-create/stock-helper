@@ -383,6 +383,38 @@ export const aiScore = style({
     },
 });
 
+export const aiProbRow = style({
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: '8px',
+    padding: '4px 0',
+    borderTop: `1px solid ${vars.color.border}`,
+    borderBottom: `1px solid ${vars.color.border}`,
+});
+
+export const aiProbLabel = style({
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: vars.color.foreground,
+});
+
+export const aiProbValue = style({
+    fontFamily: vars.font.mono,
+    fontSize: '1.15rem',
+    fontWeight: 800,
+    fontVariantNumeric: 'tabular-nums',
+});
+
+export const aiPriceRow = style({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontFamily: vars.font.mono,
+    fontSize: '0.72rem',
+    fontWeight: 600,
+});
+
 export const aiReason = style({
     fontSize: '0.62rem',
     color: vars.color.mutedForeground,

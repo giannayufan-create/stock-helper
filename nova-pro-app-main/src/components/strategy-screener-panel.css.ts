@@ -75,6 +75,88 @@ export const runBtn = style({
     fontSize: '0.72rem',
     fontWeight: 700,
     cursor: 'pointer',
+    marginLeft: 'auto',
+});
+
+export const modeTabs = style({
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '6px',
+});
+
+export const modeTab = style({
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.sm,
+    background: vars.color.inset,
+    color: vars.color.mutedForeground,
+    padding: '8px 10px',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+});
+
+export const modeTabActive = style({
+    border: `1px solid ${vars.color.accent}`,
+    borderRadius: vars.radius.sm,
+    background: 'rgba(224, 164, 60, 0.18)',
+    color: vars.color.foreground,
+    padding: '8px 10px',
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+});
+
+export const modeBlurb = style({
+    margin: 0,
+    fontSize: '0.68rem',
+    lineHeight: 1.4,
+    color: vars.color.mutedForeground,
+});
+
+export const presetBar = style({
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '0.68rem',
+    color: vars.color.mutedForeground,
+});
+
+export const inlineCheck = style({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    cursor: 'pointer',
+    color: vars.color.foreground,
+});
+
+export const priceRow = style({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+});
+
+export const priceBox = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1px',
+});
+
+export const priceLabel = style({
+    fontSize: '0.6rem',
+    color: vars.color.mutedForeground,
+});
+
+export const priceValue = style({
+    fontFamily: vars.font.mono,
+    fontSize: '0.92rem',
+    fontWeight: 700,
+    fontVariantNumeric: 'tabular-nums',
+});
+
+export const priceArrow = style({
+    color: vars.color.mutedForeground,
+    fontSize: '0.9rem',
 });
 
 export const body = style({

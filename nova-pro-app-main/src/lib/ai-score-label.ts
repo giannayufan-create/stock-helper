@@ -2,6 +2,13 @@
 
 export type AiStance = '看漲' | '看跌' | '盤整';
 
+/** Map score (-100～+100) → 上漲機率 5%～95%. */
+export function scoreToUpProb(score: number): number {
+    const clamped = Math.max(-100, Math.min(100, score));
+    const p = 1 / (1 + Math.exp(-clamped / 22));
+    return Math.max(5, Math.min(95, Math.round(p * 100)));
+}
+
 export function scoreStrengthLabel(score: number): string {
     const abs = Math.abs(score);
     if (abs < 18) return '沒方向';

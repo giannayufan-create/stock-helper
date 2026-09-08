@@ -18,6 +18,14 @@ export interface AnalyzeCore {
     stop?: number;
     take?: number;
     rr?: number;
+    /** 上漲機率 0～100 */
+    up_prob: number;
+}
+
+export function scoreToUpProb(score: number): number {
+    const clamped = Math.max(-100, Math.min(100, score));
+    const p = 1 / (1 + Math.exp(-clamped / 22));
+    return Math.max(5, Math.min(95, Math.round(p * 100)));
 }
 
 function sma(closes: number[], n: number): number | null {
@@ -64,6 +72,7 @@ export function scoreBars(
             score: 0,
             stance: '盤整',
             reasons: ['資料量不足，至少需要 30 根 K 棒'],
+            up_prob: 50,
         };
     }
     const closes = bars.map((b) => b.close);
@@ -161,5 +170,6 @@ export function scoreBars(
         stop,
         take,
         rr,
+        up_prob: scoreToUpProb(score),
     };
 }

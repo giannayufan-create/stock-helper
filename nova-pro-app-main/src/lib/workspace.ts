@@ -131,13 +131,13 @@ export const BLOCK_META: Record<
         defaultSize: { w: 8, h: 9, minW: 5, minH: 6 },
     },
     strategyScreener: {
-        label: '策略篩選器',
+        label: '智能篩選',
         pinnable: false,
         singleton: true,
         defaultSize: { w: 8, h: 12, minW: 6, minH: 8 },
     },
     predictionBook: {
-        label: '預測本',
+        label: '布局本',
         pinnable: false,
         singleton: true,
         defaultSize: { w: 8, h: 10, minW: 6, minH: 7 },
@@ -147,45 +147,43 @@ export const BLOCK_META: Record<
 export const DEFAULT_WORKSPACE: Workspace = {
     blocks: [
         { id: 'watchlist-0', type: 'watchlist', pin: null },
-        { id: 'movers-0', type: 'movers', pin: null },
+        { id: 'strategyScreener-0', type: 'strategyScreener', pin: null },
         { id: 'chart-0', type: 'chart', pin: null },
         { id: 'dock-0', type: 'dock', pin: null },
         { id: 'depth-0', type: 'depth', pin: null },
         { id: 'ticket-0', type: 'ticket', pin: null },
         { id: 'tape-0', type: 'tape', pin: null },
-        { id: 'strategyScreener-0', type: 'strategyScreener', pin: null },
         { id: 'predictionBook-0', type: 'predictionBook', pin: null },
     ],
     layout: [
-        { i: 'watchlist-0', x: 0, y: 0, w: 4, h: 14, minW: 3, minH: 6 },
-        { i: 'movers-0', x: 0, y: 14, w: 4, h: 11, minW: 3, minH: 5 },
+        { i: 'watchlist-0', x: 0, y: 0, w: 4, h: 10, minW: 3, minH: 6 },
+        {
+            i: 'strategyScreener-0',
+            x: 0,
+            y: 10,
+            w: 4,
+            h: 15,
+            minW: 3,
+            minH: 8,
+        },
         { i: 'chart-0', x: 4, y: 0, w: 15, h: 16, minW: 6, minH: 7 },
         { i: 'dock-0', x: 4, y: 16, w: 15, h: 9, minW: 6, minH: 5 },
         { i: 'depth-0', x: 19, y: 0, w: 5, h: 8, minW: 4, minH: 7 },
         { i: 'ticket-0', x: 19, y: 8, w: 5, h: 11, minW: 4, minH: 10 },
         { i: 'tape-0', x: 19, y: 19, w: 5, h: 6, minW: 3, minH: 4 },
         {
-            i: 'strategyScreener-0',
+            i: 'predictionBook-0',
             x: 0,
             y: 25,
-            w: 12,
-            h: 12,
+            w: 24,
+            h: 8,
             minW: 6,
-            minH: 8,
-        },
-        {
-            i: 'predictionBook-0',
-            x: 12,
-            y: 25,
-            w: 12,
-            h: 10,
-            minW: 6,
-            minH: 7,
+            minH: 6,
         },
     ],
 };
 
-const WS_KEY = 'sj-pro-workspace-v2';
+const WS_KEY = 'sj-pro-workspace-v3';
 const PROFILES_KEY = 'sj-pro-profiles-v1';
 
 function validWorkspace(w: unknown): w is Workspace {

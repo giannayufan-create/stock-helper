@@ -3,7 +3,6 @@
 import { useCallback } from 'react';
 import { usePoll } from '../hooks/use-poll';
 import { apiPost } from '../lib/api';
-import { loadBacktestJournal } from '../lib/backtest-journal';
 import { fmtMoney, fmtSigned } from '../lib/utils/format';
 import { dateStrOffset } from '../lib/utils/kbars';
 import * as dock from './bottom-dock.css';
@@ -102,20 +101,11 @@ export function PnlPanel() {
     const avgLoss = losses.length
         ? losses.reduce((s, r) => s + r.pnl, 0) / losses.length
         : 0;
-    const bt = loadBacktestJournal();
-    const btTotalRealized = Object.values(bt.realizedPnl).reduce(
-        (sum, v) => sum + (Number(v) || 0),
-        0,
-    );
-    const btOpenPositions = Object.values(bt.positions).filter((p) => p.qty > 0).length;
-    const btRows = bt.entries.length;
 
     if (rows.length === 0) {
         return (
             <div className={dock.emptyState}>
                 {error ? '損益資料無法取得' : '近 30 日無已實現損益'}
-                <br />
-                回測紀錄：{btRows} 筆 · 已實現 {fmtSigned(btTotalRealized, 0)} · 持倉 {btOpenPositions} 檔
             </div>
         );
     }
@@ -163,18 +153,6 @@ export function PnlPanel() {
                         {avgLoss !== 0
                             ? Math.abs(avgWin / avgLoss).toFixed(2)
                             : '—'}
-                    </span>
-                </div>
-                <div className={dock.statCard}>
-                    <span className={dock.statCardLabel}>回測已實現</span>
-                    <span
-                        className={`${dock.statCardValue} ${
-                            btTotalRealized >= 0
-                                ? panel.dirText.up
-                                : panel.dirText.down
-                        }`}
-                    >
-                        {fmtSigned(btTotalRealized, 0)}
                     </span>
                 </div>
             </div>

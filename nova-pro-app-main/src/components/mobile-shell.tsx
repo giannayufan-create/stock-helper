@@ -15,9 +15,9 @@ type MobileTab = 'chart' | 'depth' | 'ticket' | 'screener' | 'book';
 const TABS: Array<{ id: MobileTab; short: string; label: string }> = [
     { id: 'chart', short: 'K', label: 'K線' },
     { id: 'depth', short: '5', label: '五檔' },
-    { id: 'ticket', short: 'R', label: '回測' },
-    { id: 'screener', short: 'S', label: '篩選' },
-    { id: 'book', short: 'P', label: '預測本' },
+    { id: 'ticket', short: '下', label: '下單' },
+    { id: 'screener', short: '篩', label: '篩選' },
+    { id: 'book', short: '布', label: '布局本' },
 ];
 
 export function MobileShell({
@@ -55,9 +55,9 @@ export function MobileShell({
                         {tab === 'depth' &&
                             `五檔${contract ? ` · ${contract.code}` : ''}`}
                         {tab === 'ticket' &&
-                            `回測紀錄${contract ? ` · ${contract.code}` : ''}`}
-                        {tab === 'screener' && '策略篩選'}
-                        {tab === 'book' && '預測本'}
+                            `下單${contract ? ` · ${contract.code}` : ''}`}
+                        {tab === 'screener' && '智能篩選'}
+                        {tab === 'book' && '布局本'}
                     </div>
                     <div className={styles.content}>
                         {tab === 'chart' &&

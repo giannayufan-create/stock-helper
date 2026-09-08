@@ -18,6 +18,8 @@ export interface AiAnalyzeResult {
     stop?: number;
     take?: number;
     rr?: number;
+    /** 上漲機率 0～100 */
+    up_prob?: number;
     source?: string;
     coach?: string;
     at?: string;

@@ -21,6 +21,7 @@ import {
     buildAiAlerts,
     buildLocalCoach,
     describeAiScore,
+    scoreToUpProb,
 } from '../lib/ai-score-label';
 import {
     detectInstTraps,
@@ -178,6 +179,8 @@ export function CandleChart({
         stop?: number;
         take?: number;
         rr?: number;
+        upProb?: number;
+        lastPrice?: number;
         source?: string;
         coach?: string;
         structure?: PriceStructure | null;
@@ -263,6 +266,8 @@ export function CandleChart({
                     stance: '盤整',
                     reasons: ['資料量不足，至少需要 30 根 K 棒'],
                     at: atLocal,
+                    upProb: 50,
+                    lastPrice: bars[bars.length - 1]?.close,
                     source: extra?.source ?? 'local',
                     coach:
                         extra?.coach ||
@@ -385,6 +390,8 @@ export function CandleChart({
                 stop,
                 take,
                 rr,
+                upProb: scoreToUpProb(score),
+                lastPrice: close,
                 source: extra?.source ?? 'local',
                 structure,
                 action: trap.action,
@@ -465,6 +472,8 @@ export function CandleChart({
                 stop,
                 take,
                 rr,
+                upProb: result.up_prob ?? scoreToUpProb(result.score),
+                lastPrice: bars[bars.length - 1]?.close,
                 source: result.source,
                 structure,
                 action: trap.action,
@@ -1527,6 +1536,45 @@ export function CandleChart({
                             ({aiDecision.score > 0 ? '+' : ''}
                             {aiDecision.score})
                         </span>
+                        {aiDecision.upProb != null && (
+                            <div className={styles.aiProbRow}>
+                                <span className={styles.aiProbLabel}>
+                                    上漲機率
+                                </span>
+                                <span
+                                    className={`${styles.aiProbValue} ${
+                                        aiDecision.upProb >= 55
+                                            ? panel.dirText.up
+                                            : aiDecision.upProb <= 45
+                                              ? panel.dirText.down
+                                              : panel.dirText.flat
+                                    }`}
+                                >
+                                    {aiDecision.upProb}%
+                                </span>
+                            </div>
+                        )}
+                        {(aiDecision.lastPrice != null ||
+                            aiDecision.take != null ||
+                            aiDecision.structure?.target != null) && (
+                            <div className={styles.aiPriceRow}>
+                                {aiDecision.lastPrice != null && (
+                                    <span>
+                                        目前{' '}
+                                        {fmtPrice(aiDecision.lastPrice)}
+                                    </span>
+                                )}
+                                <span>→</span>
+                                <span className={panel.dirText.up}>
+                                    預計到{' '}
+                                    {fmtPrice(
+                                        aiDecision.take ??
+                                            aiDecision.structure?.target ??
+                                            aiDecision.lastPrice,
+                                    )}
+                                </span>
+                            </div>
+                        )}
                         {aiDecision.structure && (
                             <div className={styles.aiStructure}>
                                 <span className={styles.aiStructureBias}>

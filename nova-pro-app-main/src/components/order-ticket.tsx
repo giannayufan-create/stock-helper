@@ -9,7 +9,6 @@ import { useCapabilities } from '../lib/capabilities';
 import { usePickedPrice } from '../lib/price-sync';
 import { checkOrderAllowed } from '../lib/risk';
 import { placeFuturesOrder, placeStockOrder } from '../lib/backend';
-import { recordBacktestExecution } from '../lib/backtest-journal';
 import type { ContractInfo } from '../lib/types/contract';
 import type {
     Action,
@@ -44,7 +43,6 @@ export function OrderTicket({
     const [armed, setArmed] = useState(false);
     const [busy, setBusy] = useState(false);
     const [bracketOn, setBracketOn] = useState(false);
-    const [recordOnly, setRecordOnly] = useState(true);
     const [stopPrice, setStopPrice] = useState('');
     const [takePrice, setTakePrice] = useState('');
     const [feedback, setFeedback] = useState<{
@@ -66,7 +64,6 @@ export function OrderTicket({
         setBracketOn(false);
         setStopPrice('');
         setTakePrice('');
-        setRecordOnly(true);
     }, [contract.code]);
 
     // B/S hotkeys switch action
@@ -112,23 +109,6 @@ export function OrderTicket({
             const p = priceType === 'LMT' ? Number(price) : Number(liveClose ?? 0);
             if (!Number.isFinite(p) || p <= 0) {
                 throw new Error('請輸入有效價格或等待報價');
-            }
-
-            if (recordOnly) {
-                const result = recordBacktestExecution({
-                    code: contract.code,
-                    name: contract.name,
-                    action,
-                    price: p,
-                    quantity: qty,
-                });
-                setFeedback({
-                    kind: 'ok',
-                    text:
-                        `已記錄回測：${action === 'Buy' ? '買進' : '賣出'} ${qty}${qtyUnit} @ ${fmtPrice(p)}\n` +
-                        `目前部位：${result.positionQty}${qtyUnit} / 均價 ${fmtPrice(result.positionAvgPrice)} / 已實現 ${fmtPrice(result.realizedPnl)}`,
-                });
-                return;
             }
 
             const blocked = checkOrderAllowed(qty);
@@ -196,22 +176,6 @@ export function OrderTicket({
 
     return (
         <div className={styles.body}>
-                <div className={styles.modeRow}>
-                    <span className={styles.modeBadge}>
-                        {recordOnly
-                            ? '回測紀錄模式（不送單）'
-                            : '實單模式（會送委託）'}
-                    </span>
-                    <button
-                        className={styles.modeSwitch}
-                        onClick={() => {
-                            setRecordOnly((v) => !v);
-                            setArmed(false);
-                        }}
-                    >
-                        切換成{recordOnly ? '實單模式' : '回測模式'}
-                    </button>
-                </div>
                 <div className={styles.sideTabs}>
                     <button
                         className={styles.buyTab[action === 'Buy' ? 'on' : 'off']}
@@ -449,12 +413,6 @@ export function OrderTicket({
                 >
                     {busy
                         ? '傳送中…'
-                        : recordOnly
-                          ? armed
-                            ? `確認記錄${action === 'Buy' ? '買進' : '賣出'} ${qty}${qtyUnit} @ ${fmtPrice(Number(price || liveClose || 0))}`
-                            : action === 'Buy'
-                              ? '記錄買進'
-                              : '記錄賣出'
                         : armed
                           ? `確認${action === 'Buy' ? '買進' : '賣出'} ${qty}${qtyUnit} @ ${priceType === 'LMT' ? fmtPrice(Number(price)) : priceType}`
                           : action === 'Buy'

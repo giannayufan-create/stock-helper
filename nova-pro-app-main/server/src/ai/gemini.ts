@@ -11,13 +11,15 @@ export async function geminiCoach(opts: {
     stop?: number;
     take?: number;
     rr?: number;
+    up_prob?: number;
 }): Promise<string> {
     const prompt =
         '你是台股當沖教練，講話要像跟朋友講盤：白話、短句、不要術語堆疊。' +
         '例如不要說「停利相對停損不夠遠」，要說「賺的目標太近、賠的距離卻比較遠，划不來」。' +
-        '用 2-4 句繁中。不要保證會賺，不要寫「建議買入／賣出」。\n' +
+        '用 2-4 句繁中。不要保證會賺，不要寫「建議買入／賣出」。' +
+        '可以白話提上漲機率，但要說這只是規則分數換算、不是保證。\n' +
         `代碼=${opts.code} 名稱=${opts.name ?? ''} ` +
-        `stance=${opts.stance} score=${opts.score} ` +
+        `stance=${opts.stance} score=${opts.score} up_prob=${opts.up_prob ?? ''}% ` +
         `reasons=${opts.reasons.join('、')} ` +
         `entry=${opts.entry ?? ''} stop=${opts.stop ?? ''} take=${opts.take ?? ''} rr=${opts.rr ?? ''}`;
 
