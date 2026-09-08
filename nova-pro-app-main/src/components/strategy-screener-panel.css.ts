@@ -184,6 +184,22 @@ export const title = style({
     fontSize: '0.82rem',
 });
 
+export const titleBtn = style({
+    fontFamily: vars.font.mono,
+    fontWeight: 700,
+    fontSize: '0.82rem',
+    color: vars.color.foreground,
+    background: 'transparent',
+    border: 'none',
+    padding: 0,
+    textAlign: 'left',
+    cursor: 'pointer',
+    ':hover': {
+        color: vars.color.accent,
+        textDecoration: 'underline',
+    },
+});
+
 export const meta = style({
     display: 'flex',
     gap: vars.space.sm,

@@ -426,9 +426,14 @@ export function StrategyScreenerPanel({
                     return (
                         <div className={styles.card} key={item.code}>
                             <div className={styles.topLine}>
-                                <div className={styles.title}>
+                                <button
+                                    type='button'
+                                    className={styles.titleBtn}
+                                    title='開啟這檔股票的 K 線'
+                                    onClick={() => onPickCode(item.code)}
+                                >
                                     #{idx + 1} {item.code} {item.name}
-                                </div>
+                                </button>
                                 <div className={panel.dirText[dir]}>
                                     {fmtPct(item.chgPct)}
                                 </div>
