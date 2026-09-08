@@ -10,69 +10,169 @@ import { fmtPct, fmtPrice } from '../lib/utils/format';
 import * as panel from './panel.css';
 import * as styles from './strategy-screener-panel.css';
 
-type SoftKey =
+type TagKey =
     | 'momentum'
     | 'aboveAvg'
     | 'volumeRatio'
     | 'nearHigh'
     | 'rangeWide'
-    | 'openStrength';
+    | 'openStrength'
+    | 'pullback'
+    | 'liquid';
 
-interface Candidate extends ScannerItem {}
-
-interface Scored extends Candidate {
-    hardPass: boolean;
+interface Scored extends ScannerItem {
+    strength: number;
     rr: number;
-    softHits: SoftKey[];
+    tags: TagKey[];
     notes: string[];
     target: number;
     stopPrice: number;
+    chgPct: number;
 }
 
-const softLabels: Record<SoftKey, string> = {
+const tagLabels: Record<TagKey, string> = {
     momentum: '動能',
     aboveAvg: '站上均價',
-    volumeRatio: '量比',
+    volumeRatio: '量能放大',
     nearHigh: '近高點',
     rangeWide: '波動夠',
     openStrength: '收強',
+    pullback: '微回檔',
+    liquid: '流動性',
 };
 
 const MODE_PRESET: Record<
     StrategyMode,
     {
         blurb: string;
-        kValue: number;
         stopLossPct: number;
         takeProfitPct: number;
-        rrMin: number;
         pools: { volume: boolean; amount: boolean; gainers: boolean };
-        softs: SoftKey[];
     }
 > = {
     intraday: {
-        blurb: '盤中找當沖：偏強勢、流動性好、今天就能做',
-        kValue: 3,
+        blurb: '盤中當沖：流動性＋動能＋站上均價＋近高點，強度分數最高者優先',
         stopLossPct: 1,
         takeProfitPct: 2,
-        rrMin: 2,
-        pools: { volume: true, amount: true, gainers: false },
-        softs: ['momentum', 'aboveAvg', 'volumeRatio', 'nearHigh'],
+        pools: { volume: true, amount: true, gainers: true },
     },
     overnight: {
-        blurb: '收盤後布局：挑明天可當沖的候補，波動夠、量夠、別追過頭',
-        kValue: 2,
+        blurb: '隔夜布局：量夠、波動夠、收盤偏強，但漲太多會扣分（避免追過頭）',
         stopLossPct: 1.2,
         takeProfitPct: 2.5,
-        rrMin: 1.8,
         pools: { volume: true, amount: true, gainers: true },
-        softs: ['volumeRatio', 'rangeWide', 'openStrength', 'aboveAvg'],
     },
 };
 
 function pct(v: number, base: number): number {
     if (!base) return 0;
     return (v / base) * 100;
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+    return Math.max(lo, Math.min(hi, n));
+}
+
+/** 0～100 綜合強度：流動性 / 動能適配 / 結構 / 可做空間 */
+function scoreStrength(
+    row: ScannerItem,
+    mode: StrategyMode,
+    stopLossPct: number,
+    takeProfitPct: number,
+): Scored {
+    const chgPct = pct(
+        row.change_price,
+        row.close - row.change_price || row.close,
+    );
+    const rangePct = pct(row.high - row.low, row.close || 1);
+    const closeNearHigh = row.high > 0 && row.close >= row.high * 0.992;
+    const pullback =
+        row.high > 0 &&
+        row.close >= row.high * 0.965 &&
+        row.close < row.high * 0.992;
+    const riskPct = Math.max(
+        stopLossPct,
+        row.close > 0 ? pct(row.close - row.low, row.close) : 0,
+    );
+    const rewardPct = Math.max(
+        takeProfitPct,
+        row.close > 0 ? pct(Math.max(row.high - row.close, 0), row.close) : 0,
+    );
+    const rr = riskPct > 0 ? rewardPct / riskPct : 0;
+
+    let liquid = 0;
+    if (row.total_volume >= 2000 || row.rank_value > 0) liquid += 12;
+    else if (row.total_volume >= 500) liquid += 8;
+    else if (row.total_volume > 0) liquid += 4;
+    if (row.volume_ratio >= 1.5) liquid += 10;
+    else if (row.volume_ratio >= 1.2) liquid += 7;
+    else if (row.volume_ratio >= 1) liquid += 4;
+    if (row.total_amount > 0) liquid += 3;
+    liquid = clamp(liquid, 0, 25);
+
+    let momentum = 0;
+    if (mode === 'intraday') {
+        if (chgPct > 0) momentum += 8;
+        if (chgPct >= 1) momentum += 6;
+        if (chgPct >= 2 && chgPct <= 5) momentum += 6;
+        if (chgPct > 6) momentum -= 4; // 盤中也別追太兇
+        if (row.close > row.open) momentum += 5;
+    } else {
+        if (row.close >= row.open) momentum += 8;
+        if (chgPct > 0 && chgPct <= 4) momentum += 10;
+        if (chgPct > 4 && chgPct <= 6) momentum += 4;
+        if (chgPct > 6) momentum -= 10; // 隔夜最忌追過頭
+        if (pullback) momentum += 6;
+        if (chgPct < -2) momentum -= 6;
+    }
+    momentum = clamp(momentum, 0, 25);
+
+    let structure = 0;
+    if (row.average_price > 0 && row.close >= row.average_price) structure += 10;
+    if (closeNearHigh) structure += mode === 'intraday' ? 10 : 4;
+    if (pullback && mode === 'overnight') structure += 8;
+    if (row.close > row.open) structure += 5;
+    structure = clamp(structure, 0, 25);
+
+    let setup = 0;
+    if (rangePct >= 2.5) setup += 10;
+    else if (rangePct >= 1.5) setup += 7;
+    else if (rangePct >= 1) setup += 4;
+    if (rr >= 2.5) setup += 10;
+    else if (rr >= 2) setup += 8;
+    else if (rr >= 1.5) setup += 5;
+    if (row.close > 5 && row.close < 800) setup += 3; // 避開極低/極高價難做
+    setup = clamp(setup, 0, 25);
+
+    const strength = Math.round(liquid + momentum + structure + setup);
+
+    const tags: TagKey[] = [];
+    if (liquid >= 12) tags.push('liquid');
+    if (chgPct > 0.8) tags.push('momentum');
+    if (row.average_price > 0 && row.close >= row.average_price)
+        tags.push('aboveAvg');
+    if (row.volume_ratio >= 1.2) tags.push('volumeRatio');
+    if (closeNearHigh) tags.push('nearHigh');
+    if (rangePct >= 1.5) tags.push('rangeWide');
+    if (row.close > row.open) tags.push('openStrength');
+    if (pullback) tags.push('pullback');
+
+    const target = +(row.close * (1 + takeProfitPct / 100)).toFixed(2);
+    const stopPrice = +(row.close * (1 - stopLossPct / 100)).toFixed(2);
+
+    return {
+        ...row,
+        strength,
+        rr,
+        tags,
+        notes: [
+            `強度 ${strength}`,
+            `流動${liquid}/動能${momentum}/結構${structure}/空間${setup}`,
+        ],
+        target,
+        stopPrice,
+        chgPct,
+    };
 }
 
 export function StrategyScreenerPanel({
@@ -88,30 +188,54 @@ export function StrategyScreenerPanel({
     const [includeWatchlist, setIncludeWatchlist] = useState(false);
     const [loading, setLoading] = useState(false);
     const [rows, setRows] = useState<Scored[]>([]);
+    const [status, setStatus] = useState(
+        '選好模式後按「智能篩選」。結果依強度分數排序。',
+    );
 
     const preset = MODE_PRESET[mode];
 
-    const selectedSoftKeys = useMemo(() => preset.softs, [preset]);
+    const topStrength = useMemo(
+        () => (rows[0] ? rows[0].strength : null),
+        [rows],
+    );
 
-    async function loadCandidates(): Promise<Candidate[]> {
-        const merged = new Map<string, Candidate>();
-        const add = (item: ScannerItem) => {
-            merged.set(item.code, item);
-        };
-
-        const jobs: Promise<ScannerItem[]>[] = [];
-        if (preset.pools.volume) jobs.push(fetchScanner('VolumeRank', 50));
-        if (preset.pools.amount) jobs.push(fetchScanner('AmountRank', 50));
+    async function loadCandidates(): Promise<{
+        list: ScannerItem[];
+        failed: string[];
+    }> {
+        const merged = new Map<string, ScannerItem>();
+        const failed: string[] = [];
+        const jobs: Array<{ label: string; p: Promise<ScannerItem[]> }> = [];
+        if (preset.pools.volume)
+            jobs.push({
+                label: '成交量',
+                p: fetchScanner('VolumeRank', 50),
+            });
+        if (preset.pools.amount)
+            jobs.push({
+                label: '成交額',
+                p: fetchScanner('AmountRank', 50),
+            });
         if (preset.pools.gainers)
-            jobs.push(fetchScanner('ChangePercentRank', 50));
-        const chunks = await Promise.allSettled(jobs);
-        for (const hit of chunks) {
-            if (hit.status === 'fulfilled') hit.value.forEach(add);
-        }
+            jobs.push({
+                label: '漲幅',
+                p: fetchScanner('ChangePercentRank', 50),
+            });
+
+        const chunks = await Promise.allSettled(jobs.map((j) => j.p));
+        chunks.forEach((hit, i) => {
+            const label = jobs[i]!.label;
+            if (hit.status === 'fulfilled') {
+                hit.value.forEach((item) => merged.set(item.code, item));
+            } else {
+                failed.push(label);
+            }
+        });
 
         if (includeWatchlist) {
             watchlistSeed.forEach((w) => {
-                add({
+                if (merged.has(w.code)) return;
+                merged.set(w.code, {
                     code: w.code,
                     name: w.name,
                     date: new Date().toISOString().slice(0, 10),
@@ -135,87 +259,65 @@ export function StrategyScreenerPanel({
             });
         }
 
-        return [...merged.values()];
-    }
-
-    function score(row: Candidate): Scored {
-        const { stopLossPct, takeProfitPct, rrMin } = preset;
-        const rangePct = pct(row.high - row.low, row.close);
-        const closeNearHigh = row.high > 0 && row.close >= row.high * 0.992;
-        const pullbackOk =
-            row.high > 0 &&
-            row.close >= row.high * 0.97 &&
-            row.close < row.high * 0.995;
-        const riskPctRaw =
-            row.close > 0 ? pct(row.close - row.low, row.close) : 0;
-        const rewardPctRaw =
-            row.close > 0 ? pct(Math.max(row.high - row.close, 0), row.close) : 0;
-        const riskPct = Math.max(stopLossPct, riskPctRaw);
-        const rewardPct = Math.max(takeProfitPct, rewardPctRaw);
-        const rr = riskPct > 0 ? rewardPct / riskPct : 0;
-
-        const coreDirection =
-            mode === 'intraday'
-                ? row.change_price > 0
-                : row.close >= row.open || pullbackOk;
-        const liquidity = row.total_volume >= 500 || row.rank_value > 0;
-        const notOverextended =
-            mode === 'overnight'
-                ? pct(
-                      row.change_price,
-                      row.close - row.change_price || row.close,
-                  ) < 7
-                : true;
-        const hardPass =
-            coreDirection && liquidity && rr >= rrMin && notOverextended;
-
-        const hitMap: Record<SoftKey, boolean> = {
-            momentum:
-                pct(
-                    row.change_price,
-                    row.close - row.change_price || row.close,
-                ) > 0.8,
-            aboveAvg: row.close >= row.average_price,
-            volumeRatio: row.volume_ratio >= 1.2,
-            nearHigh: closeNearHigh,
-            rangeWide: rangePct >= 1.8,
-            openStrength: row.close > row.open,
-        };
-
-        const softHits = selectedSoftKeys.filter((k) => hitMap[k]);
-        const target = +(row.close * (1 + takeProfitPct / 100)).toFixed(2);
-        const stopPrice = +(row.close * (1 - stopLossPct / 100)).toFixed(2);
-        const notes = [
-            `RR ${rr.toFixed(2)}`,
-            `量比 ${row.volume_ratio.toFixed(2)}`,
-        ];
-        return {
-            ...row,
-            hardPass,
-            rr,
-            softHits,
-            notes,
-            target,
-            stopPrice,
-        };
+        return { list: [...merged.values()], failed };
     }
 
     async function runScan(): Promise<void> {
+        if (loading) return;
         setLoading(true);
+        setStatus('掃描中…正在抓排行榜並計算強度');
         try {
-            const base = await loadCandidates();
-            const scored = base
-                .map(score)
+            const { list, failed } = await loadCandidates();
+            if (list.length === 0) {
+                setRows([]);
+                setStatus(
+                    failed.length
+                        ? `排行榜抓不到資料（失敗：${failed.join('、')}）。休市、金鑰或網路問題時會這樣。`
+                        : '排行榜目前沒有資料（可能休市或行情尚未開）。',
+                );
+                return;
+            }
+
+            const scored = list
+                .filter((r) => r.close > 0)
+                .map((r) =>
+                    scoreStrength(
+                        r,
+                        mode,
+                        preset.stopLossPct,
+                        preset.takeProfitPct,
+                    ),
+                )
+                // 最低門檻：至少有一點流動性或排名，避免垃圾票
                 .filter(
                     (s) =>
-                        s.hardPass && s.softHits.length >= preset.kValue,
+                        s.total_volume > 0 ||
+                        s.rank_value > 0 ||
+                        s.volume_ratio > 0 ||
+                        includeWatchlist,
                 )
                 .sort(
                     (a, b) =>
-                        b.rr - a.rr || b.softHits.length - a.softHits.length,
+                        b.strength - a.strength ||
+                        b.rr - a.rr ||
+                        b.chgPct - a.chgPct,
                 )
-                .slice(0, 40);
+                .slice(0, 30);
+
             setRows(scored);
+            const failBit = failed.length
+                ? `（部分來源失敗：${failed.join('、')}）`
+                : '';
+            setStatus(
+                scored.length
+                    ? `掃描 ${list.length} 檔 → 最強 ${scored.length} 檔${failBit}。分數越高越適合現在這模式。`
+                    : `掃描 ${list.length} 檔，但沒有通過最低流動性門檻${failBit}。`,
+            );
+        } catch (err) {
+            setRows([]);
+            setStatus(
+                `篩選失敗：${err instanceof Error ? err.message : String(err)}`,
+            );
         } finally {
             setLoading(false);
         }
@@ -233,9 +335,9 @@ export function StrategyScreenerPanel({
             rr: item.rr,
             stopLossPct: preset.stopLossPct,
             takeProfitPct: preset.takeProfitPct,
-            hardPass: item.hardPass,
-            softHitCount: item.softHits.length,
-            pickedConditions: item.softHits.map((k) => softLabels[k]),
+            hardPass: item.strength >= 55,
+            softHitCount: item.tags.length,
+            pickedConditions: item.tags.map((k) => tagLabels[k]),
             notes: item.notes,
         });
     }
@@ -254,6 +356,9 @@ export function StrategyScreenerPanel({
                         onClick={() => {
                             setMode('intraday');
                             setRows([]);
+                            setStatus(
+                                '已切換「當日當沖」。按智能篩選重新掃描。',
+                            );
                         }}
                     >
                         當日當沖
@@ -268,6 +373,9 @@ export function StrategyScreenerPanel({
                         onClick={() => {
                             setMode('overnight');
                             setRows([]);
+                            setStatus(
+                                '已切換「隔夜布局」。按智能篩選重新掃描。',
+                            );
                         }}
                     >
                         隔夜布局
@@ -276,9 +384,12 @@ export function StrategyScreenerPanel({
                 <p className={styles.modeBlurb}>{preset.blurb}</p>
                 <div className={styles.presetBar}>
                     <span>
-                        停損 {preset.stopLossPct}% → 目標 +{preset.takeProfitPct}%
+                        停損 {preset.stopLossPct}% → 目標 +
+                        {preset.takeProfitPct}%
                     </span>
-                    <span>RR ≥ {preset.rrMin}</span>
+                    {topStrength != null && (
+                        <span>本輪最高強度 {topStrength}</span>
+                    )}
                     <label className={styles.inlineCheck}>
                         <input
                             type='checkbox'
@@ -290,28 +401,22 @@ export function StrategyScreenerPanel({
                         含自選
                     </label>
                     <button
+                        type='button'
                         className={styles.runBtn}
+                        disabled={loading}
                         onClick={() => void runScan()}
                     >
                         {loading ? '掃描中…' : '智能篩選'}
                     </button>
                 </div>
+                <p className={styles.modeBlurb}>{status}</p>
             </div>
 
             <div className={styles.body}>
                 {rows.length === 0 && (
-                    <div className={styles.empty}>
-                        選好模式後按「智能篩選」。結果會顯示目前價與預計目標價。
-                    </div>
+                    <div className={styles.empty}>{status}</div>
                 )}
-                {rows.map((item) => {
-                    const chgPct =
-                        item.close && item.change_price
-                            ? pct(
-                                  item.change_price,
-                                  item.close - item.change_price || item.close,
-                              )
-                            : 0;
+                {rows.map((item, idx) => {
                     const dir =
                         item.change_price > 0
                             ? 'up'
@@ -322,10 +427,10 @@ export function StrategyScreenerPanel({
                         <div className={styles.card} key={item.code}>
                             <div className={styles.topLine}>
                                 <div className={styles.title}>
-                                    {item.code} {item.name}
+                                    #{idx + 1} {item.code} {item.name}
                                 </div>
                                 <div className={panel.dirText[dir]}>
-                                    {fmtPct(chgPct)}
+                                    {fmtPct(item.chgPct)}
                                 </div>
                             </div>
                             <div className={styles.priceRow}>
@@ -348,33 +453,37 @@ export function StrategyScreenerPanel({
                                         {fmtPrice(item.target)}
                                     </span>
                                 </div>
+                                <div className={styles.priceBox}>
+                                    <span className={styles.priceLabel}>
+                                        強度
+                                    </span>
+                                    <span className={styles.priceValue}>
+                                        {item.strength}
+                                    </span>
+                                </div>
                             </div>
                             <div className={styles.meta}>
                                 <span>{modeLabel(mode)}</span>
                                 <span>RR {item.rr.toFixed(2)}</span>
-                                <span>
-                                    停損 {fmtPrice(item.stopPrice)}
-                                </span>
-                                <span>
-                                    命中 {item.softHits.length}/
-                                    {preset.kValue}+
-                                </span>
+                                <span>停損 {fmtPrice(item.stopPrice)}</span>
                             </div>
                             <div className={styles.badges}>
-                                {item.softHits.map((k) => (
+                                {item.tags.map((k) => (
                                     <span className={styles.badge} key={k}>
-                                        {softLabels[k]}
+                                        {tagLabels[k]}
                                     </span>
                                 ))}
                             </div>
                             <div className={styles.actions}>
                                 <button
+                                    type='button'
                                     className={styles.actionBtn}
                                     onClick={() => onPickCode(item.code)}
                                 >
                                     看圖表＋AI
                                 </button>
                                 <button
+                                    type='button'
                                     className={styles.pickBtn}
                                     onClick={() => pickCandidate(item)}
                                 >
