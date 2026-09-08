@@ -46,6 +46,7 @@ import {
     type DayState,
 } from './map.ts';
 import { fetchRegulatoryLists } from './regulatory.ts';
+import { fetchTwOvernightPool } from '../../lib/tw-overnight-pool.ts';
 import {
     deliveryMonthOf,
     fromFugleSymbol,
@@ -655,19 +656,36 @@ export class FugleMarketDataProvider implements MarketDataProvider {
                     markets.map((market) =>
                         this.rest.stock.snapshot.movers({
                             market,
-                            change: type === 'ChangePercentRank' ? 'percent' : 'value',
+                            change:
+                                type === 'ChangePercentRank'
+                                    ? 'percent'
+                                    : 'value',
                             direction: ascending ? 'down' : 'up',
                             type: 'COMMONSTOCK',
                         }),
                     ),
                 );
-                rows = res.flatMap((r: any) => r?.data ?? []);
+                rows = res.flatMap((r: any) => {
+                    if (r?.statusCode && r.statusCode >= 400) {
+                        console.warn(
+                            `Fugle movers ${r.statusCode}: ${r.message ?? ''}`,
+                        );
+                        return [];
+                    }
+                    return r?.data ?? [];
+                });
                 rows.sort((a, b) =>
                     ascending
-                        ? Number(a.changePercent ?? a.change) - Number(b.changePercent ?? b.change)
-                        : Number(b.changePercent ?? b.change) - Number(a.changePercent ?? a.change),
+                        ? Number(a.changePercent ?? a.change) -
+                          Number(b.changePercent ?? b.change)
+                        : Number(b.changePercent ?? b.change) -
+                          Number(a.changePercent ?? a.change),
                 );
-            } else if (type === 'VolumeRank' || type === 'AmountRank' || type === 'TickCountRank') {
+            } else if (
+                type === 'VolumeRank' ||
+                type === 'AmountRank' ||
+                type === 'TickCountRank'
+            ) {
                 const trade = type === 'AmountRank' ? 'value' : 'volume';
                 const res = await Promise.all(
                     markets.map((market) =>
@@ -678,28 +696,49 @@ export class FugleMarketDataProvider implements MarketDataProvider {
                         }),
                     ),
                 );
-                rows = res.flatMap((r: any) => r?.data ?? []);
+                rows = res.flatMap((r: any) => {
+                    if (r?.statusCode && r.statusCode >= 400) {
+                        console.warn(
+                            `Fugle actives ${r.statusCode}: ${r.message ?? ''}`,
+                        );
+                        return [];
+                    }
+                    return r?.data ?? [];
+                });
                 rows.sort((a, b) =>
                     trade === 'value'
                         ? Number(b.tradeValue) - Number(a.tradeValue)
                         : Number(b.tradeVolume) - Number(a.tradeVolume),
                 );
             } else {
-                return []; // DayRangeRank not supported by fugle snapshots
+                rows = [];
             }
-        } catch {
-            return [];
+        } catch (err) {
+            console.warn(
+                'Fugle scanner failed:',
+                err instanceof Error ? err.message : err,
+            );
+            rows = [];
         }
-        return rows.slice(0, count).map((row) =>
-            scannerItemFromRow(
-                row,
-                type === 'AmountRank'
-                    ? Number(row.tradeValue) || 0
-                    : type === 'VolumeRank'
-                      ? Number(row.tradeVolume) || 0
-                      : Number(row.changePercent ?? row.change) || 0,
-            ),
+
+        if (rows.length > 0) {
+            return rows.slice(0, count).map((row) =>
+                scannerItemFromRow(
+                    row,
+                    type === 'AmountRank'
+                        ? Number(row.tradeValue) || 0
+                        : type === 'VolumeRank'
+                          ? Number(row.tradeVolume) || 0
+                          : Number(row.changePercent ?? row.change) || 0,
+                ),
+            );
+        }
+
+        // After hours / plan without snapshot rankings → Yahoo daily pool
+        console.warn(
+            `Fugle snapshot empty for ${type}; using overnight Yahoo pool`,
         );
+        return fetchTwOvernightPool(type, count);
     }
 
     // credit/short-source data has no fugle source — frontend handles empty

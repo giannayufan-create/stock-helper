@@ -57,7 +57,7 @@ const MODE_PRESET: Record<
         pools: { volume: true, amount: true, gainers: true },
     },
     overnight: {
-        blurb: '隔夜布局：量夠、波動夠、收盤偏強，但漲太多會扣分（避免追過頭）',
+        blurb: '隔夜布局：收盤後也能掃。量夠、波動夠、收盤偏強；漲太多會扣分。休市時改用收盤備援池。',
         stopLossPct: 1.2,
         takeProfitPct: 2.5,
         pools: { volume: true, amount: true, gainers: true },
