@@ -441,6 +441,36 @@ export const aiNewsLine = style({
     color: vars.color.foreground,
 });
 
+const verdictBase = {
+    display: 'grid',
+    gap: '3px',
+    padding: '8px',
+    borderRadius: vars.radius.sm,
+    fontSize: '0.66rem',
+    lineHeight: 1.4,
+} as const;
+
+export const aiVerdictDo = style({
+    ...verdictBase,
+    border: `1px solid ${vars.color.up}`,
+    background: 'rgba(46, 160, 90, 0.12)',
+    color: vars.color.foreground,
+});
+
+export const aiVerdictWatch = style({
+    ...verdictBase,
+    border: `1px solid ${vars.color.amber}`,
+    background: 'rgba(224, 164, 60, 0.12)',
+    color: vars.color.foreground,
+});
+
+export const aiVerdictAvoid = style({
+    ...verdictBase,
+    border: `1px solid ${vars.color.danger}`,
+    background: 'rgba(220, 70, 70, 0.12)',
+    color: vars.color.foreground,
+});
+
 export const aiReason = style({
     fontSize: '0.62rem',
     color: vars.color.mutedForeground,

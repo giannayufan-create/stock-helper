@@ -2,6 +2,10 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.ts';
+import {
+    applyVerdictToCore,
+    buildDaytradeVerdict,
+} from '../ai/daytrade-verdict.ts';
 import { geminiCoach } from '../ai/gemini.ts';
 import { measureMarketHeat } from '../ai/market-heat.ts';
 import { fetchFilteredNews } from '../ai/news-filter.ts';
@@ -19,6 +23,8 @@ interface AnalyzeBody {
     stop_pct?: number;
     take_pct?: number;
     with_coach?: boolean;
+    screener_strength?: number;
+    regulatory?: 'punish' | 'attention' | null;
 }
 
 async function enrichContext(
@@ -28,6 +34,10 @@ async function enrichContext(
     core: AnalyzeCore,
     stopPct: number,
     takePct: number,
+    opts?: {
+        screenerStrength?: number | null;
+        regulatory?: 'punish' | 'attention' | null;
+    },
 ) {
     const lastClose = bars.length ? bars[bars.length - 1]!.close : undefined;
     const firstClose = bars.length ? bars[0]!.close : undefined;
@@ -38,26 +48,41 @@ async function enrichContext(
     const heat = measureMarketHeat(bars, { changePct });
     const news = await fetchFilteredNews(code, name);
 
-    // If already strongly extended on heat + bullish tech, damp chase
     let chasePenalty = 0;
     if (heat.score >= 75 && core.score >= 40) {
         chasePenalty = -6;
     }
 
-    const adj = news.scoreAdj + heat.scoreAdj + chasePenalty;
+    const newsHeatAdj = news.scoreAdj + heat.scoreAdj + chasePenalty;
     const extras: string[] = [];
     if (news.scoreAdj) extras.push(`新聞${news.bias}`);
     extras.push(`${heat.session}${heat.label}`);
     if (chasePenalty) extras.push('熱度偏高防追價');
 
-    const scored = finalizeScore(
+    const afterNewsHeat = finalizeScore(
         core,
-        adj,
+        newsHeatAdj,
         extras,
         stopPct,
         takePct,
         lastClose,
     );
+
+    const verdict = buildDaytradeVerdict({
+        bars,
+        core: afterNewsHeat,
+        regulatory: opts?.regulatory ?? null,
+        screenerStrength: opts?.screenerStrength ?? null,
+    });
+
+    const scored = applyVerdictToCore(
+        afterNewsHeat,
+        verdict,
+        lastClose,
+        stopPct,
+        takePct,
+    );
+
     return {
         scored,
         news: {
@@ -78,7 +103,17 @@ async function enrichContext(
             buy_vol_ratio: +heat.buyVolRatio.toFixed(3),
             notes: heat.notes,
         },
-        context_adj: adj,
+        verdict: {
+            state: verdict.state,
+            headline: verdict.headline,
+            session: verdict.session,
+            session_note: verdict.sessionNote,
+            traps: verdict.traps,
+            align: verdict.align,
+            risk: verdict.risk,
+            micro_backtest: verdict.microBacktest,
+        },
+        context_adj: newsHeatAdj + verdict.scoreAdj,
     };
 }
 
@@ -89,6 +124,7 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
         gemini: Boolean(ctx.config.geminiApiKey),
         news: true,
         heat: true,
+        verdict: true,
     }));
 
     app.post<{ Body: AnalyzeBody }>('/api/v1/ai/analyze', async (req, reply) => {
@@ -101,6 +137,13 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
         const takePct = req.body?.take_pct ?? 0.02;
         const withCoach = req.body?.with_coach !== false;
         const name = req.body?.name;
+        const enrichOpts = {
+            screenerStrength:
+                typeof req.body?.screener_strength === 'number'
+                    ? req.body.screener_strength
+                    : null,
+            regulatory: req.body?.regulatory ?? null,
+        };
         const at = new Date().toLocaleTimeString('zh-TW', { hour12: false });
 
         // Prefer Python analyzer when configured, then still enrich news/heat
@@ -153,6 +196,7 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
                         base,
                         stopPct,
                         takePct,
+                        enrichOpts,
                     );
                     let coach =
                         typeof data.coach === 'string' ? data.coach : undefined;
@@ -169,6 +213,7 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
                                 ...enriched.scored,
                                 newsSummary: enriched.news.summary,
                                 heatSummary: enriched.heat.notes[0],
+                                verdictSummary: enriched.verdict.headline,
                             });
                         } catch {
                             // keep prior coach
@@ -181,6 +226,7 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
                         at: data.at ?? at,
                         news: enriched.news,
                         heat: enriched.heat,
+                        verdict: enriched.verdict,
                         context_adj: enriched.context_adj,
                     };
                 }
@@ -197,6 +243,7 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
             core,
             stopPct,
             takePct,
+            enrichOpts,
         );
         let coach: string | undefined;
         let source: 'local+context' | 'local+context+gemini' = 'local+context';
@@ -209,6 +256,7 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
                     ...enriched.scored,
                     newsSummary: enriched.news.summary,
                     heatSummary: enriched.heat.notes[0],
+                    verdictSummary: enriched.verdict.headline,
                 });
                 source = 'local+context+gemini';
             } catch (err) {
@@ -223,6 +271,7 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
             at,
             news: enriched.news,
             heat: enriched.heat,
+            verdict: enriched.verdict,
             context_adj: enriched.context_adj,
         };
     });

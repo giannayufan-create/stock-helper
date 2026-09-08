@@ -430,7 +430,17 @@ export function StrategyScreenerPanel({
                                     type='button'
                                     className={styles.titleBtn}
                                     title='開啟這檔股票的 K 線'
-                                    onClick={() => onPickCode(item.code)}
+                                    onClick={() => {
+                                        sessionStorage.setItem(
+                                            'nova-screener-code',
+                                            item.code,
+                                        );
+                                        sessionStorage.setItem(
+                                            'nova-screener-strength',
+                                            String(item.strength),
+                                        );
+                                        onPickCode(item.code);
+                                    }}
                                 >
                                     #{idx + 1} {item.code} {item.name}
                                 </button>
@@ -483,7 +493,17 @@ export function StrategyScreenerPanel({
                                 <button
                                     type='button'
                                     className={styles.actionBtn}
-                                    onClick={() => onPickCode(item.code)}
+                                    onClick={() => {
+                                        sessionStorage.setItem(
+                                            'nova-screener-code',
+                                            item.code,
+                                        );
+                                        sessionStorage.setItem(
+                                            'nova-screener-strength',
+                                            String(item.strength),
+                                        );
+                                        onPickCode(item.code);
+                                    }}
                                 >
                                     看圖表＋AI
                                 </button>

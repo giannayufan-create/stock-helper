@@ -14,14 +14,16 @@ export async function geminiCoach(opts: {
     up_prob?: number;
     newsSummary?: string;
     heatSummary?: string;
+    verdictSummary?: string;
 }): Promise<string> {
     const prompt =
         '你是台股當沖教練，講話要像跟朋友講盤：白話、短句、不要術語堆疊。' +
-        '分析順序必須是：先講過濾後的網路消息氣氛，再講盤內／盤外買氣，最後講技術分數。' +
+        '分析順序：①實戰結論（可做／可觀察／勿追）②過濾後新聞③盤內外買氣④技術分數與風險部位。' +
         '用 3-5 句繁中。不要保證會賺，不要寫「建議買入／賣出」。' +
         '可以白話提上漲機率，但要說這只是規則分數換算、不是保證。\n' +
         `代碼=${opts.code} 名稱=${opts.name ?? ''} ` +
         `stance=${opts.stance} score=${opts.score} up_prob=${opts.up_prob ?? ''}% ` +
+        `實戰結論=${opts.verdictSummary ?? '無'} ` +
         `reasons=${opts.reasons.join('、')} ` +
         `新聞摘要=${opts.newsSummary ?? '無'} ` +
         `買氣=${opts.heatSummary ?? '無'} ` +

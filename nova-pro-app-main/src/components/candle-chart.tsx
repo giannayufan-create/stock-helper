@@ -33,6 +33,7 @@ import {
     analyzePriceStructure,
     type PriceStructure,
 } from '../lib/price-structure';
+import { getRegulatoryFlag } from '../lib/regulatory';
 import { cancelOrder, fetchKbars, updateOrderPrice } from '../lib/backend';
 import { setPickedPrice } from '../lib/price-sync';
 import { notify, placeQuickOrder } from '../lib/trade';
@@ -197,6 +198,25 @@ export function CandleChart({
             label: string;
             score: number;
             notes: string[];
+        };
+        verdict?: {
+            state: '可做' | '可觀察' | '勿追';
+            headline: string;
+            session: string;
+            traps: string[];
+            align?: string;
+            risk: {
+                stopPct: number;
+                takePct: number;
+                rr: number;
+                sizeHint: string;
+                riskNote: string;
+            };
+            microBacktest: {
+                samples: number;
+                winRate: number;
+                note: string;
+            };
         };
     } | null>(null);
     const [aiBusy, setAiBusy] = useState(false);
@@ -430,6 +450,14 @@ export function CandleChart({
 
         setAiBusy(true);
         try {
+            const screenerStrengthRaw = sessionStorage.getItem(
+                'nova-screener-strength',
+            );
+            const screenerCode = sessionStorage.getItem('nova-screener-code');
+            const screenerStrength =
+                screenerCode === contract.code && screenerStrengthRaw
+                    ? Number(screenerStrengthRaw)
+                    : null;
             const result = await analyzeWithServer({
                 code: contract.code,
                 name: contract.name,
@@ -441,6 +469,10 @@ export function CandleChart({
                     volume: b.volume,
                 })),
                 withCoach: true,
+                screenerStrength: Number.isFinite(screenerStrength)
+                    ? screenerStrength
+                    : null,
+                regulatory: getRegulatoryFlag(contract.code),
             });
             const structure = analyzePriceStructure(bars);
             const trap = detectInstTraps(
@@ -508,6 +540,21 @@ export function CandleChart({
                           label: result.heat.label,
                           score: result.heat.score,
                           notes: result.heat.notes ?? [],
+                      }
+                    : undefined,
+                verdict: result.verdict
+                    ? {
+                          state: result.verdict.state,
+                          headline: result.verdict.headline,
+                          session: result.verdict.session,
+                          traps: result.verdict.traps ?? [],
+                          align: result.verdict.align,
+                          risk: result.verdict.risk,
+                          microBacktest: {
+                              samples: result.verdict.micro_backtest.samples,
+                              winRate: result.verdict.micro_backtest.winRate,
+                              note: result.verdict.micro_backtest.note,
+                          },
                       }
                     : undefined,
                 coach: result.coach?.trim()
@@ -1567,6 +1614,41 @@ export function CandleChart({
                             ({aiDecision.score > 0 ? '+' : ''}
                             {aiDecision.score})
                         </span>
+                        {aiDecision.verdict && (
+                            <div
+                                className={
+                                    aiDecision.verdict.state === '可做'
+                                        ? styles.aiVerdictDo
+                                        : aiDecision.verdict.state === '勿追'
+                                          ? styles.aiVerdictAvoid
+                                          : styles.aiVerdictWatch
+                                }
+                            >
+                                <strong>{aiDecision.verdict.state}</strong>
+                                <span>{aiDecision.verdict.headline}</span>
+                                {aiDecision.verdict.align && (
+                                    <span>對齊：{aiDecision.verdict.align}</span>
+                                )}
+                                <span>
+                                    時段 {aiDecision.verdict.session} · 部位{' '}
+                                    {aiDecision.verdict.risk.sizeHint} · 停損{' '}
+                                    {aiDecision.verdict.risk.stopPct}% / 目標{' '}
+                                    {aiDecision.verdict.risk.takePct}%
+                                </span>
+                                {aiDecision.verdict.traps.length > 0 && (
+                                    <span>
+                                        陷阱：
+                                        {aiDecision.verdict.traps.join('、')}
+                                    </span>
+                                )}
+                                <span>
+                                    {aiDecision.verdict.risk.riskNote}
+                                </span>
+                                <span>
+                                    {aiDecision.verdict.microBacktest.note}
+                                </span>
+                            </div>
+                        )}
                         {aiDecision.upProb != null && (
                             <div className={styles.aiProbRow}>
                                 <span className={styles.aiProbLabel}>
