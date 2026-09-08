@@ -195,12 +195,16 @@ export async function fetchTwOvernightPool(
     type: ScannerType,
     count: number,
 ): Promise<ScannerItem[]> {
-    const settled = await Promise.allSettled(
-        SEED.map((s) => fetchOne(s.code, s.name)),
-    );
     const rows: ScannerItem[] = [];
-    for (const hit of settled) {
-        if (hit.status === 'fulfilled' && hit.value) rows.push(hit.value);
+    const batchSize = 8;
+    for (let i = 0; i < SEED.length; i += batchSize) {
+        const chunk = SEED.slice(i, i + batchSize);
+        const settled = await Promise.allSettled(
+            chunk.map((s) => fetchOne(s.code, s.name)),
+        );
+        for (const hit of settled) {
+            if (hit.status === 'fulfilled' && hit.value) rows.push(hit.value);
+        }
     }
     return sortPool(rows, type).slice(0, count);
 }
