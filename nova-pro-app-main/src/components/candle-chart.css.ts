@@ -347,11 +347,13 @@ export const aiStructureBias = style({
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
-    'em': {
-        fontStyle: 'normal',
-        fontWeight: 500,
-        fontSize: '0.62rem',
-        color: vars.color.mutedForeground,
+    selectors: {
+        '& em': {
+            fontStyle: 'normal',
+            fontWeight: 500,
+            fontSize: '0.62rem',
+            color: vars.color.mutedForeground,
+        },
     },
 });
 
