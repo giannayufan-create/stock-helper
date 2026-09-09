@@ -52,6 +52,7 @@ import {
     aggregate,
     dateStrOffset,
     kbarsToCandles,
+    sanitizeCandles,
     wallClockToUtc,
 } from '../lib/utils/kbars';
 import * as panel from './panel.css';
@@ -62,7 +63,7 @@ const TIMEFRAMES = [
     { label: '5m', minutes: 5, days: 10 },
     { label: '15m', minutes: 15, days: 20 },
     { label: '60m', minutes: 60, days: 60 },
-    { label: '1D', minutes: 1440, days: 365 },
+    { label: '1D', minutes: 1440, days: 360 },
 ] as const;
 
 type TradeMode = 'observe' | 'buy' | 'sell' | 'stop' | 'take' | 'alert';
@@ -156,6 +157,11 @@ export function CandleChart({
     const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
     const volSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
     const lastBarRef = useRef<Candle | null>(null);
+    /** Ignore live ticks until historical setData for this symbol finishes. */
+    const barsReadyRef = useRef(false);
+    const loadSeqRef = useRef(0);
+    /** After inline daily fallback, sync tf label without clearing the chart. */
+    const skipReloadRef = useRef(false);
     const [tfIdx, setTfIdx] = useState(1); // default 5m
     const [empty, setEmpty] = useState(false);
     const quote = useQuote(contract.code);
@@ -199,6 +205,39 @@ export function CandleChart({
             score: number;
             notes: string[];
         };
+        chips?: {
+            available: boolean;
+            bias: string;
+            label: string;
+            summary: string;
+            asOf?: string;
+        };
+        overnight?: {
+            label: string;
+            summary: string;
+            winRate: number;
+            samples: number;
+            lastSignal: boolean;
+            note: string;
+        };
+        usMarket?: {
+            summary: string;
+        };
+        marketRegime?: {
+            bias: string;
+            label: string;
+            summary: string;
+            note: string;
+        };
+        instIntent?: {
+            intent: string;
+            playbook: string;
+            label: string;
+            summary: string;
+            conf: string;
+            note: string;
+            available: boolean;
+        };
         verdict?: {
             state: '可做' | '可觀察' | '勿追';
             headline: string;
@@ -217,16 +256,20 @@ export function CandleChart({
                 winRate: number;
                 note: string;
             };
+            failExit: {
+                action: '賣出了結' | '可轉隔夜' | '減碼再看';
+                reason: string;
+            };
         };
     } | null>(null);
     const [aiBusy, setAiBusy] = useState(false);
-    const [aiPanelPos, setAiPanelPos] = useState(() => ({
-        x:
-            typeof window === 'undefined'
-                ? 8
-                : Math.max(12, window.innerWidth - 300),
-        y: 64,
-    }));
+    const [aiPanelPos, setAiPanelPos] = useState(() => {
+        if (typeof window === 'undefined') return { x: 8, y: 64 };
+        const mobile = window.innerWidth <= 900;
+        return mobile
+            ? { x: 12, y: 56 }
+            : { x: Math.max(12, window.innerWidth - 300), y: 64 };
+    });
     const aiDragRef = useRef<{
         startX: number;
         startY: number;
@@ -454,10 +497,27 @@ export function CandleChart({
                 'nova-screener-strength',
             );
             const screenerCode = sessionStorage.getItem('nova-screener-code');
+            const screenerModeRaw = sessionStorage.getItem('nova-screener-mode');
+            const overnightWrRaw = sessionStorage.getItem(
+                'nova-screener-overnight-winrate',
+            );
+            const fromScreener = screenerCode === contract.code;
             const screenerStrength =
-                screenerCode === contract.code && screenerStrengthRaw
+                fromScreener && screenerStrengthRaw
                     ? Number(screenerStrengthRaw)
                     : null;
+            const screenerMode =
+                fromScreener &&
+                (screenerModeRaw === 'intraday' ||
+                    screenerModeRaw === 'overnight')
+                    ? screenerModeRaw
+                    : null;
+            const screenerOvernightWinRate =
+                fromScreener && overnightWrRaw
+                    ? Number(overnightWrRaw)
+                    : null;
+            const isMobileUi =
+                typeof window !== 'undefined' && window.innerWidth <= 900;
             const result = await analyzeWithServer({
                 code: contract.code,
                 name: contract.name,
@@ -468,9 +528,16 @@ export function CandleChart({
                     close: b.close,
                     volume: b.volume,
                 })),
-                withCoach: true,
+                // Mobile: skip Gemini first so verdict shows fast; desktop keeps coach
+                withCoach: !isMobileUi,
                 screenerStrength: Number.isFinite(screenerStrength)
                     ? screenerStrength
+                    : null,
+                screenerMode,
+                screenerOvernightWinRate: Number.isFinite(
+                    screenerOvernightWinRate,
+                )
+                    ? screenerOvernightWinRate
                     : null,
                 regulatory: getRegulatoryFlag(contract.code),
             });
@@ -542,6 +609,47 @@ export function CandleChart({
                           notes: result.heat.notes ?? [],
                       }
                     : undefined,
+                chips: result.chips
+                    ? {
+                          available: result.chips.available,
+                          bias: result.chips.bias,
+                          label: result.chips.label,
+                          summary: result.chips.summary,
+                          asOf: result.chips.as_of,
+                      }
+                    : undefined,
+                overnight: result.overnight
+                    ? {
+                          label: result.overnight.label,
+                          summary: result.overnight.summary,
+                          winRate: result.overnight.win_rate,
+                          samples: result.overnight.samples,
+                          lastSignal: result.overnight.last_signal,
+                          note: result.overnight.note,
+                      }
+                    : undefined,
+                usMarket: result.us_market
+                    ? { summary: result.us_market.summary }
+                    : undefined,
+                marketRegime: result.market_regime
+                    ? {
+                          bias: result.market_regime.bias,
+                          label: result.market_regime.label,
+                          summary: result.market_regime.summary,
+                          note: result.market_regime.note,
+                      }
+                    : undefined,
+                instIntent: result.inst_intent
+                    ? {
+                          intent: result.inst_intent.intent,
+                          playbook: result.inst_intent.playbook,
+                          label: result.inst_intent.label,
+                          summary: result.inst_intent.summary,
+                          conf: result.inst_intent.conf,
+                          note: result.inst_intent.note,
+                          available: result.inst_intent.available,
+                      }
+                    : undefined,
                 verdict: result.verdict
                     ? {
                           state: result.verdict.state,
@@ -555,6 +663,15 @@ export function CandleChart({
                               winRate: result.verdict.micro_backtest.winRate,
                               note: result.verdict.micro_backtest.note,
                           },
+                          failExit: result.verdict.fail_exit
+                              ? {
+                                    action: result.verdict.fail_exit.action,
+                                    reason: result.verdict.fail_exit.reason,
+                                }
+                              : {
+                                    action: '賣出了結',
+                                    reason: '當沖失敗預設先賣：條件不夠乾淨就不要硬轉隔夜',
+                                },
                       }
                     : undefined,
                 coach: result.coach?.trim()
@@ -599,6 +716,18 @@ export function CandleChart({
                 },
             },
             rightPriceScale: { borderColor: c.border },
+            handleScroll: {
+                mouseWheel: true,
+                pressedMouseMove: true,
+                horzTouchDrag: true,
+                vertTouchDrag: true,
+            },
+            handleScale: {
+                axisPressedMouseMove: true,
+                axisDoubleClickReset: true,
+                mouseWheel: true,
+                pinch: true,
+            },
             timeScale: {
                 borderColor: c.border,
                 timeVisible: true,
@@ -783,19 +912,34 @@ export function CandleChart({
 
     // load kbars on symbol/timeframe change (and recolor volume on theme change)
     useEffect(() => {
+        if (skipReloadRef.current) {
+            skipReloadRef.current = false;
+            barsReadyRef.current = barsRef.current.length > 0;
+            return;
+        }
         let cancelled = false;
+        const seq = ++loadSeqRef.current;
+        barsReadyRef.current = false;
         lastBarRef.current = null;
+        barsRef.current = [];
         setEmpty(false);
-        fetchKbars(contract, dateStrOffset(tf.days), dateStrOffset(0))
-            .then((k) => {
-                if (cancelled || !candleSeriesRef.current) return;
-                const bars = aggregate(kbarsToCandles(k), tf.minutes);
-                if (bars.length === 0) {
-                    setEmpty(true);
-                    return;
-                }
-                candleSeriesRef.current.setData(
-                    bars.map((b) => ({
+        // clear stale candles immediately so previous symbol doesn't linger
+        try {
+            candleSeriesRef.current?.setData([]);
+            volSeriesRef.current?.setData([]);
+        } catch {
+            // chart may be mid-teardown
+        }
+
+        const paintBars = (bars: Candle[]) => {
+            if (cancelled || seq !== loadSeqRef.current) return false;
+            const series = candleSeriesRef.current;
+            if (!series) return false;
+            const clean = sanitizeCandles(bars);
+            if (clean.length === 0) return false;
+            try {
+                series.setData(
+                    clean.map((b) => ({
                         time: b.time as UTCTimestamp,
                         open: b.open,
                         high: b.high,
@@ -804,24 +948,85 @@ export function CandleChart({
                     })),
                 );
                 volSeriesRef.current?.setData(
-                    bars.map((b) => ({
+                    clean.map((b) => ({
                         time: b.time as UTCTimestamp,
                         value: b.volume,
                         color:
                             b.close >= b.open ? colors.upVol : colors.downVol,
                     })),
                 );
-                lastBarRef.current = bars[bars.length - 1] ?? null;
-                barsRef.current = bars;
-                setDataVersion((v) => v + 1);
-                chartRef.current?.timeScale().scrollToRealTime();
-            })
-            .catch(() => setEmpty(true));
+            } catch (err) {
+                console.warn('[candle-chart] setData failed', err);
+                return false;
+            }
+            lastBarRef.current = clean[clean.length - 1] ?? null;
+            barsRef.current = clean;
+            barsReadyRef.current = true;
+            setEmpty(false);
+            setDataVersion((v) => v + 1);
+            chartRef.current?.timeScale().scrollToRealTime();
+            return true;
+        };
+
+        const load = async (attemptTf = tf) => {
+            try {
+                const k = await fetchKbars(
+                    contract,
+                    dateStrOffset(attemptTf.days),
+                    dateStrOffset(0),
+                );
+                if (cancelled || seq !== loadSeqRef.current) return;
+                const bars = aggregate(kbarsToCandles(k), attemptTf.minutes);
+                if (bars.length === 0) {
+                    // Intraday empty after hours → load daily inline (avoid setTfIdx storm)
+                    if (attemptTf.minutes < 1440) {
+                        const dailyTf = TIMEFRAMES[TIMEFRAMES.length - 1]!;
+                        const k2 = await fetchKbars(
+                            contract,
+                            dateStrOffset(dailyTf.days),
+                            dateStrOffset(0),
+                        );
+                        if (cancelled || seq !== loadSeqRef.current) return;
+                        const bars2 = aggregate(
+                            kbarsToCandles(k2),
+                            dailyTf.minutes,
+                        );
+                        if (!paintBars(bars2)) {
+                            if (!cancelled && seq === loadSeqRef.current) {
+                                setEmpty(true);
+                            }
+                        } else {
+                            const dailyIdx = TIMEFRAMES.findIndex(
+                                (t) => t.minutes >= 1440,
+                            );
+                            if (dailyIdx >= 0 && dailyIdx !== tfIdx) {
+                                skipReloadRef.current = true;
+                                setTfIdx(dailyIdx);
+                            }
+                        }
+                        return;
+                    }
+                    if (!cancelled && seq === loadSeqRef.current) setEmpty(true);
+                    return;
+                }
+                if (!paintBars(bars)) {
+                    if (!cancelled && seq === loadSeqRef.current) setEmpty(true);
+                }
+            } catch {
+                if (!cancelled && seq === loadSeqRef.current) setEmpty(true);
+            }
+        };
+
+        void load();
         return () => {
             cancelled = true;
+            // keep barsReady when we only sync tf label after inline daily paint
+            if (!skipReloadRef.current) {
+                barsReadyRef.current = false;
+            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [contract, tf, themeKey]);
+    }, [contract.code, contract.security_type, tfIdx, themeKey]);
 
     // live tick -> update current bar
     const tick = quote?.tick;
@@ -832,17 +1037,21 @@ export function CandleChart({
     useEffect(() => {
         if (!tick || tick.code !== contract.code) return;
         if (tick.simtrade) return; // 試撮 never paints into candles
+        if (!barsReadyRef.current) return; // wait for historical load
         const series = candleSeriesRef.current;
         if (!series) return;
         const price = Number(tick.close);
         if (!Number.isFinite(price)) return;
         const tickTime = wallClockToUtc(`${tick.date}T${tick.time}`);
+        if (!Number.isFinite(tickTime)) return;
         const bucketSec = tf.minutes * 60;
         const bucket =
             tf.minutes >= 1440
                 ? Math.floor(tickTime / 86400) * 86400
                 : Math.floor(tickTime / bucketSec) * bucketSec;
         let bar = lastBarRef.current;
+        // Never paint a tick older than the last historical bar (throws in LWC)
+        if (bar && bucket < bar.time) return;
         if (!bar || bucket > bar.time) {
             bar = {
                 time: bucket,
@@ -866,20 +1075,25 @@ export function CandleChart({
             }
         }
         lastBarRef.current = bar;
-        series.update({
-            time: bar.time as UTCTimestamp,
-            open: bar.open,
-            high: bar.high,
-            low: bar.low,
-            close: bar.close,
-        });
-        volSeriesRef.current?.update({
-            time: bar.time as UTCTimestamp,
-            value: bar.volume,
-            color: bar.close >= bar.open ? colors.upVol : colors.downVol,
-        });
-        setDataVersion((v) => v + 1);
-    }, [tick, contract.code, tf.minutes]);
+        try {
+            series.update({
+                time: bar.time as UTCTimestamp,
+                open: bar.open,
+                high: bar.high,
+                low: bar.low,
+                close: bar.close,
+            });
+            volSeriesRef.current?.update({
+                time: bar.time as UTCTimestamp,
+                value: bar.volume,
+                color: bar.close >= bar.open ? colors.upVol : colors.downVol,
+            });
+        } catch (err) {
+            console.warn('[candle-chart] tick update failed', err);
+        }
+        // Do NOT bump dataVersion here — rebuilding RSI panes every tick
+        // freezes / crashes the tab when switching symbols under live ticks.
+    }, [tick, contract.code, tf.minutes, colors.upVol, colors.downVol]);
 
     // overlay indicators
     useEffect(() => {
@@ -916,10 +1130,12 @@ export function CandleChart({
                 opts?.paneIndex,
             );
             series.setData(
-                data.map((d) => ({
-                    time: d.time as UTCTimestamp,
-                    value: d.value,
-                })),
+                data
+                    .filter((d) => Number.isFinite(d.time) && Number.isFinite(d.value))
+                    .map((d) => ({
+                        time: d.time as UTCTimestamp,
+                        value: d.value,
+                    })),
             );
             indSeriesRef.current.push(series);
             return series;
@@ -1064,7 +1280,12 @@ export function CandleChart({
 
         add(s.resistance, '#e0a43c', `壓力 ${fmtPrice(s.resistance)}`);
         add(s.support, '#5a9e6f', `支撐 ${fmtPrice(s.support)}`);
-        if (s.target != null) {
+        if (
+            s.target != null &&
+            Math.abs(s.target - s.resistance) / Math.max(s.resistance, 1) >=
+                0.002 &&
+            Math.abs(s.target - s.support) / Math.max(s.support, 1) >= 0.002
+        ) {
             add(s.target, '#b06fff', `預測 ${fmtPrice(s.target)}`, 1);
         }
         if (s.invalidation != null) {
@@ -1295,6 +1516,59 @@ export function CandleChart({
                         {t.label}
                     </button>
                 ))}
+                <button
+                    type='button'
+                    className={styles.tfBtn.normal}
+                    title='放大'
+                    aria-label='放大'
+                    onClick={() => {
+                        chartRef.current?.timeScale().applyOptions({});
+                        const ts = chartRef.current?.timeScale();
+                        if (!ts) return;
+                        const span = ts.getVisibleLogicalRange();
+                        if (!span) return;
+                        const mid = (span.from + span.to) / 2;
+                        const half = ((span.to - span.from) / 2) * 0.7;
+                        ts.setVisibleLogicalRange({
+                            from: mid - half,
+                            to: mid + half,
+                        });
+                    }}
+                >
+                    ＋
+                </button>
+                <button
+                    type='button'
+                    className={styles.tfBtn.normal}
+                    title='縮小'
+                    aria-label='縮小'
+                    onClick={() => {
+                        const ts = chartRef.current?.timeScale();
+                        if (!ts) return;
+                        const span = ts.getVisibleLogicalRange();
+                        if (!span) {
+                            ts.fitContent();
+                            return;
+                        }
+                        const mid = (span.from + span.to) / 2;
+                        const half = ((span.to - span.from) / 2) * 1.4;
+                        ts.setVisibleLogicalRange({
+                            from: mid - half,
+                            to: mid + half,
+                        });
+                    }}
+                >
+                    －
+                </button>
+                <button
+                    type='button'
+                    className={styles.tfBtn.normal}
+                    title='適合螢幕'
+                    aria-label='適合螢幕'
+                    onClick={() => chartRef.current?.timeScale().fitContent()}
+                >
+                    適
+                </button>
                 <span className={styles.toolbarDivider} />
                 {TRADE_MODES.map((m) => (
                     <button
@@ -1498,7 +1772,11 @@ export function CandleChart({
             <div className={styles.chartOverlay}>
                 {empty && (
                     <div className={styles.emptyMsg}>
-                        <span className={panel.mono}>無 K 線資料</span>
+                        <span className={panel.mono}>
+                            無 K 線資料（{contract.code}
+                            ）· 請改按 1D，或確認後端已重啟且 Fugle
+                            Key 有效
+                        </span>
                     </div>
                 )}
                 {mode !== 'observe' && (
@@ -1518,19 +1796,46 @@ export function CandleChart({
                 )}
                 {aiDecision &&
                     createPortal(
+                    <>
+                    <button
+                        type='button'
+                        className={styles.aiBackdrop}
+                        aria-label='關閉 AI 判定'
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            closeAiDecision();
+                        }}
+                        onTouchEnd={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            closeAiDecision();
+                        }}
+                    />
                     <div
                         className={styles.aiBadge}
-                        style={{
-                            left: aiPanelPos.x,
-                            top: aiPanelPos.y,
-                            right: 'auto',
-                        }}
+                        style={
+                            typeof window !== 'undefined' &&
+                            window.innerWidth <= 900
+                                ? undefined
+                                : {
+                                      left: aiPanelPos.x,
+                                      top: aiPanelPos.y,
+                                      right: 'auto',
+                                  }
+                        }
                     >
                         <div className={styles.aiHeader}>
                             <div
                                 className={styles.aiDragBar}
                                 title='按住拖曳，移開不要擋圖'
                                 onPointerDown={(e) => {
+                                    if (
+                                        e.pointerType === 'touch' ||
+                                        window.innerWidth <= 900
+                                    ) {
+                                        return;
+                                    }
                                     e.preventDefault();
                                     (
                                         e.currentTarget as HTMLElement
@@ -1592,7 +1897,16 @@ export function CandleChart({
                                 className={styles.aiClose}
                                 aria-label='關閉 AI 判定'
                                 title='關閉'
-                                onClick={closeAiDecision}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    closeAiDecision();
+                                }}
+                                onTouchEnd={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    closeAiDecision();
+                                }}
                                 onPointerDown={(e) => e.stopPropagation()}
                             >
                                 ✕
@@ -1647,6 +1961,25 @@ export function CandleChart({
                                 <span>
                                     {aiDecision.verdict.microBacktest.note}
                                 </span>
+                                {aiDecision.verdict.failExit && (
+                                    <span
+                                        className={
+                                            aiDecision.verdict.failExit
+                                                .action === '可轉隔夜'
+                                                ? styles.aiFailExitHold
+                                                : aiDecision.verdict.failExit
+                                                        .action === '減碼再看'
+                                                  ? styles.aiFailExitCut
+                                                  : styles.aiFailExitSell
+                                        }
+                                    >
+                                        <strong>
+                                            當沖失敗 ·{' '}
+                                            {aiDecision.verdict.failExit.action}
+                                        </strong>
+                                        {aiDecision.verdict.failExit.reason}
+                                    </span>
+                                )}
                             </div>
                         )}
                         {aiDecision.upProb != null && (
@@ -1664,6 +1997,80 @@ export function CandleChart({
                                     }`}
                                 >
                                     {aiDecision.upProb}%
+                                </span>
+                            </div>
+                        )}
+                        {aiDecision.instIntent?.available && (
+                            <div className={styles.aiContextBox}>
+                                <span className={styles.aiContextTitle}>
+                                    法人意圖 · {aiDecision.instIntent.intent} →{' '}
+                                    {aiDecision.instIntent.playbook}（信心
+                                    {aiDecision.instIntent.conf}）
+                                </span>
+                                <span className={styles.aiContextText}>
+                                    {aiDecision.instIntent.summary}
+                                </span>
+                                <span className={styles.aiContextText}>
+                                    {aiDecision.instIntent.note}
+                                </span>
+                            </div>
+                        )}
+                        {aiDecision.marketRegime && (
+                            <div className={styles.aiContextBox}>
+                                <span className={styles.aiContextTitle}>
+                                    大盤氣氛 · {aiDecision.marketRegime.label}（
+                                    {aiDecision.marketRegime.bias}）
+                                </span>
+                                <span className={styles.aiContextText}>
+                                    {aiDecision.marketRegime.summary}
+                                </span>
+                                <span className={styles.aiContextText}>
+                                    {aiDecision.marketRegime.note}
+                                </span>
+                            </div>
+                        )}
+                        {aiDecision.chips?.available && (
+                            <div className={styles.aiContextBox}>
+                                <span className={styles.aiContextTitle}>
+                                    籌碼 · {aiDecision.chips.label}（
+                                    {aiDecision.chips.bias}
+                                    {aiDecision.chips.asOf
+                                        ? ` · ${aiDecision.chips.asOf}`
+                                        : ''}
+                                    ）
+                                </span>
+                                <span className={styles.aiContextText}>
+                                    {aiDecision.chips.summary}
+                                </span>
+                            </div>
+                        )}
+                        {aiDecision.overnight &&
+                            aiDecision.overnight.samples >= 8 && (
+                                <div className={styles.aiContextBox}>
+                                    <span className={styles.aiContextTitle}>
+                                        隔夜→次開 · {aiDecision.overnight.label}{' '}
+                                        （{aiDecision.overnight.winRate}%／
+                                        {aiDecision.overnight.samples}次
+                                        {aiDecision.overnight.lastSignal
+                                            ? ' · 今日符合'
+                                            : ''}
+                                        ）
+                                    </span>
+                                    <span className={styles.aiContextText}>
+                                        {aiDecision.overnight.summary}
+                                    </span>
+                                    <span className={styles.aiContextText}>
+                                        {aiDecision.overnight.note}
+                                    </span>
+                                </div>
+                            )}
+                        {aiDecision.usMarket && (
+                            <div className={styles.aiContextBox}>
+                                <span className={styles.aiContextTitle}>
+                                    美股隔夜氣氛
+                                </span>
+                                <span className={styles.aiContextText}>
+                                    {aiDecision.usMarket.summary}
                                 </span>
                             </div>
                         )}
@@ -1703,21 +2110,100 @@ export function CandleChart({
                             aiDecision.take != null ||
                             aiDecision.structure?.target != null) && (
                             <div className={styles.aiPriceRow}>
-                                {aiDecision.lastPrice != null && (
-                                    <span>
-                                        目前{' '}
-                                        {fmtPrice(aiDecision.lastPrice)}
-                                    </span>
-                                )}
-                                <span>→</span>
-                                <span className={panel.dirText.up}>
-                                    預計到{' '}
-                                    {fmtPrice(
-                                        aiDecision.take ??
-                                            aiDecision.structure?.target ??
-                                            aiDecision.lastPrice,
-                                    )}
-                                </span>
+                                {(() => {
+                                    const now = aiDecision.lastPrice;
+                                    const screenerTargetRaw =
+                                        sessionStorage.getItem(
+                                            'nova-screener-target',
+                                        );
+                                    const screenerCode =
+                                        sessionStorage.getItem(
+                                            'nova-screener-code',
+                                        );
+                                    const screenerTarget =
+                                        screenerCode === contract.code &&
+                                        screenerTargetRaw
+                                            ? Number(screenerTargetRaw)
+                                            : NaN;
+                                    const candidates = [
+                                        aiDecision.take,
+                                        Number.isFinite(screenerTarget)
+                                            ? screenerTarget
+                                            : undefined,
+                                        aiDecision.structure?.target,
+                                    ].filter(
+                                        (n): n is number =>
+                                            typeof n === 'number' &&
+                                            Number.isFinite(n) &&
+                                            n > 0,
+                                    );
+                                    const expected =
+                                        candidates.find(
+                                            (n) =>
+                                                now == null ||
+                                                Math.abs(n - now) /
+                                                    Math.max(now, 1) >=
+                                                    0.002,
+                                        ) ?? null;
+                                    if (now == null) {
+                                        return (
+                                            <span>
+                                                預計到{' '}
+                                                {fmtPrice(
+                                                    expected ??
+                                                        candidates[0],
+                                                )}
+                                            </span>
+                                        );
+                                    }
+                                    if (expected == null) {
+                                        return (
+                                            <>
+                                                <span>
+                                                    目前 {fmtPrice(now)}
+                                                </span>
+                                                <span>
+                                                    → 尚無明確目標價（觀望／貼近壓力）
+                                                </span>
+                                            </>
+                                        );
+                                    }
+                                    const up = expected >= now;
+                                    return (
+                                        <>
+                                            <span>
+                                                目前 {fmtPrice(now)}
+                                            </span>
+                                            <span>→</span>
+                                            <span
+                                                className={
+                                                    up
+                                                        ? panel.dirText.up
+                                                        : panel.dirText.down
+                                                }
+                                            >
+                                                預計到 {fmtPrice(expected)}
+                                                <em
+                                                    style={{
+                                                        fontStyle: 'normal',
+                                                        opacity: 0.75,
+                                                        marginLeft: 4,
+                                                        fontSize: '0.72em',
+                                                    }}
+                                                >
+                                                    (
+                                                    {up ? '+' : ''}
+                                                    {(
+                                                        ((expected - now) /
+                                                            now) *
+                                                        100
+                                                    ).toFixed(2)}
+                                                    %)
+                                                </em>
+                                            </span>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         )}
                         {aiDecision.structure && (
@@ -1737,10 +2223,23 @@ export function CandleChart({
                                         支撐{' '}
                                         {fmtPrice(aiDecision.structure.support)}
                                     </span>
-                                    {aiDecision.structure.target != null && (
+                                    {aiDecision.structure.target != null &&
+                                        Math.abs(
+                                            aiDecision.structure.target -
+                                                (aiDecision.lastPrice ??
+                                                    aiDecision.structure
+                                                        .resistance),
+                                        ) /
+                                            Math.max(
+                                                aiDecision.lastPrice ?? 1,
+                                                1,
+                                           ) >=
+                                            0.002 && (
                                         <span>
                                             預測{' '}
-                                            {fmtPrice(aiDecision.structure.target)}
+                                            {fmtPrice(
+                                                aiDecision.structure.target,
+                                            )}
                                         </span>
                                     )}
                                     {aiDecision.structure.invalidation !=
@@ -1790,11 +2289,21 @@ export function CandleChart({
                         <button
                             type='button'
                             className={styles.aiCloseFull}
-                            onClick={closeAiDecision}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                closeAiDecision();
+                            }}
+                            onTouchEnd={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                closeAiDecision();
+                            }}
                         >
                             關閉 ✕
                         </button>
-                    </div>,
+                    </div>
+                    </>,
                     document.body,
                 )}
                 {(workingOrders.length > 0 || triggers.length > 0) && (

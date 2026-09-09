@@ -5,6 +5,17 @@ export const wrap = style({
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
+    minHeight: 0,
+    flex: 1,
+    overflow: 'hidden',
+});
+
+/** Mobile shell scrolls the pane; this panel just flows as a document */
+export const wrapFlow = style({
+    display: 'block',
+    height: 'auto',
+    minHeight: 'min-content',
+    overflow: 'visible',
 });
 
 export const controls = style({
@@ -13,6 +24,18 @@ export const controls = style({
     padding: vars.space.sm,
     borderBottom: `1px solid ${vars.color.border}`,
     background: vars.color.panelRaised,
+    flexShrink: 0,
+});
+
+export const controlsCompact = style({
+    display: 'grid',
+    gap: '6px',
+    padding: '8px',
+    border: `1px solid ${vars.color.border}`,
+    borderBottom: `1px solid ${vars.color.border}`,
+    background: vars.color.panelRaised,
+    flexShrink: 0,
+    borderRadius: '10px 10px 0 0',
 });
 
 export const row = style({
@@ -76,6 +99,21 @@ export const runBtn = style({
     fontWeight: 700,
     cursor: 'pointer',
     marginLeft: 'auto',
+});
+
+/** Mobile: full-width tap target so 智能篩選 is always easy to hit */
+export const runBtnMobile = style({
+    background: vars.color.accent,
+    color: '#111',
+    border: 'none',
+    borderRadius: vars.radius.md,
+    padding: '12px 14px',
+    fontSize: '0.92rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    width: '100%',
+    minHeight: 48,
+    marginTop: 4,
 });
 
 export const modeTabs = style({
@@ -160,8 +198,24 @@ export const priceArrow = style({
 });
 
 export const body = style({
-    overflow: 'auto',
-    flex: 1,
+    overflowY: 'scroll',
+    overflowX: 'hidden',
+    flex: '1 1 0',
+    minHeight: 0,
+    WebkitOverflowScrolling: 'touch',
+    touchAction: 'pan-y',
+    overscrollBehavior: 'contain',
+});
+
+/** One-page mobile: list is document content (no nested scroll) */
+export const bodyFlow = style({
+    display: 'block',
+    overflow: 'visible',
+    height: 'auto',
+    border: `1px solid ${vars.color.border}`,
+    borderTop: 'none',
+    borderRadius: '0 0 10px 10px',
+    background: vars.color.panel,
 });
 
 export const card = style({
@@ -169,6 +223,12 @@ export const card = style({
     padding: `${vars.space.sm} ${vars.space.md}`,
     display: 'grid',
     gap: '6px',
+    '@media': {
+        'screen and (max-width: 900px)': {
+            padding: '12px 10px',
+            gap: '8px',
+        },
+    },
 });
 
 export const topLine = style({

@@ -8,6 +8,12 @@ export const wrap = style({
     flexDirection: 'column',
     flex: 1,
     minHeight: 0,
+    '@media': {
+        'screen and (max-width: 900px)': {
+            // Don't let chart + quote eat the whole phone
+            maxHeight: '100%',
+        },
+    },
 });
 
 export const toolbar = style({
@@ -19,8 +25,10 @@ export const toolbar = style({
     flexWrap: 'wrap',
     '@media': {
         'screen and (max-width: 900px)': {
-            gap: '4px',
-            padding: `6px ${vars.space.sm}`,
+            gap: '3px',
+            padding: '4px 6px',
+            maxHeight: '4.8rem',
+            overflowY: 'auto',
         },
     },
 });
@@ -246,9 +254,26 @@ export const rangeBadge = style({
     },
 });
 
+export const aiBackdrop = style({
+    position: 'fixed',
+    inset: 0,
+    zIndex: 10050,
+    border: 'none',
+    padding: 0,
+    margin: 0,
+    background: 'rgba(0, 0, 0, 0.45)',
+    cursor: 'pointer',
+    touchAction: 'manipulation',
+    '@media': {
+        'screen and (min-width: 901px)': {
+            display: 'none',
+        },
+    },
+});
+
 export const aiBadge = style({
     position: 'fixed',
-    zIndex: 10000,
+    zIndex: 10060,
     display: 'flex',
     flexDirection: 'column',
     gap: '3px',
@@ -265,6 +290,21 @@ export const aiBadge = style({
     overflowX: 'hidden',
     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
     pointerEvents: 'auto',
+    '@media': {
+        'screen and (max-width: 900px)': {
+            left: '0 !important',
+            right: '0 !important',
+            top: 'auto !important',
+            bottom: '0',
+            width: '100%',
+            maxWidth: '100%',
+            maxHeight: '78dvh',
+            borderRadius: '14px 14px 0 0',
+            padding: '10px 12px calc(12px + env(safe-area-inset-bottom))',
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+        },
+    },
 });
 
 export const aiHeader = style({
@@ -285,14 +325,23 @@ export const aiClose = style({
     border: `2px solid ${vars.color.amber}`,
     background: vars.color.amber,
     color: '#111',
-    borderRadius: vars.radius.sm,
-    minWidth: '32px',
-    height: '32px',
+    width: 44,
+    height: 44,
+    minWidth: 48,
+    minHeight: 48,
+    borderRadius: 10,
     fontSize: '1.15rem',
     fontWeight: 800,
-    cursor: 'pointer',
     lineHeight: 1,
     padding: 0,
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    touchAction: 'manipulation',
+    WebkitTapHighlightColor: 'transparent',
+    zIndex: 5,
+    position: 'relative',
     ':hover': {
         filter: 'brightness(1.1)',
     },
@@ -324,13 +373,18 @@ export const aiCloseFull = style({
     marginTop: '4px',
     width: '100%',
     border: `1px solid ${vars.color.amber}`,
-    background: 'rgba(224, 164, 60, 0.15)',
+    background: vars.color.panelRaised,
     color: vars.color.amber,
     borderRadius: vars.radius.sm,
-    padding: '6px 8px',
-    fontSize: '0.74rem',
+    padding: '12px 8px',
+    minHeight: 44,
+    fontSize: '0.8rem',
     fontWeight: 700,
     cursor: 'pointer',
+    touchAction: 'manipulation',
+    flexShrink: 0,
+    position: 'sticky',
+    bottom: 0,
 });
 
 export const aiStructure = style({
@@ -469,6 +523,45 @@ export const aiVerdictAvoid = style({
     border: `1px solid ${vars.color.danger}`,
     background: 'rgba(220, 70, 70, 0.12)',
     color: vars.color.foreground,
+});
+
+export const aiFailExitSell = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    marginTop: 4,
+    padding: '4px 6px',
+    borderRadius: 4,
+    border: `1px solid ${vars.color.danger}`,
+    background: 'rgba(220, 70, 70, 0.1)',
+    fontSize: '0.62rem',
+    lineHeight: 1.35,
+});
+
+export const aiFailExitHold = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    marginTop: 4,
+    padding: '4px 6px',
+    borderRadius: 4,
+    border: `1px solid ${vars.color.up}`,
+    background: 'rgba(46, 160, 90, 0.1)',
+    fontSize: '0.62rem',
+    lineHeight: 1.35,
+});
+
+export const aiFailExitCut = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    marginTop: 4,
+    padding: '4px 6px',
+    borderRadius: 4,
+    border: `1px solid ${vars.color.amber}`,
+    background: 'rgba(224, 164, 60, 0.1)',
+    fontSize: '0.62rem',
+    lineHeight: 1.35,
 });
 
 export const aiReason = style({
@@ -618,9 +711,13 @@ export const chartStage = style({
     position: 'relative',
     display: 'flex',
     flexDirection: 'column',
+    touchAction: 'none', // let LWC own pinch / drag
     '@media': {
         'screen and (max-width: 900px)': {
-            minHeight: '24rem',
+            // Cap chart so quote + toolbar leave room; user zooms with ＋－適
+            flex: '1 1 auto',
+            minHeight: '10rem',
+            maxHeight: '58dvh',
         },
     },
 });

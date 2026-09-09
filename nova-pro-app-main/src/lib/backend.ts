@@ -254,6 +254,75 @@ export function fetchMargin() {
     });
 }
 
+/** 三大法人＋融資券公開籌碼（通常 T+1） */
+export interface PublicChipItem {
+    code: string;
+    name?: string;
+    as_of?: string;
+    foreign_net?: number;
+    trust_net?: number;
+    dealer_net?: number;
+    inst_net?: number;
+    margin_delta?: number;
+    short_delta?: number;
+    bias?: string;
+    label?: string;
+    score_adj?: number;
+    strength_delta?: number;
+    summary?: string;
+}
+
+export function fetchPublicChips(codes?: string[]) {
+    const q =
+        codes && codes.length
+            ? `?codes=${encodeURIComponent(codes.slice(0, 80).join(','))}`
+            : '';
+    return apiGet<{
+        as_of: string;
+        count: number;
+        items: Record<string, PublicChipItem>;
+    }>(`/api/v1/data/chips${q}`);
+}
+
+export function fetchPublicChip(code: string) {
+    return apiGet<{
+        code: string;
+        row: PublicChipItem | null;
+        signal: {
+            available: boolean;
+            bias: string;
+            label: string;
+            summary: string;
+            score_adj: number;
+            strength_delta: number;
+            as_of?: string;
+            notes: string[];
+        };
+    }>(`/api/v1/data/chips/${encodeURIComponent(code)}`);
+}
+
+export interface OvernightEdgeItem {
+    code: string;
+    samples: number;
+    win_rate: number;
+    avg_gap_pct: number;
+    expectancy_pct: number;
+    max_drawdown_pct: number;
+    last_signal: boolean;
+    label: string;
+    summary: string;
+    note: string;
+    score_adj: number;
+    strength_boost: number;
+}
+
+export function fetchOvernightEdge(codes: string[]) {
+    const q = `?codes=${encodeURIComponent(codes.slice(0, 40).join(','))}`;
+    return apiGet<{ count: number; items: Record<string, OvernightEdgeItem> }>(
+        `/api/v1/data/overnight-edge${q}`,
+    );
+}
+
 // ---- server watchlists ----
 
 export interface ServerWatchlist {

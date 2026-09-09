@@ -48,6 +48,10 @@ import {
 import { fetchRegulatoryLists } from './regulatory.ts';
 import { fetchTwOvernightPool } from '../../lib/tw-overnight-pool.ts';
 import {
+    dailyBarsToKBars,
+    fetchTwDailyBars,
+} from '../../lib/tw-daily-bars.ts';
+import {
     deliveryMonthOf,
     fromFugleSymbol,
     isContinuousAlias,
@@ -560,29 +564,105 @@ export class FugleMarketDataProvider implements MarketDataProvider {
             ? ((await this.resolveAlias(key.code)) ?? key.code)
             : toFugleSymbol(key.code);
         const isFutopt = this.wsKindFor(symbol) === 'futopt';
-        const rangeDays =
-            (new Date(end).getTime() - new Date(start).getTime()) / 86_400_000;
+        const rangeDays = Math.max(
+            0,
+            (new Date(end).getTime() - new Date(start).getTime()) / 86_400_000,
+        );
 
         if (isFutopt) {
             // fugle has no historical futopt candles — intraday (today) only
             const res = await this.rest.futopt.intraday.candles({ symbol });
             return kbarsFromCandles(res?.data ?? [], false);
         }
+
+        // Fugle: from~to must be STRICTLY < 1 year (exactly 365 days → 400).
+        const safeStart =
+            rangeDays >= 364
+                ? new Date(new Date(end).getTime() - 360 * 86_400_000)
+                      .toISOString()
+                      .slice(0, 10)
+                : start;
+
         // minute candles ignore from/to and return ~30 days; filter locally
         const timeframe =
-            rangeDays <= 5 ? '1' : rangeDays <= 12 ? '5' : rangeDays <= 35 ? '15' : rangeDays <= 70 ? '60' : 'D';
-        const res = await this.rest.stock.historical.candles({
-            symbol,
-            timeframe,
-            sort: 'asc',
-            ...(timeframe === 'D' ? { from: start, to: end } : {}),
-        });
-        const rows: any[] = (res?.data ?? []).filter((r: any) => {
-            const d = String(r.date ?? '').slice(0, 10);
-            return d >= start && d <= end;
-        });
-        const isIndex = key.security_type === 'IND';
-        return kbarsFromCandles(rows, !isIndex);
+            rangeDays <= 5
+                ? '1'
+                : rangeDays <= 12
+                  ? '5'
+                  : rangeDays <= 35
+                    ? '15'
+                    : rangeDays <= 70
+                      ? '60'
+                      : 'D';
+
+        const tryFugle = async (tf: string, from: string, to: string) => {
+            const res = await this.rest.stock.historical.candles({
+                symbol,
+                timeframe: tf,
+                sort: 'asc',
+                from,
+                to,
+            });
+            const rows: any[] = (res?.data ?? []).filter((r: any) => {
+                const d = String(r.date ?? '').slice(0, 10);
+                return d >= from && d <= to;
+            });
+            const isIndex = key.security_type === 'IND';
+            return kbarsFromCandles(rows, !isIndex);
+        };
+
+        try {
+            const mapped = await tryFugle(timeframe, safeStart, end);
+            if (mapped.datetime.length > 0) return mapped;
+        } catch (err) {
+            console.warn(
+                `Fugle kbars failed for ${symbol} (${timeframe}):`,
+                err instanceof Error ? err.message : err,
+            );
+        }
+
+        // Minute empty / 404 after hours → try Fugle daily before Yahoo
+        if (timeframe !== 'D') {
+            try {
+                const daily = await tryFugle('D', safeStart, end);
+                if (daily.datetime.length > 0) {
+                    console.info(
+                        `Fugle daily kbars fallback for ${symbol}: ${daily.datetime.length} bars`,
+                    );
+                    return daily;
+                }
+            } catch (err) {
+                console.warn(
+                    `Fugle daily fallback failed for ${symbol}:`,
+                    err instanceof Error ? err.message : err,
+                );
+            }
+        }
+
+        // After-hours / plan gaps: Yahoo daily fallback for TW stocks
+        if (key.security_type === 'STK' || !key.security_type) {
+            try {
+                const yahooRange =
+                    rangeDays > 200 ? '1y' : rangeDays > 60 ? '6mo' : '3mo';
+                const daily = await fetchTwDailyBars(key.code, yahooRange);
+                const clipped = daily.filter(
+                    (b) => b.date >= safeStart && b.date <= end,
+                );
+                const use = clipped.length >= 5 ? clipped : daily;
+                if (use.length > 0) {
+                    console.info(
+                        `Yahoo daily kbars fallback for ${key.code}: ${use.length} bars`,
+                    );
+                    return dailyBarsToKBars(use);
+                }
+            } catch (err) {
+                console.warn(
+                    `Yahoo kbars fallback failed for ${key.code}:`,
+                    err instanceof Error ? err.message : err,
+                );
+            }
+        }
+        return kbarsFromCandles([], true);
     }
 
     async ticks(

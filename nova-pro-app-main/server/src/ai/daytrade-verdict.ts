@@ -2,11 +2,17 @@
 // Integrates session weights, trap dominance, screener alignment, risk sizing.
 // Also runs a lightweight rule micro-backtest on the provided bars.
 
+import type { ChipsSignal } from './chips-signal.ts';
+import type { InstIntent } from './inst-intent.ts';
+import type { MarketRegime } from './market-regime.ts';
+import type { OvernightEdgeReport } from './overnight-edge.ts';
 import type { AiBar, AnalyzeCore, Stance } from './score.ts';
 import { scoreBars, scoreToUpProb } from './score.ts';
 
 export type VerdictState = '可做' | '可觀察' | '勿追';
 export type SessionPhase = '開盤' | '午前' | '午盤' | '尾盤' | '盤外';
+/** 當沖沒賺到／失敗時：收盤要賣還是可轉隔夜 */
+export type FailExitAction = '賣出了結' | '可轉隔夜' | '減碼再看';
 
 export interface DaytradeVerdict {
     state: VerdictState;
@@ -28,6 +34,11 @@ export interface DaytradeVerdict {
         avgRr: number;
         maxDrawdownPct: number;
         note: string;
+    };
+    /** 若當沖失敗／收盤前還沒出場，建議放還是賣 */
+    failExit: {
+        action: FailExitAction;
+        reason: string;
     };
     scoreAdj: number;
     reasons: string[];
@@ -206,13 +217,149 @@ export function microBacktest(bars: AiBar[]): DaytradeVerdict['microBacktest'] {
     };
 }
 
+/**
+ * 當沖沒賺到／失敗時的處置：賣出了結／可轉隔夜／減碼再看。
+ * 偏向「籌碼乾淨＋隔夜歷史尚可」才放；追價、處置、籌碼弱、隔夜弱 → 賣。
+ */
+export function buildFailExitPlan(input: {
+    bars: AiBar[];
+    traps: string[];
+    chips?: ChipsSignal | null;
+    overnight?: OvernightEdgeReport | null;
+    usBias?: { scoreAdj: number; summary: string } | null;
+    phase: SessionPhase;
+    instIntent?: InstIntent | null;
+}): DaytradeVerdict['failExit'] {
+    const chg = dayChangePct(input.bars);
+    const chips = input.chips;
+    const overnight = input.overnight;
+    const traps = input.traps;
+    const intent = input.instIntent;
+    const sellTrap = traps.some((t) =>
+        [
+            '接近漲停',
+            '已大漲追價',
+            '已大跌追空',
+            '處置股',
+            '無量突破',
+            '假突破疑慮',
+            '隔夜歷史偏弱',
+            '技術強籌碼弱',
+            '籌碼強隔夜弱',
+            '法人出貨疑慮',
+            '散戶追價',
+            '大盤偏空',
+        ].includes(t),
+    );
+
+    const overnightWeak =
+        !!overnight &&
+        overnight.samples >= 12 &&
+        overnight.winRate < 45;
+    const overnightOk =
+        !!overnight &&
+        overnight.samples >= 12 &&
+        overnight.winRate >= 52 &&
+        overnight.lastSignal;
+    const chipsCleanLong =
+        !!chips?.available &&
+        chips.scoreAdj >= 6 &&
+        chips.bias === '偏多' &&
+        chips.marginDelta <= 0;
+    const chipsWeak =
+        !!chips?.available && (chips.scoreAdj <= -6 || chips.bias === '偏空');
+    const usHeavyDown =
+        (input.usBias?.scoreAdj ?? 0) <= -4 &&
+        (input.phase === '尾盤' || input.phase === '盤外');
+    const distributing =
+        intent?.intent === '出貨偏空' || intent?.intent === '散戶追價';
+    const accumulating = intent?.intent === '吃貨壓低';
+
+    // 出貨／追價 → 硬賣
+    if (distributing) {
+        return {
+            action: '賣出了結',
+            reason: `當沖失敗建議先賣：${intent!.label}（非保證）`,
+        };
+    }
+
+    // 硬賣：追價／處置／籌碼弱／隔夜歷史弱／美股大空
+    if (
+        sellTrap ||
+        nearLimitUp(input.bars) ||
+        chipsWeak ||
+        overnightWeak ||
+        usHeavyDown ||
+        chg >= 7
+    ) {
+        const why: string[] = [];
+        if (nearLimitUp(input.bars) || traps.includes('接近漲停'))
+            why.push('接近漲停易回落');
+        if (traps.includes('已大漲追價') || chg >= 7) why.push('當日漲幅已大');
+        if (traps.includes('處置股')) why.push('處置股流動性差');
+        if (chipsWeak) why.push('法人／融資結構偏弱');
+        if (overnightWeak)
+            why.push(`隔夜→次開勝率僅 ${overnight!.winRate}%`);
+        if (usHeavyDown) why.push('美股隔夜偏空');
+        if (!why.length && sellTrap) why.push(traps[0]!);
+        return {
+            action: '賣出了結',
+            reason: `當沖失敗建議先賣：${why.slice(0, 3).join('；')}（非保證）`,
+        };
+    }
+
+    // 吃貨壓低：當沖失敗可減碼，別恐慌殺在法人吃貨區
+    if (accumulating && chipsCleanLong && chg > -5) {
+        return {
+            action: '減碼再看',
+            reason: `當沖失敗先減碼：${intent!.label}，別在疑似吃貨區砍光`,
+        };
+    }
+
+    // 可轉隔夜：籌碼偏多且乾淨＋隔夜規則觸發且勝率尚可＋非硬陷阱
+    if (chipsCleanLong && overnightOk && !sellTrap && chg < 5) {
+        return {
+            action: '可轉隔夜',
+            reason: `當沖沒賺到可輕倉轉隔夜：${chips!.label}，隔夜→次開約 ${overnight!.winRate}%（樣本 ${overnight!.samples}），仍設停損防跳空`,
+        };
+    }
+
+    // 籌碼尚可但隔夜沒觸發／勝率中等 → 減碼再看
+    if (
+        chips?.available &&
+        chips.scoreAdj >= 3 &&
+        overnight &&
+        overnight.samples >= 8 &&
+        overnight.winRate >= 48 &&
+        chg < 5
+    ) {
+        return {
+            action: '減碼再看',
+            reason: '當沖失敗先減碼：籌碼不算差，但隔夜條件不夠乾淨，留一半或砍到輕倉再決定',
+        };
+    }
+
+    return {
+        action: '賣出了結',
+        reason: '當沖失敗預設先賣：條件不夠乾淨就不要硬轉隔夜（非保證）',
+    };
+}
+
 export function buildDaytradeVerdict(input: {
     bars: AiBar[];
     core: AnalyzeCore;
     regulatory?: 'punish' | 'attention' | null;
     screenerStrength?: number | null;
+    screenerMode?: 'intraday' | 'overnight' | null;
+    chips?: ChipsSignal | null;
+    overnight?: OvernightEdgeReport | null;
+    usBias?: { scoreAdj: number; summary: string } | null;
+    regime?: MarketRegime | null;
+    instIntent?: InstIntent | null;
 }): DaytradeVerdict {
     const phase = sessionPhase();
+    const overnightMode =
+        input.screenerMode === 'overnight' || phase === '盤外';
     const { mult, note: sessionNote } = sessionWeight(phase);
     const traps = detectTrapLabels(
         input.bars,
@@ -232,11 +379,106 @@ export function buildDaytradeVerdict(input: {
     scoreAdj += sessionShift;
     if (sessionShift) reasons.push(sessionNote);
 
+    // chips: 法人／融資券（公開 T+1）
+    const chips = input.chips;
+    if (chips?.available) {
+        scoreAdj += chips.scoreAdj;
+        reasons.push(chips.label);
+        if (chips.scoreAdj <= -8 && input.core.score >= 18) {
+            traps.push('技術強籌碼弱');
+            reasons.push('技術偏多但法人／融資結構偏弱');
+        } else if (chips.scoreAdj >= 8 && input.core.score <= -10) {
+            traps.push('籌碼強技術弱');
+            reasons.push('籌碼偏多但技術尚未跟上');
+        }
+    }
+
+    // overnight → next-open historical edge
+    const overnight = input.overnight;
+    if (overnight && overnight.samples >= 8) {
+        const weight = overnightMode
+            ? 1.15
+            : phase === '尾盤'
+              ? 0.85
+              : 0.35;
+        const overnightAdj = Math.round(overnight.scoreAdj * weight);
+        if (overnightAdj) {
+            scoreAdj += overnightAdj;
+            reasons.push(
+                `${overnight.label}（次開勝率 ${overnight.winRate}%／${overnight.samples}次）`,
+            );
+        }
+        if (
+            overnightMode &&
+            overnight.winRate <= 42 &&
+            overnight.samples >= 12
+        ) {
+            traps.push('隔夜歷史偏弱');
+        }
+        if (chips?.available && overnight.samples >= 12) {
+            if (chips.scoreAdj >= 6 && overnight.scoreAdj <= -4) {
+                traps.push('籌碼強隔夜弱');
+                reasons.push('法人／融資偏多，但隔夜→次開歷史偏弱');
+            } else if (chips.scoreAdj <= -6 && overnight.scoreAdj >= 4) {
+                traps.push('隔夜強籌碼弱');
+                reasons.push('隔夜歷史偏多，但法人／融資結構偏弱');
+            }
+        }
+    }
+
+    // US overnight soft regime (盤外／隔夜模式才加重)
+    const usBias = input.usBias;
+    if (usBias && (overnightMode || phase === '尾盤')) {
+        const w = overnightMode ? 1 : 0.5;
+        const usAdj = Math.round(usBias.scoreAdj * w);
+        if (usAdj) {
+            scoreAdj += usAdj;
+            reasons.push(usBias.summary);
+        }
+    }
+
+    // TW+US market regime (always soft; heavier overnight)
+    const regime = input.regime;
+    if (regime) {
+        const w = overnightMode || phase === '尾盤' || phase === '盤外' ? 1 : 0.55;
+        const regimeAdj = Math.round(regime.scoreAdj * w);
+        if (regimeAdj) {
+            scoreAdj += regimeAdj;
+            reasons.push(regime.label);
+        }
+        if (regime.bias === '偏空' && regime.scoreAdj <= -5) {
+            traps.push('大盤偏空');
+        }
+    }
+
+    // 法人意圖：價 vs 法人淨額
+    const instIntent = input.instIntent;
+    if (instIntent?.available) {
+        scoreAdj += instIntent.scoreAdj;
+        reasons.push(`${instIntent.label}→${instIntent.playbook}`);
+        if (instIntent.intent === '出貨偏空') traps.push('法人出貨疑慮');
+        if (instIntent.intent === '散戶追價') traps.push('散戶追價');
+        if (instIntent.intent === '吃貨壓低') {
+            // don't chase short into accumulation
+            if (input.core.score <= -18) {
+                traps.push('疑似吃貨勿追空');
+            }
+        }
+        if (instIntent.intent === '殺盤偏空') traps.push('法人殺盤');
+    }
+
     // trap dominance
     const hardTraps = traps.filter((t) =>
-        ['接近漲停', '已大漲追價', '已大跌追空', '處置股', '無量突破', '假突破疑慮'].includes(
-            t,
-        ),
+        [
+            '接近漲停',
+            '已大漲追價',
+            '已大跌追空',
+            '處置股',
+            '無量突破',
+            '假突破疑慮',
+            '法人出貨疑慮',
+            '散戶追價',
+        ].includes(t),
     );
     if (hardTraps.length) {
         scoreAdj -= 18 * hardTraps.length;
@@ -255,9 +497,11 @@ export function buildDaytradeVerdict(input: {
     let align: string | undefined;
     const ss = input.screenerStrength;
     if (ss != null && ss >= 70) {
-        if (input.core.score <= -10 || hardTraps.length) {
+        if (input.core.score <= -10 || hardTraps.length || (chips?.scoreAdj ?? 0) <= -8) {
             align = '強但勿追';
-            reasons.push('篩選偏強但 AI／風險偏空或有陷阱');
+            reasons.push('篩選偏強但 AI／籌碼／風險偏空或有陷阱');
+        } else if (input.core.score >= 18 && (chips?.scoreAdj ?? 0) >= 0) {
+            align = '篩選與 AI／籌碼同向偏多';
         } else if (input.core.score >= 18) {
             align = '篩選與 AI 同向偏多';
         } else {
@@ -273,27 +517,34 @@ export function buildDaytradeVerdict(input: {
     );
     const micro = microBacktest(input.bars);
 
-    // risk sizing
+    // risk sizing — overnight mode softens reliance on intraday micro-backtest
     const stopPct = Math.max(0.6, Math.min(1.8, +(atr * 0.9).toFixed(2))) / 100;
     const takePct = +(stopPct * 2).toFixed(4);
     const rr = +(takePct / stopPct).toFixed(2);
     let sizeHint: DaytradeVerdict['risk']['sizeHint'] = '不加碼';
     let riskNote = '方向或風險不允許加碼';
+    const microOk = overnightMode
+        ? micro.samples < 5 || micro.winRate >= 40
+        : micro.winRate >= 48;
     if (
         hardTraps.length === 0 &&
         Math.abs(adjustedScore) >= 35 &&
         rr >= 1.8 &&
-        micro.winRate >= 48
+        microOk
     ) {
-        sizeHint = '標準';
-        riskNote = `波動約 ${atr.toFixed(1)}%，停損約 ${(stopPct * 100).toFixed(1)}%，單筆風險請自控在本金 0.5%～1%`;
+        sizeHint = overnightMode ? '輕倉' : '標準';
+        riskNote = overnightMode
+            ? `隔夜布局：波動約 ${atr.toFixed(1)}%，停損約 ${(stopPct * 100).toFixed(1)}%，跳空風險高，建議輕倉`
+            : `波動約 ${atr.toFixed(1)}%，停損約 ${(stopPct * 100).toFixed(1)}%，單筆風險請自控在本金 0.5%～1%`;
     } else if (
         hardTraps.length === 0 &&
         Math.abs(adjustedScore) >= 18 &&
         rr >= 1.5
     ) {
         sizeHint = '輕倉';
-        riskNote = `訊號中等，建議輕倉；停損約 ${(stopPct * 100).toFixed(1)}%`;
+        riskNote = overnightMode
+            ? `隔夜訊號中等，建議輕倉或不隔夜；停損約 ${(stopPct * 100).toFixed(1)}%`
+            : `訊號中等，建議輕倉；停損約 ${(stopPct * 100).toFixed(1)}%`;
     } else if (hardTraps.length) {
         riskNote = '有陷阱／追價風險，寧可空手';
     }
@@ -316,24 +567,95 @@ export function buildDaytradeVerdict(input: {
     } else if (
         Math.abs(adjustedScore) >= 35 &&
         sizeHint !== '不加碼' &&
-        (input.core.stance !== '盤整' || Math.abs(adjustedScore) >= 35)
+        (input.core.stance !== '盤整' || Math.abs(adjustedScore) >= 35) &&
+        !(adjustedScore >= 35 && (chips?.scoreAdj ?? 0) <= -8)
     ) {
         state = '可做';
-        headline =
-            adjustedScore >= 35
-                ? `可做偏多（輕看風險：${sizeHint}）`
-                : `可做偏空（輕看風險：${sizeHint}）`;
+        if (overnightMode) {
+            headline =
+                adjustedScore >= 35
+                    ? `可布局隔夜偏多（${sizeHint}；仍看跳空風險）`
+                    : `可布局隔夜偏空（${sizeHint}；仍看跳空風險）`;
+        } else {
+            headline =
+                adjustedScore >= 35
+                    ? `可做偏多（輕看風險：${sizeHint}）`
+                    : `可做偏空（輕看風險：${sizeHint}）`;
+        }
     } else {
         state = '可觀察';
-        headline = '可觀察：分數或時段不夠乾淨，先等確認';
+        headline =
+            adjustedScore >= 35 && (chips?.scoreAdj ?? 0) <= -8
+                ? '可觀察：技術熱但籌碼偏弱，先等籌碼轉乾淨'
+                : overnightMode
+                  ? '可觀察：隔夜條件不夠乾淨，先別硬留'
+                  : '可觀察：分數或時段不夠乾淨，先等確認';
     }
 
-    // micro-backtest too weak → never upgrade to 可做
-    if (state === '可做' && micro.samples >= 5 && micro.winRate < 42) {
+    // micro-backtest too weak → never upgrade to 可做 (intraday stricter)
+    if (
+        state === '可做' &&
+        !overnightMode &&
+        micro.samples >= 5 &&
+        micro.winRate < 42
+    ) {
         state = '可觀察';
         headline = '可觀察：近端規則健康檢查偏弱，先別當進場依據';
         sizeHint = '不加碼';
     }
+
+    // overnight edge too weak → don't promote overnight holds
+    if (
+        state === '可做' &&
+        overnightMode &&
+        overnight &&
+        overnight.samples >= 12 &&
+        overnight.winRate < 45
+    ) {
+        state = '可觀察';
+        headline = '可觀察：隔夜→次開歷史勝率偏弱，先別隔夜硬上';
+        sizeHint = '不加碼';
+    }
+
+    // 法人意圖 playbook：別追多／別追空 直接降級
+    if (instIntent?.available) {
+        if (
+            state === '可做' &&
+            instIntent.playbook === '別追多' &&
+            adjustedScore >= 35
+        ) {
+            state = '勿追';
+            headline = `勿追：${instIntent.label}`;
+            sizeHint = '不加碼';
+        } else if (
+            state === '可做' &&
+            instIntent.playbook === '別追空' &&
+            adjustedScore <= -35
+        ) {
+            state = '勿追';
+            headline = `勿追：${instIntent.label}`;
+            sizeHint = '不加碼';
+        } else if (state === '可做') {
+            headline = `${headline}｜法人：${instIntent.playbook}`;
+        } else if (state === '可觀察' && instIntent.playbook !== '觀望') {
+            headline = `${headline}｜法人：${instIntent.playbook}`;
+        }
+    }
+
+    // prefer overnight note in 盤外 risk line
+    if (overnightMode && overnight && overnight.samples >= 8) {
+        riskNote = `${riskNote}｜${overnight.note}`;
+    }
+
+    const failExit = buildFailExitPlan({
+        bars: input.bars,
+        traps,
+        chips,
+        overnight,
+        usBias,
+        phase,
+        instIntent,
+    });
 
     return {
         state,
@@ -350,6 +672,7 @@ export function buildDaytradeVerdict(input: {
             riskNote,
         },
         microBacktest: micro,
+        failExit,
         scoreAdj,
         reasons,
     };

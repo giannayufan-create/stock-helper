@@ -11,6 +11,12 @@ export const board = style({
     flexShrink: 0,
     borderBottom: `1px solid ${vars.color.border}`,
     overflow: 'hidden',
+    '@media': {
+        'screen and (max-width: 900px)': {
+            gap: vars.space.sm,
+            padding: '6px 8px',
+        },
+    },
 });
 
 export const symbolBlock = style({
@@ -39,6 +45,11 @@ const bigPriceBase = style({
     fontWeight: 600,
     lineHeight: 1,
     fontVariantNumeric: 'tabular-nums',
+    '@media': {
+        'screen and (max-width: 900px)': {
+            fontSize: '1.35rem',
+        },
+    },
 });
 
 export const bigPrice = styleVariants({

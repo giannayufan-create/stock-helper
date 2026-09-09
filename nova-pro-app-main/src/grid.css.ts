@@ -9,7 +9,7 @@ export const gridWrap = style({
     overflowY: 'auto',
     overflowX: 'hidden',
     '@media': {
-        'screen and (max-width: 900px)': {
+        'screen and (max-width: 1024px)': {
             display: 'none',
         },
     },

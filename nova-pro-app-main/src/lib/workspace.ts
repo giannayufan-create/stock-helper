@@ -18,7 +18,8 @@ export type BlockType =
     | 'replay'
     | 'depthmap'
     | 'strategyScreener'
-    | 'predictionBook';
+    | 'predictionBook'
+    | 'moneyFlow';
 
 export interface Block {
     id: string;
@@ -142,40 +143,58 @@ export const BLOCK_META: Record<
         singleton: true,
         defaultSize: { w: 8, h: 10, minW: 6, minH: 7 },
     },
+    moneyFlow: {
+        label: '資金流排行',
+        pinnable: false,
+        singleton: true,
+        defaultSize: { w: 5, h: 14, minW: 4, minH: 8 },
+    },
 };
 
 export const DEFAULT_WORKSPACE: Workspace = {
     blocks: [
         { id: 'watchlist-0', type: 'watchlist', pin: null },
         { id: 'strategyScreener-0', type: 'strategyScreener', pin: null },
+        { id: 'moneyFlow-0', type: 'moneyFlow', pin: null },
         { id: 'chart-0', type: 'chart', pin: null },
         { id: 'dock-0', type: 'dock', pin: null },
         { id: 'depth-0', type: 'depth', pin: null },
+        { id: 'volprofile-0', type: 'volprofile', pin: null },
         { id: 'ticket-0', type: 'ticket', pin: null },
         { id: 'tape-0', type: 'tape', pin: null },
         { id: 'predictionBook-0', type: 'predictionBook', pin: null },
     ],
     layout: [
-        { i: 'watchlist-0', x: 0, y: 0, w: 4, h: 10, minW: 3, minH: 6 },
+        { i: 'watchlist-0', x: 0, y: 0, w: 4, h: 8, minW: 3, minH: 6 },
         {
             i: 'strategyScreener-0',
             x: 0,
-            y: 10,
+            y: 8,
             w: 4,
-            h: 15,
+            h: 12,
             minW: 3,
+            minH: 8,
+        },
+        {
+            i: 'moneyFlow-0',
+            x: 0,
+            y: 20,
+            w: 4,
+            h: 14,
+            minW: 4,
             minH: 8,
         },
         { i: 'chart-0', x: 4, y: 0, w: 15, h: 16, minW: 6, minH: 7 },
         { i: 'dock-0', x: 4, y: 16, w: 15, h: 9, minW: 6, minH: 5 },
         { i: 'depth-0', x: 19, y: 0, w: 5, h: 8, minW: 4, minH: 7 },
-        { i: 'ticket-0', x: 19, y: 8, w: 5, h: 11, minW: 4, minH: 10 },
-        { i: 'tape-0', x: 19, y: 19, w: 5, h: 6, minW: 3, minH: 4 },
+        { i: 'volprofile-0', x: 19, y: 8, w: 5, h: 10, minW: 4, minH: 6 },
+        { i: 'ticket-0', x: 19, y: 18, w: 5, h: 9, minW: 4, minH: 8 },
+        { i: 'tape-0', x: 19, y: 27, w: 5, h: 6, minW: 3, minH: 4 },
         {
             i: 'predictionBook-0',
-            x: 0,
+            x: 4,
             y: 25,
-            w: 24,
+            w: 15,
             h: 8,
             minW: 6,
             minH: 6,
@@ -195,12 +214,75 @@ function validWorkspace(w: unknown): w is Workspace {
     return ws.layout.every((l) => ids.has(l.i));
 }
 
+/** Ensure newer panels exist for older saved layouts. */
+function ensureVolProfile(ws: Workspace): Workspace {
+    if (ws.blocks.some((b) => b.type === 'volprofile')) return ws;
+    const id = 'volprofile-0';
+    const meta = BLOCK_META.volprofile;
+    const depth = ws.layout.find((l) => l.i.startsWith('depth-'));
+    const x = depth?.x ?? 19;
+    const y = depth ? depth.y + depth.h : 8;
+    return {
+        blocks: [...ws.blocks, { id, type: 'volprofile', pin: null }],
+        layout: [
+            ...ws.layout,
+            {
+                i: id,
+                x,
+                y,
+                w: meta.defaultSize.w,
+                h: meta.defaultSize.h,
+                minW: meta.defaultSize.minW,
+                minH: meta.defaultSize.minH,
+            },
+        ],
+    };
+}
+
+function ensureMoneyFlow(ws: Workspace): Workspace {
+    if (ws.blocks.some((b) => b.type === 'moneyFlow')) return ws;
+    const id = 'moneyFlow-0';
+    const meta = BLOCK_META.moneyFlow;
+    const screener = ws.layout.find((l) => l.i.startsWith('strategyScreener-'));
+    const x = screener?.x ?? 0;
+    const y = screener ? screener.y + screener.h : 20;
+    return {
+        blocks: [...ws.blocks, { id, type: 'moneyFlow', pin: null }],
+        layout: [
+            ...ws.layout,
+            {
+                i: id,
+                x,
+                y,
+                w: meta.defaultSize.w,
+                h: meta.defaultSize.h,
+                minW: meta.defaultSize.minW,
+                minH: meta.defaultSize.minH,
+            },
+        ],
+    };
+}
+
+function migrateWorkspace(ws: Workspace): Workspace {
+    return ensureMoneyFlow(ensureVolProfile(ws));
+}
+
 export function loadWorkspace(): Workspace {
     try {
         const raw = localStorage.getItem(WS_KEY);
         if (raw) {
             const w = JSON.parse(raw);
-            if (validWorkspace(w)) return w;
+            if (validWorkspace(w)) {
+                const next = migrateWorkspace(w);
+                if (next !== w) {
+                    try {
+                        localStorage.setItem(WS_KEY, JSON.stringify(next));
+                    } catch {
+                        // ignore quota
+                    }
+                }
+                return next;
+            }
         }
     } catch {
         // fall through

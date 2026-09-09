@@ -124,9 +124,9 @@ async function fetchOne(code: string, name: string): Promise<ScannerItem | null>
                 },
             );
             if (!res2.ok) return null;
-            return parseYahoo(await res2.json(), code, name);
+            return parseYahoo((await res2.json()) as YahooChart, code, name);
         }
-        return parseYahoo(await res.json(), code, name);
+        return parseYahoo((await res.json()) as YahooChart, code, name);
     } catch {
         return null;
     }

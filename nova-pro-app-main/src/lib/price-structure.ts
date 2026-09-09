@@ -113,23 +113,31 @@ export function analyzePriceStructure(bars: Candle[]): PriceStructure | null {
             : `向下跌破近低 ${support}：下檔預測看 ${target}；反攻過 ${invalidation} 先別追空。`;
     } else if (nearResist) {
         bias = '測試壓力';
-        target = round2(resistance);
+        // Don't set target = resistance (= often ≈ close). Show breakout objective.
+        target = round2(resistance + Math.max(atr, range * 0.25));
         invalidation = round2(close - atr);
         confidence = '中';
-        hint = `靠近上漲壓力 ${resistance}：未有效站上前回檔機率高；真突破後才往上看 ${round2(resistance + atr)}。防守看 ${invalidation}。`;
+        hint = `靠近上漲壓力 ${resistance}：未有效站上前回檔機率高；真突破後上看 ${target}。防守看 ${invalidation}。`;
     } else if (nearSupport) {
         bias = '測試支撐';
-        target = round2(support);
+        target = round2(support - Math.max(atr, range * 0.25));
         invalidation = round2(close + atr);
         confidence = '中';
-        hint = `靠近下跌支撐 ${support}：未有效跌破前反彈機率在；真跌破後往下看 ${round2(support - atr)}。反彈失效看 ${invalidation}。`;
+        hint = `靠近下跌支撐 ${support}：未有效跌破前反彈機率在；真跌破後往下看 ${target}。反彈失效看 ${invalidation}。`;
     } else {
         bias = '區間震盪';
         const mid = (resistance + support) / 2;
-        target = round2(close >= mid ? resistance : support);
-        invalidation = round2(close >= mid ? support : resistance);
+        // Upside objective when closer to mid/high; still keep target away from close
+        if (close >= mid) {
+            target = round2(Math.max(resistance, close + atr));
+            invalidation = round2(support);
+            hint = `落在 ${support}～${resistance} 區間上緣附近：先過壓力才看 ${target}；守不住支撐 ${support} 先觀望。`;
+        } else {
+            target = round2(Math.min(support, close - atr));
+            invalidation = round2(resistance);
+            hint = `落在 ${support}～${resistance} 區間下緣附近：跌破支撐看 ${target}；反彈壓力在 ${resistance}。`;
+        }
         confidence = '低';
-        hint = `落在 ${support}～${resistance} 區間：上有壓力 ${resistance}、下有支撐 ${support}；偏向區間上緣才攻、下緣才接，預測先看到 ${target}。`;
     }
 
     return {

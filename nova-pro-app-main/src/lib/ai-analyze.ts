@@ -42,6 +42,67 @@ export interface AiAnalyzeResult {
         buy_vol_ratio: number;
         notes: string[];
     };
+    chips?: {
+        available: boolean;
+        bias: string;
+        label: string;
+        summary: string;
+        score_adj: number;
+        as_of?: string;
+        foreign_net: number;
+        trust_net: number;
+        dealer_net: number;
+        inst_net: number;
+        margin_delta: number;
+        short_delta: number;
+        notes: string[];
+    };
+    overnight?: {
+        code: string;
+        samples: number;
+        win_rate: number;
+        avg_gap_pct: number;
+        expectancy_pct: number;
+        max_drawdown_pct: number;
+        last_signal: boolean;
+        label: string;
+        summary: string;
+        note: string;
+        score_adj: number;
+        strength_boost: number;
+    } | null;
+    us_market?: {
+        summary: string;
+        score_adj: number;
+        quotes: Array<{
+            symbol: string;
+            label: string;
+            change_rate: number;
+        }>;
+    };
+    market_regime?: {
+        bias: string;
+        label: string;
+        summary: string;
+        score_adj: number;
+        tw_change_rate: number | null;
+        us_summary: string;
+        drivers: string[];
+        note: string;
+    } | null;
+    inst_intent?: {
+        intent: string;
+        playbook: string;
+        label: string;
+        summary: string;
+        score_adj: number;
+        conf: string;
+        drivers: string[];
+        day_change_pct: number;
+        as_of?: string;
+        available: boolean;
+        note: string;
+    };
     verdict?: {
         state: '可做' | '可觀察' | '勿追';
         headline: string;
@@ -63,6 +124,10 @@ export interface AiAnalyzeResult {
             maxDrawdownPct: number;
             note: string;
         };
+        fail_exit: {
+            action: '賣出了結' | '可轉隔夜' | '減碼再看';
+            reason: string;
+        };
     };
 }
 
@@ -82,6 +147,8 @@ export function analyzeWithServer(input: {
     bars: AiBarPayload[];
     withCoach?: boolean;
     screenerStrength?: number | null;
+    screenerMode?: 'intraday' | 'overnight' | null;
+    screenerOvernightWinRate?: number | null;
     regulatory?: 'punish' | 'attention' | null;
 }) {
     return apiPost<AiAnalyzeResult>('/api/v1/ai/analyze', {
@@ -92,6 +159,8 @@ export function analyzeWithServer(input: {
         take_pct: 0.02,
         with_coach: input.withCoach !== false,
         screener_strength: input.screenerStrength ?? undefined,
+        screener_mode: input.screenerMode ?? undefined,
+        screener_overnight_winrate: input.screenerOvernightWinRate ?? undefined,
         regulatory: input.regulatory ?? undefined,
     });
 }

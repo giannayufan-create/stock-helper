@@ -1,9 +1,9 @@
-// src/components/chips-card.tsx — 個股籌碼卡: margin/short quota, lending
-// sources, regulatory punish flag (stocks only)
+// src/components/chips-card.tsx — 個股籌碼卡: 三大法人＋融資券＋額度／處置
 
 import { useCallback } from 'react';
 import { usePoll } from '../hooks/use-poll';
 import { apiPost } from '../lib/api';
+import { fetchPublicChip } from '../lib/backend';
 import { useRegulatoryFlag } from '../lib/regulatory';
 import type { ContractInfo } from '../lib/types/contract';
 import { fmtInt } from '../lib/utils/format';
@@ -29,6 +29,15 @@ interface ShortSource {
 interface ChipsData {
     credit?: CreditEnquire;
     shortSource?: ShortSource;
+    public?: Awaited<ReturnType<typeof fetchPublicChip>>;
+}
+
+function fmtLots(shares?: number): string {
+    if (shares == null || !Number.isFinite(shares)) return '—';
+    const lots = shares / 1000;
+    const sign = lots > 0 ? '+' : '';
+    if (Math.abs(lots) >= 1000) return `${sign}${(lots / 1000).toFixed(1)}千張`;
+    return `${sign}${lots.toFixed(0)}張`;
 }
 
 async function fetchChips(contract: ContractInfo): Promise<ChipsData> {
@@ -37,19 +46,21 @@ async function fetchChips(contract: ContractInfo): Promise<ChipsData> {
         exchange: contract.exchange,
         code: contract.code,
     };
-    const [credit, short] = await Promise.allSettled([
+    const [credit, short, pub] = await Promise.allSettled([
         apiPost<CreditEnquire[]>('/api/v1/data/credit_enquire', {
             contracts: [key],
         }),
         apiPost<ShortSource[]>('/api/v1/data/short_stock_sources', {
             contracts: [key],
         }),
+        fetchPublicChip(contract.code),
     ]);
     return {
         credit:
             credit.status === 'fulfilled' ? credit.value[0] : undefined,
         shortSource:
             short.status === 'fulfilled' ? short.value[0] : undefined,
+        public: pub.status === 'fulfilled' ? pub.value : undefined,
     };
 }
 
@@ -68,6 +79,9 @@ export function ChipsCard({ contract }: { contract: ContractInfo }) {
     if (!data) {
         return <div className={dock.emptyState}>載入籌碼資訊…</div>;
     }
+
+    const sig = data.public?.signal;
+    const row = data.public?.row;
 
     const items: { label: string; value: string; warn?: boolean }[] = [
         {
@@ -91,6 +105,46 @@ export function ChipsCard({ contract }: { contract: ContractInfo }) {
             warn: contract.day_trade !== 'Yes',
         },
     ];
+
+    if (sig?.available) {
+        items.push(
+            {
+                label: `籌碼判定${sig.as_of ? `（${sig.as_of}）` : ''}`,
+                value: `${sig.label}／${sig.bias}`,
+                warn: sig.bias === '偏空',
+            },
+            {
+                label: '外資買賣超',
+                value: fmtLots(row?.foreign_net),
+                warn: (row?.foreign_net ?? 0) < 0,
+            },
+            {
+                label: '投信買賣超',
+                value: fmtLots(row?.trust_net),
+                warn: (row?.trust_net ?? 0) < 0,
+            },
+            {
+                label: '三大法人合計',
+                value: fmtLots(row?.inst_net),
+                warn: (row?.inst_net ?? 0) < 0,
+            },
+            {
+                label: '融資餘額變動',
+                value: `${(row?.margin_delta ?? 0) > 0 ? '+' : ''}${fmtInt(row?.margin_delta ?? 0)}張`,
+                warn: (row?.margin_delta ?? 0) > 400,
+            },
+            {
+                label: '融券餘額變動',
+                value: `${(row?.short_delta ?? 0) > 0 ? '+' : ''}${fmtInt(row?.short_delta ?? 0)}張`,
+            },
+        );
+    } else {
+        items.push({
+            label: '公開籌碼',
+            value: sig?.summary ?? '尚無三大法人／融資券資料',
+        });
+    }
+
     if (data.credit) {
         items.push(
             {
@@ -122,6 +176,18 @@ export function ChipsCard({ contract }: { contract: ContractInfo }) {
 
     return (
         <div className={panel.panelBody}>
+            {sig?.available && (
+                <div
+                    style={{
+                        fontSize: '0.78rem',
+                        opacity: 0.85,
+                        marginBottom: 8,
+                        lineHeight: 1.35,
+                    }}
+                >
+                    {sig.summary}
+                </div>
+            )}
             <div className={dock.accountGrid}>
                 {items.map((it) => (
                     <div key={it.label} className={dock.statCard}>

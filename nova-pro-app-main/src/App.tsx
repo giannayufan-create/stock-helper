@@ -25,6 +25,7 @@ import { VolProfile } from './components/vol-profile';
 import { ReplayPanel } from './components/replay-panel';
 import { DepthMap } from './components/depth-map';
 import { StrategyScreenerPanel } from './components/strategy-screener-panel';
+import { MoneyFlowPanel } from './components/money-flow-panel';
 import { PredictionBookPanel } from './components/prediction-book-panel';
 import { MobileShell } from './components/mobile-shell';
 import { PanelChrome } from './components/panel-chrome';
@@ -67,9 +68,11 @@ import {
 import {
     appendPrediction,
     loadPredictions,
+    mergeAutoScanPredictions,
     savePredictions,
     type PredictionRecord,
 } from './lib/prediction-book';
+import { verifyOpenPredictions } from './lib/prediction-verify';
 import { bootstrapCloudSync } from './lib/cloud-sync';
 
 const GRID_COLS = 24;
@@ -82,6 +85,7 @@ const POPOUT_TYPES: ReadonlySet<string> = new Set([
     'flash',
     'chips',
     'volprofile',
+    'moneyFlow',
     'optchain',
     'pnl',
     'replay',
@@ -122,8 +126,11 @@ function BlockBody({
     refreshTrading,
     watchlistSeed,
     onAddPrediction,
+    onAutoScanPredictions,
     predictions,
     onClearPredictions,
+    onVerifyPredictions,
+    verifyingPredictions,
 }: {
     block: Block;
     contract: ContractInfo | null;
@@ -134,8 +141,11 @@ function BlockBody({
     refreshTrading: () => void;
     watchlistSeed: Array<{ code: string; name: string; close?: number }>;
     onAddPrediction: (record: PredictionRecord) => void;
+    onAutoScanPredictions: (records: PredictionRecord[]) => void;
     predictions: PredictionRecord[];
     onClearPredictions: () => void;
+    onVerifyPredictions: () => void | Promise<void>;
+    verifyingPredictions: boolean;
 }) {
     switch (block.type) {
         case 'watchlist':
@@ -215,13 +225,18 @@ function BlockBody({
                     watchlistSeed={watchlistSeed}
                     onPickCode={onSelectCode}
                     onAddPrediction={onAddPrediction}
+                    onAutoScanPredictions={onAutoScanPredictions}
                 />
             );
+        case 'moneyFlow':
+            return <MoneyFlowPanel onPickCode={onSelectCode} />;
         case 'predictionBook':
             return (
                 <PredictionBookPanel
                     rows={predictions}
                     onClear={onClearPredictions}
+                    onVerify={onVerifyPredictions}
+                    verifying={verifyingPredictions}
                 />
             );
     }
@@ -243,8 +258,11 @@ interface BlockViewProps {
     refreshTrading: () => void;
     watchlistSeed: Array<{ code: string; name: string; close?: number }>;
     onAddPrediction: (record: PredictionRecord) => void;
+    onAutoScanPredictions: (records: PredictionRecord[]) => void;
     predictions: PredictionRecord[];
     onClearPredictions: () => void;
+    onVerifyPredictions: () => void | Promise<void>;
+    verifyingPredictions: boolean;
 }
 
 function BlockView(props: BlockViewProps) {
@@ -307,7 +325,15 @@ function PopoutView({
     let body: React.ReactNode = <BlockPlaceholder />;
     if (type === 'pnl') body = <PnlPanel />;
     else if (type === 'optchain') body = <OptionChain />;
-    else if (contract) {
+    else if (type === 'moneyFlow') {
+        body = (
+            <MoneyFlowPanel
+                onPickCode={(c) => {
+                    void ensureContract(c);
+                }}
+            />
+        );
+    } else if (contract) {
         switch (type) {
             case 'chart':
                 body = (
@@ -375,22 +401,53 @@ export default function App() {
     const [profiles, setProfiles] = useState<Profile[]>(loadProfiles);
     const [predictions, setPredictions] =
         useState<PredictionRecord[]>(loadPredictions);
+    const [verifyingPredictions, setVerifyingPredictions] = useState(false);
     const { width, containerRef, mounted } = useContainerWidth();
 
     const addPrediction = useCallback((record: PredictionRecord) => {
         setPredictions((prev) => appendPrediction(prev, record));
     }, []);
 
+    const addAutoScanPredictions = useCallback(
+        (records: PredictionRecord[]) => {
+            setPredictions((prev) => mergeAutoScanPredictions(prev, records));
+        },
+        [],
+    );
+
     const clearPredictions = useCallback(() => {
         savePredictions([]);
         setPredictions([]);
     }, []);
 
-    // Pull Firestore copy on boot (falls back to localStorage)
+    const runVerifyPredictions = useCallback(async () => {
+        setVerifyingPredictions(true);
+        try {
+            const current = loadPredictions();
+            const { rows } = await verifyOpenPredictions(current);
+            setPredictions(rows);
+        } catch (err) {
+            console.warn('[prediction-verify] failed', err);
+        } finally {
+            setVerifyingPredictions(false);
+        }
+    }, []);
+
+    // Pull Firestore copy on boot, then auto-verify open picks
     useEffect(() => {
-        void bootstrapCloudSync().then((cloud) => {
-            if (cloud) setPredictions(cloud);
-        });
+        void bootstrapCloudSync()
+            .then(async (cloud) => {
+                const base = cloud ?? loadPredictions();
+                if (cloud) setPredictions(cloud);
+                try {
+                    const { rows, changed } =
+                        await verifyOpenPredictions(base);
+                    if (changed > 0) setPredictions(rows);
+                } catch (err) {
+                    console.warn('[prediction-verify] boot failed', err);
+                }
+            })
+            .catch(() => undefined);
     }, []);
 
     // first loaded watchlist item becomes the active symbol
@@ -451,16 +508,49 @@ export default function App() {
 
     const selectByCode = useCallback(
         async (code: string) => {
+            // Unlock all pinned blocks so every panel follows this pick
+            setWorkspace((prev) => {
+                if (!prev.blocks.some((b) => b.pin)) return prev;
+                const next = {
+                    ...prev,
+                    blocks: prev.blocks.map((b) => ({ ...b, pin: null })),
+                };
+                saveWorkspace(next);
+                return next;
+            });
+
             const existing = items.find((i) => i.contract.code === code);
             if (existing) {
                 setSelected(existing.contract);
                 return;
             }
+
+            // Optimistic stub so mobile chart/depth/ticket switch immediately
+            setSelected({
+                code,
+                name: code,
+                exchange: 'TSE',
+                security_type: 'STK',
+                target_code: null,
+                currency: 'TWD',
+                limit_up: 0,
+                limit_down: 0,
+                reference: 0,
+                day_trade: 'Yes',
+                update_date: '',
+                category: '',
+                margin_trading_balance: 0,
+                short_selling_balance: 0,
+            });
+
             try {
                 const c = (await addSymbol(code, 'STK')) as ContractInfo;
                 setSelected(c);
-            } catch {
-                // unknown code from scanner — ignore
+            } catch (err) {
+                console.warn('selectByCode failed', code, err);
+                window.alert(
+                    `無法切換到 ${code}：合約解析失敗。請確認代號或稍後再試。`,
+                );
             }
         },
         [items, addSymbol],
@@ -648,7 +738,7 @@ export default function App() {
     );
 
     const booting = loading && items.length === 0;
-    const isMobile = useMediaQuery('screen and (max-width: 900px)');
+    const isMobile = useMediaQuery('screen and (max-width: 1024px)');
 
     if (POPOUT_TYPE && POPOUT_TYPES.has(POPOUT_TYPE)) {
         return <PopoutView type={POPOUT_TYPE} code={POPOUT_CODE} />;
@@ -668,6 +758,43 @@ export default function App() {
         margin: marginPoll.data,
         onTradesChanged: refreshTrading,
     };
+
+    // 手機：只渲染一頁式殼，絕不掛桌面 HUD / Grid（避免舊分頁殼殘留）
+    if (isMobile) {
+        return (
+            <div className={styles.shell}>
+                <EventToasts onEvent={refreshTrading} />
+                <CommandPalette
+                    open={paletteOpen}
+                    onClose={() => setPaletteOpen(false)}
+                    onJump={jumpToCode}
+                />
+                {booting ? (
+                    <div className={styles.loading}>
+                        <span>股市小幫手</span>
+                        <span style={{ fontSize: '0.7rem' }}>載入中…</span>
+                    </div>
+                ) : (
+                    <MobileShell
+                        contract={selected}
+                        snapshot={selectedSnapshot}
+                        trades={dockProps.trades}
+                        onOrdersChanged={refreshTrading}
+                        onRefreshTrading={refreshTrading}
+                        watchlistSeed={watchlistSeed}
+                        onSelectCode={selectByCode}
+                        onAddPrediction={addPrediction}
+                        onAutoScanPredictions={addAutoScanPredictions}
+                        predictions={predictions}
+                        onClearPredictions={clearPredictions}
+                        onVerifyPredictions={runVerifyPredictions}
+                        verifyingPredictions={verifyingPredictions}
+                        onOpenSearch={() => setPaletteOpen(true)}
+                    />
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className={styles.shell}>
@@ -689,22 +816,6 @@ export default function App() {
                 onJump={jumpToCode}
             />
 
-            {!booting && isMobile && (
-                <MobileShell
-                    contract={selected}
-                    snapshot={selectedSnapshot}
-                    trades={dockProps.trades}
-                    onOrdersChanged={refreshTrading}
-                    onRefreshTrading={refreshTrading}
-                    watchlistSeed={watchlistSeed}
-                    onSelectCode={selectByCode}
-                    onAddPrediction={addPrediction}
-                    predictions={predictions}
-                    onClearPredictions={clearPredictions}
-                />
-            )}
-
-            {!isMobile && (
             <div className={grid.gridWrap} ref={containerRef}>
                 {booting && (
                     <div className={styles.loading}>
@@ -748,15 +859,19 @@ export default function App() {
                                     refreshTrading={refreshTrading}
                                     watchlistSeed={watchlistSeed}
                                     onAddPrediction={addPrediction}
+                                    onAutoScanPredictions={
+                                        addAutoScanPredictions
+                                    }
                                     predictions={predictions}
                                     onClearPredictions={clearPredictions}
+                                    onVerifyPredictions={runVerifyPredictions}
+                                    verifyingPredictions={verifyingPredictions}
                                 />
                             </div>
                         ))}
                     </GridLayout>
                 )}
             </div>
-            )}
         </div>
     );
 }

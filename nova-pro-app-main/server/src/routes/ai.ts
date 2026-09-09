@@ -2,19 +2,34 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.ts';
+import { scoreChips } from '../ai/chips-signal.ts';
 import {
     applyVerdictToCore,
     buildDaytradeVerdict,
 } from '../ai/daytrade-verdict.ts';
 import { geminiCoach } from '../ai/gemini.ts';
+import { instIntentDto, scoreInstIntent } from '../ai/inst-intent.ts';
 import { measureMarketHeat } from '../ai/market-heat.ts';
+import {
+    marketRegimeDto,
+    measureMarketRegime,
+} from '../ai/market-regime.ts';
 import { fetchFilteredNews } from '../ai/news-filter.ts';
+import {
+    overnightEdgeDto,
+    overnightEdgeForCode,
+} from '../ai/overnight-edge.ts';
 import {
     finalizeScore,
     scoreBars,
     type AiBar,
     type AnalyzeCore,
 } from '../ai/score.ts';
+import { getChipRow } from '../lib/tw-chips.ts';
+import {
+    fetchUsIndices,
+    scoreUsOvernightBias,
+} from '../lib/us-indices.ts';
 
 interface AnalyzeBody {
     code?: string;
@@ -24,6 +39,8 @@ interface AnalyzeBody {
     take_pct?: number;
     with_coach?: boolean;
     screener_strength?: number;
+    screener_mode?: 'intraday' | 'overnight';
+    screener_overnight_winrate?: number;
     regulatory?: 'punish' | 'attention' | null;
 }
 
@@ -36,7 +53,10 @@ async function enrichContext(
     takePct: number,
     opts?: {
         screenerStrength?: number | null;
+        screenerMode?: 'intraday' | 'overnight' | null;
         regulatory?: 'punish' | 'attention' | null;
+        /** Mobile / fast: skip slow news RSS */
+        fast?: boolean;
     },
 ) {
     const lastClose = bars.length ? bars[bars.length - 1]!.close : undefined;
@@ -46,7 +66,27 @@ async function enrichContext(
             ? ((lastClose - firstClose) / firstClose) * 100
             : undefined;
     const heat = measureMarketHeat(bars, { changePct });
-    const news = await fetchFilteredNews(code, name);
+    const fast = opts?.fast === true;
+    const [news, chipRow, overnight, usQuotes] = await Promise.all([
+        fast
+            ? Promise.resolve({
+                  items: [],
+                  bias: '中性' as const,
+                  scoreAdj: 0,
+                  summary: '快速模式略過新聞',
+              })
+            : fetchFilteredNews(code, name),
+        getChipRow(code).catch(() => null),
+        overnightEdgeForCode(code).catch(() => null),
+        fetchUsIndices().catch(() => []),
+    ]);
+    const chips = scoreChips(chipRow);
+    const { regime } = await measureMarketRegime(usQuotes).catch(() => ({
+        regime: null as null,
+        usQuotes,
+    }));
+    const usBias = scoreUsOvernightBias(usQuotes);
+    const instIntent = scoreInstIntent(chips, bars);
 
     let chasePenalty = 0;
     if (heat.score >= 75 && core.score >= 40) {
@@ -73,6 +113,12 @@ async function enrichContext(
         core: afterNewsHeat,
         regulatory: opts?.regulatory ?? null,
         screenerStrength: opts?.screenerStrength ?? null,
+        screenerMode: opts?.screenerMode ?? null,
+        chips,
+        overnight,
+        usBias,
+        regime,
+        instIntent,
     });
 
     const scored = applyVerdictToCore(
@@ -103,6 +149,33 @@ async function enrichContext(
             buy_vol_ratio: +heat.buyVolRatio.toFixed(3),
             notes: heat.notes,
         },
+        chips: {
+            available: chips.available,
+            bias: chips.bias,
+            label: chips.label,
+            summary: chips.summary,
+            score_adj: chips.scoreAdj,
+            as_of: chips.asOf,
+            foreign_net: chips.foreignNet,
+            trust_net: chips.trustNet,
+            dealer_net: chips.dealerNet,
+            inst_net: chips.instNet,
+            margin_delta: chips.marginDelta,
+            short_delta: chips.shortDelta,
+            notes: chips.notes,
+        },
+        overnight: overnight ? overnightEdgeDto(overnight) : null,
+        market_regime: regime ? marketRegimeDto(regime) : null,
+        inst_intent: instIntentDto(instIntent),
+        us_market: {
+            summary: usBias.summary,
+            score_adj: usBias.scoreAdj,
+            quotes: usQuotes.map((q) => ({
+                symbol: q.symbol,
+                label: q.label,
+                change_rate: +q.changeRate.toFixed(3),
+            })),
+        },
         verdict: {
             state: verdict.state,
             headline: verdict.headline,
@@ -112,6 +185,7 @@ async function enrichContext(
             align: verdict.align,
             risk: verdict.risk,
             micro_backtest: verdict.microBacktest,
+            fail_exit: verdict.failExit,
         },
         context_adj: newsHeatAdj + verdict.scoreAdj,
     };
@@ -124,6 +198,10 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
         gemini: Boolean(ctx.config.geminiApiKey),
         news: true,
         heat: true,
+        chips: true,
+        overnight: true,
+        market_regime: true,
+        inst_intent: true,
         verdict: true,
     }));
 
@@ -137,17 +215,24 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
         const takePct = req.body?.take_pct ?? 0.02;
         const withCoach = req.body?.with_coach !== false;
         const name = req.body?.name;
+        const preferFast = req.body?.with_coach === false;
         const enrichOpts = {
             screenerStrength:
                 typeof req.body?.screener_strength === 'number'
                     ? req.body.screener_strength
                     : null,
+            screenerMode:
+                req.body?.screener_mode === 'overnight' ||
+                req.body?.screener_mode === 'intraday'
+                    ? req.body.screener_mode
+                    : null,
             regulatory: req.body?.regulatory ?? null,
+            fast: preferFast,
         };
         const at = new Date().toLocaleTimeString('zh-TW', { hour12: false });
 
-        // Prefer Python analyzer when configured, then still enrich news/heat
-        if (ctx.config.analyzerUrl) {
+        // Prefer Python analyzer when configured (skip on fast path / mobile)
+        if (ctx.config.analyzerUrl && !preferFast) {
             try {
                 const url = `${ctx.config.analyzerUrl.replace(/\/$/, '')}/analyze`;
                 const res = await fetch(url, {
@@ -213,7 +298,13 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
                                 ...enriched.scored,
                                 newsSummary: enriched.news.summary,
                                 heatSummary: enriched.heat.notes[0],
+                                chipsSummary: enriched.chips.summary,
+                                overnightSummary: enriched.overnight?.summary,
+                                usSummary: enriched.us_market.summary,
+                                regimeSummary: enriched.market_regime?.summary,
+                                instIntentSummary: enriched.inst_intent?.summary,
                                 verdictSummary: enriched.verdict.headline,
+                                failExitSummary: `${enriched.verdict.fail_exit.action}：${enriched.verdict.fail_exit.reason}`,
                             });
                         } catch {
                             // keep prior coach
@@ -226,6 +317,11 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
                         at: data.at ?? at,
                         news: enriched.news,
                         heat: enriched.heat,
+                        chips: enriched.chips,
+                        overnight: enriched.overnight,
+                        market_regime: enriched.market_regime,
+                        inst_intent: enriched.inst_intent,
+                        us_market: enriched.us_market,
                         verdict: enriched.verdict,
                         context_adj: enriched.context_adj,
                     };
@@ -256,7 +352,13 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
                     ...enriched.scored,
                     newsSummary: enriched.news.summary,
                     heatSummary: enriched.heat.notes[0],
+                    chipsSummary: enriched.chips.summary,
+                    overnightSummary: enriched.overnight?.summary,
+                    usSummary: enriched.us_market.summary,
+                    regimeSummary: enriched.market_regime?.summary,
+                    instIntentSummary: enriched.inst_intent?.summary,
                     verdictSummary: enriched.verdict.headline,
+                    failExitSummary: `${enriched.verdict.fail_exit.action}：${enriched.verdict.fail_exit.reason}`,
                 });
                 source = 'local+context+gemini';
             } catch (err) {
@@ -271,6 +373,11 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
             at,
             news: enriched.news,
             heat: enriched.heat,
+            chips: enriched.chips,
+            overnight: enriched.overnight,
+            market_regime: enriched.market_regime,
+            inst_intent: enriched.inst_intent,
+            us_market: enriched.us_market,
             verdict: enriched.verdict,
             context_adj: enriched.context_adj,
         };

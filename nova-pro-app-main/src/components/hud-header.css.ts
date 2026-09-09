@@ -16,10 +16,9 @@ export const header = style({
     position: 'relative',
     zIndex: 40,
     '@media': {
-        'screen and (max-width: 900px)': {
-            gap: vars.space.sm,
-            padding: `8px ${vars.space.sm}`,
-            alignItems: 'stretch',
+        'screen and (max-width: 1024px)': {
+            // MobileShell is a fixed fullscreen UI — hide desktop HUD entirely
+            display: 'none',
         },
     },
 });

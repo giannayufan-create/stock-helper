@@ -1,11 +1,27 @@
-import { useMemo, useState } from 'react';
-import { fetchScanner } from '../lib/backend';
+import { useEffect, useMemo, useState } from 'react';
+import {
+    fetchOvernightEdge,
+    fetchPublicChips,
+    fetchScanner,
+} from '../lib/backend';
 import type { ScannerItem } from '../lib/types/market';
 import {
     modeLabel,
+    AUTO_SCAN_TOP_N,
+    loadPredictions,
+    taipeiSignalDate,
     type StrategyMode,
     type PredictionRecord,
 } from '../lib/prediction-book';
+import {
+    buildLearnModel,
+    formatLearnStatus,
+    learnDeltaForTags,
+} from '../lib/prediction-learn';
+import {
+    loadScreenerStore,
+    saveScreenerStore,
+} from '../lib/screener-store';
 import { fmtPct, fmtPrice } from '../lib/utils/format';
 import * as panel from './panel.css';
 import * as styles from './strategy-screener-panel.css';
@@ -18,7 +34,11 @@ type TagKey =
     | 'rangeWide'
     | 'openStrength'
     | 'pullback'
-    | 'liquid';
+    | 'liquid'
+    | 'instBuy'
+    | 'instSell'
+    | 'marginClean'
+    | 'overnightEdge';
 
 interface Scored extends ScannerItem {
     strength: number;
@@ -28,6 +48,10 @@ interface Scored extends ScannerItem {
     target: number;
     stopPrice: number;
     chgPct: number;
+    chipsLabel?: string;
+    overnightWinRate?: number;
+    overnightLabel?: string;
+    learnDelta?: number;
 }
 
 const tagLabels: Record<TagKey, string> = {
@@ -39,6 +63,10 @@ const tagLabels: Record<TagKey, string> = {
     openStrength: '收強',
     pullback: '微回檔',
     liquid: '流動性',
+    instBuy: '法人買超',
+    instSell: '法人賣超',
+    marginClean: '融資轉乾',
+    overnightEdge: '隔夜優勢',
 };
 
 const MODE_PRESET: Record<
@@ -51,13 +79,13 @@ const MODE_PRESET: Record<
     }
 > = {
     intraday: {
-        blurb: '盤中當沖：流動性＋動能＋站上均價＋近高點，強度分數最高者優先',
+        blurb: '當沖獲利流：流動性＋動能＋站上均價，再疊三大法人／融資券加權。分數高≠保證賺。',
         stopLossPct: 1,
         takeProfitPct: 2,
         pools: { volume: true, amount: true, gainers: true },
     },
     overnight: {
-        blurb: '隔夜布局：收盤後也能掃。量夠、波動夠、收盤偏強；漲太多會扣分。休市時改用收盤備援池。',
+        blurb: '隔夜布局流：收盤偏強＋籌碼，再查近半年「收盤→次開」歷史勝率加權。勝率是統計，不是保證。',
         stopLossPct: 1.2,
         takeProfitPct: 2.5,
         pools: { volume: true, amount: true, gainers: true },
@@ -175,28 +203,97 @@ function scoreStrength(
     };
 }
 
+function rememberScreenerPick(item: Scored, mode: StrategyMode): void {
+    sessionStorage.setItem('nova-screener-code', item.code);
+    sessionStorage.setItem('nova-screener-strength', String(item.strength));
+    sessionStorage.setItem('nova-screener-mode', mode);
+    sessionStorage.setItem('nova-screener-target', String(item.target));
+    sessionStorage.setItem('nova-screener-close', String(item.close));
+    if (item.overnightWinRate != null) {
+        sessionStorage.setItem(
+            'nova-screener-overnight-winrate',
+            String(item.overnightWinRate),
+        );
+    } else {
+        sessionStorage.removeItem('nova-screener-overnight-winrate');
+    }
+}
+
 export function StrategyScreenerPanel({
     watchlistSeed,
     onPickCode,
     onAddPrediction,
+    onAutoScanPredictions,
+    compactMobile = false,
 }: {
     watchlistSeed: Array<{ code: string; name: string; close?: number }>;
     onPickCode: (code: string) => void;
     onAddPrediction: (record: PredictionRecord) => void;
+    /** 篩選完成後自動記入前 N 名供隔日驗證 */
+    onAutoScanPredictions?: (records: PredictionRecord[]) => void;
+    /** Mobile: parent pane scrolls; don't nest another scrollport */
+    compactMobile?: boolean;
 }) {
-    const [mode, setMode] = useState<StrategyMode>('intraday');
-    const [includeWatchlist, setIncludeWatchlist] = useState(false);
+    const cached = useMemo(() => loadScreenerStore(), []);
+    const [mode, setMode] = useState<StrategyMode>(
+        cached?.mode ?? 'intraday',
+    );
+    const [scannedMode, setScannedMode] = useState<StrategyMode | null>(
+        cached?.scannedMode ?? null,
+    );
+    const [includeWatchlist, setIncludeWatchlist] = useState(
+        cached?.includeWatchlist ?? false,
+    );
     const [loading, setLoading] = useState(false);
-    const [rows, setRows] = useState<Scored[]>([]);
+    const [rows, setRows] = useState<Scored[]>(
+        () => (cached?.rows as Scored[] | undefined) ?? [],
+    );
     const [status, setStatus] = useState(
-        '選好模式後按「智能篩選」。結果依強度分數排序。',
+        cached?.status ??
+            '選好模式後按「智能篩選」。結果依強度分數排序。',
     );
 
+    const persist = (
+        next: Partial<{
+            mode: StrategyMode;
+            scannedMode: StrategyMode | null;
+            includeWatchlist: boolean;
+            rows: Scored[];
+            status: string;
+        }>,
+        allowEmpty = false,
+    ) => {
+        const payload = {
+            mode: next.mode ?? mode,
+            scannedMode: (next.scannedMode ??
+                scannedMode ??
+                mode) as StrategyMode,
+            includeWatchlist: next.includeWatchlist ?? includeWatchlist,
+            rows: next.rows ?? rows,
+            status: next.status ?? status,
+            at: Date.now(),
+        };
+        saveScreenerStore(payload, { allowEmpty });
+    };
+
+    useEffect(() => {
+        // Never let empty remount wipe a good store
+        persist({}, false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, scannedMode, includeWatchlist, rows, status]);
+
     const preset = MODE_PRESET[mode];
+    const staleResults =
+        rows.length > 0 && scannedMode != null && scannedMode !== mode;
 
     const topStrength = useMemo(
         () => (rows[0] ? rows[0].strength : null),
         [rows],
+    );
+    const learnModel = useMemo(() => buildLearnModel(loadPredictions()), [rows]);
+    const learnStatus = useMemo(
+        () => formatLearnStatus(learnModel, mode),
+        [learnModel, mode],
     );
 
     async function loadCandidates(): Promise<{
@@ -270,11 +367,11 @@ export function StrategyScreenerPanel({
             const { list, failed } = await loadCandidates();
             if (list.length === 0) {
                 setRows([]);
-                setStatus(
-                    failed.length
-                        ? `排行榜抓不到資料（失敗：${failed.join('、')}）。休市、金鑰或網路問題時會這樣。`
-                        : '排行榜目前沒有資料（可能休市或行情尚未開）。',
-                );
+                const msg = failed.length
+                    ? `排行榜抓不到資料（失敗：${failed.join('、')}）。休市、金鑰或網路問題時會這樣。`
+                    : '排行榜目前沒有資料（可能休市或行情尚未開）。';
+                setStatus(msg);
+                persist({ rows: [], status: msg }, true);
                 return;
             }
 
@@ -302,31 +399,220 @@ export function StrategyScreenerPanel({
                         b.rr - a.rr ||
                         b.chgPct - a.chgPct,
                 )
-                .slice(0, 30);
+                .slice(0, 40);
 
-            setRows(scored);
+            // 疊加公開籌碼（三大法人＋融資券）後再排序取前 30
+            let withChips = scored;
+            try {
+                setStatus('掃描中…疊加三大法人／融資券');
+                const chipRes = await fetchPublicChips(
+                    scored.map((s) => s.code),
+                );
+                withChips = scored
+                    .map((s) => {
+                        const c = chipRes.items[s.code];
+                        if (!c) return s;
+                        const delta = c.strength_delta ?? 0;
+                        const tags = [...s.tags];
+                        if ((c.inst_net ?? 0) > 200_000 && !tags.includes('instBuy'))
+                            tags.push('instBuy');
+                        if ((c.inst_net ?? 0) < -200_000 && !tags.includes('instSell'))
+                            tags.push('instSell');
+                        if (
+                            (c.margin_delta ?? 0) < -400 &&
+                            !tags.includes('marginClean')
+                        )
+                            tags.push('marginClean');
+                        const strength = Math.max(
+                            0,
+                            Math.min(100, s.strength + delta),
+                        );
+                        return {
+                            ...s,
+                            strength,
+                            tags,
+                            chipsLabel: c.label,
+                            notes: [
+                                ...s.notes,
+                                c.label
+                                    ? `籌碼 ${c.label}${delta ? ` (${delta > 0 ? '+' : ''}${delta})` : ''}`
+                                    : '',
+                            ].filter(Boolean),
+                        };
+                    })
+                    .sort(
+                        (a, b) =>
+                            b.strength - a.strength ||
+                            b.rr - a.rr ||
+                            b.chgPct - a.chgPct,
+                    )
+                    .slice(0, 30);
+            } catch {
+                withChips = scored.slice(0, 30);
+            }
+
+            // 隔夜模式：疊加收盤→次開歷史勝率
+            let finalRows = withChips;
+            if (mode === 'overnight') {
+                try {
+                    setStatus('掃描中…計算隔夜→次開歷史勝率');
+                    const edgeRes = await fetchOvernightEdge(
+                        withChips.map((s) => s.code),
+                    );
+                    finalRows = withChips
+                        .map((s) => {
+                            const e = edgeRes.items[s.code];
+                            if (!e || e.samples < 8) return s;
+                            const boost = e.strength_boost ?? 0;
+                            const tags = [...s.tags];
+                            if (e.win_rate >= 53 && !tags.includes('overnightEdge')) {
+                                tags.push('overnightEdge');
+                            }
+                            const strength = Math.max(
+                                0,
+                                Math.min(100, s.strength + boost),
+                            );
+                            return {
+                                ...s,
+                                strength,
+                                tags,
+                                overnightWinRate: e.win_rate,
+                                overnightLabel: e.label,
+                                notes: [
+                                    ...s.notes,
+                                    `隔夜次開 ${e.win_rate}%（${e.samples}次）`,
+                                ],
+                            };
+                        })
+                        .sort(
+                            (a, b) =>
+                                b.strength - a.strength ||
+                                (b.overnightWinRate ?? 0) -
+                                    (a.overnightWinRate ?? 0) ||
+                                b.rr - a.rr,
+                        );
+                } catch {
+                    // keep chip-ranked list
+                }
+            }
+
+            // 第二步：用布局本已驗證成績做輕量學習微調（樣本不足則為 0）
+            finalRows = finalRows
+                .map((s) => {
+                    const labels = s.tags.map((k) => tagLabels[k]);
+                    const { delta, parts } = learnDeltaForTags(
+                        learnModel,
+                        mode,
+                        labels,
+                    );
+                    if (!delta) return s;
+                    const strength = Math.max(
+                        0,
+                        Math.min(100, Math.round(s.strength + delta)),
+                    );
+                    return {
+                        ...s,
+                        strength,
+                        learnDelta: delta,
+                        notes: [
+                            ...s.notes,
+                            `學習 ${delta > 0 ? '+' : ''}${delta}${parts.length ? `（${parts.join('、')}）` : ''}`,
+                        ],
+                    };
+                })
+                .sort(
+                    (a, b) =>
+                        b.strength - a.strength ||
+                        b.rr - a.rr ||
+                        b.chgPct - a.chgPct,
+                );
+
+            setRows(finalRows);
+            setScannedMode(mode);
+            persist({ rows: finalRows, scannedMode: mode }, true);
+
+            // 第一段自主學習：自動記入前 N 名，供收盤／次日驗證
+            if (onAutoScanPredictions && finalRows.length) {
+                const nowIso = new Date().toISOString();
+                const autoRecords: PredictionRecord[] = finalRows
+                    .slice(0, AUTO_SCAN_TOP_N)
+                    .map((item, idx) => {
+                        const signalDate =
+                            typeof item.date === 'string' &&
+                            item.date.length >= 10
+                                ? item.date.slice(0, 10)
+                                : taipeiSignalDate(nowIso);
+                        return {
+                            id: `auto-${mode}-${signalDate}-${item.code}`,
+                            createdAt: nowIso,
+                            mode,
+                            code: item.code,
+                            name: item.name,
+                            close: item.close,
+                            target: item.target,
+                            rr: item.rr,
+                            stopLossPct: preset.stopLossPct,
+                            takeProfitPct: preset.takeProfitPct,
+                            hardPass: item.strength >= 55,
+                            softHitCount: item.tags.length,
+                            pickedConditions: item.tags.map(
+                                (k) => tagLabels[k],
+                            ),
+                            notes: [
+                                ...item.notes,
+                                `自動記入 #${idx + 1}`,
+                            ],
+                            signalDate,
+                            source: 'auto_scan' as const,
+                            strength: item.strength,
+                            status: 'open' as const,
+                        };
+                    });
+                onAutoScanPredictions(autoRecords);
+            }
+
+            const avgEdge =
+                mode === 'overnight'
+                    ? (() => {
+                          const xs = finalRows
+                              .map((r) => r.overnightWinRate)
+                              .filter((n): n is number => n != null);
+                          if (!xs.length) return null;
+                          return Math.round(
+                              xs.reduce((a, b) => a + b, 0) / xs.length,
+                          );
+                      })()
+                    : null;
             const failBit = failed.length
                 ? `（部分來源失敗：${failed.join('、')}）`
                 : '';
+            const autoBit = finalRows.length
+                ? `已自動記入前 ${Math.min(AUTO_SCAN_TOP_N, finalRows.length)} 名到布局本。`
+                : '';
             setStatus(
-                scored.length
-                    ? `掃描 ${list.length} 檔 → 最強 ${scored.length} 檔${failBit}。分數越高越適合現在這模式。`
+                finalRows.length
+                    ? `掃描 ${list.length} 檔 → 最強 ${finalRows.length} 檔（籌碼${mode === 'overnight' ? '＋隔夜勝率' : ''}）${failBit}${avgEdge != null ? `。本輪平均次開勝率約 ${avgEdge}%` : ''}。${autoBit}`
                     : `掃描 ${list.length} 檔，但沒有通過最低流動性門檻${failBit}。`,
             );
         } catch (err) {
+            const msg = `篩選失敗：${err instanceof Error ? err.message : String(err)}`;
             setRows([]);
-            setStatus(
-                `篩選失敗：${err instanceof Error ? err.message : String(err)}`,
-            );
+            setStatus(msg);
+            persist({ rows: [], status: msg }, true);
         } finally {
             setLoading(false);
         }
     }
 
     function pickCandidate(item: Scored): void {
+        const nowIso = new Date().toISOString();
+        const signalDate =
+            typeof item.date === 'string' && item.date.length >= 10
+                ? item.date.slice(0, 10)
+                : taipeiSignalDate(nowIso);
         onAddPrediction({
             id: `${item.code}-${Date.now()}`,
-            createdAt: new Date().toISOString(),
+            createdAt: nowIso,
             mode,
             code: item.code,
             name: item.name,
@@ -339,12 +625,20 @@ export function StrategyScreenerPanel({
             softHitCount: item.tags.length,
             pickedConditions: item.tags.map((k) => tagLabels[k]),
             notes: item.notes,
+            signalDate,
+            source: 'manual',
+            strength: item.strength,
+            status: 'open',
         });
     }
 
     return (
-        <div className={styles.wrap}>
-            <div className={styles.controls}>
+        <div className={compactMobile ? styles.wrapFlow : styles.wrap}>
+            <div
+                className={
+                    compactMobile ? styles.controlsCompact : styles.controls
+                }
+            >
                 <div className={styles.modeTabs}>
                     <button
                         type='button'
@@ -355,9 +649,10 @@ export function StrategyScreenerPanel({
                         }
                         onClick={() => {
                             setMode('intraday');
-                            setRows([]);
                             setStatus(
-                                '已切換「當日當沖」。按智能篩選重新掃描。',
+                                rows.length
+                                    ? '已切換「當日當沖」。清單仍保留，按智能篩選才會重算。'
+                                    : '已切換「當日當沖」。按智能篩選開始掃描。',
                             );
                         }}
                     >
@@ -372,16 +667,26 @@ export function StrategyScreenerPanel({
                         }
                         onClick={() => {
                             setMode('overnight');
-                            setRows([]);
                             setStatus(
-                                '已切換「隔夜布局」。按智能篩選重新掃描。',
+                                rows.length
+                                    ? '已切換「隔夜布局」。清單仍保留，按智能篩選才會重算。'
+                                    : '已切換「隔夜布局」。按智能篩選開始掃描。',
                             );
                         }}
                     >
                         隔夜布局
                     </button>
                 </div>
-                <p className={styles.modeBlurb}>{preset.blurb}</p>
+                {!compactMobile && (
+                    <p className={styles.modeBlurb}>{preset.blurb}</p>
+                )}
+                {staleResults && (
+                    <p className={styles.modeBlurb}>
+                        清單仍是「
+                        {scannedMode === 'overnight' ? '隔夜布局' : '當日當沖'}
+                        」結果；切換模式後請再按智能篩選才會重算。
+                    </p>
+                )}
                 <div className={styles.presetBar}>
                     <span>
                         停損 {preset.stopLossPct}% → 目標 +
@@ -389,6 +694,9 @@ export function StrategyScreenerPanel({
                     </span>
                     {topStrength != null && (
                         <span>本輪最高強度 {topStrength}</span>
+                    )}
+                    {rows.length > 0 && (
+                        <span>共 {rows.length} 檔</span>
                     )}
                     <label className={styles.inlineCheck}>
                         <input
@@ -400,19 +708,32 @@ export function StrategyScreenerPanel({
                         />
                         含自選
                     </label>
+                    {!compactMobile && (
+                        <button
+                            type='button'
+                            className={styles.runBtn}
+                            disabled={loading}
+                            onClick={() => void runScan()}
+                        >
+                            {loading ? '掃描中…' : '智能篩選'}
+                        </button>
+                    )}
+                </div>
+                {compactMobile && (
                     <button
                         type='button'
-                        className={styles.runBtn}
+                        className={styles.runBtnMobile}
                         disabled={loading}
                         onClick={() => void runScan()}
                     >
-                        {loading ? '掃描中…' : '智能篩選'}
+                        {loading ? '掃描中…' : '開始智能篩選'}
                     </button>
-                </div>
+                )}
+                <p className={styles.modeBlurb}>{learnStatus}</p>
                 <p className={styles.modeBlurb}>{status}</p>
             </div>
 
-            <div className={styles.body}>
+            <div className={compactMobile ? styles.bodyFlow : styles.body}>
                 {rows.length === 0 && (
                     <div className={styles.empty}>{status}</div>
                 )}
@@ -431,14 +752,8 @@ export function StrategyScreenerPanel({
                                     className={styles.titleBtn}
                                     title='開啟這檔股票的 K 線'
                                     onClick={() => {
-                                        sessionStorage.setItem(
-                                            'nova-screener-code',
-                                            item.code,
-                                        );
-                                        sessionStorage.setItem(
-                                            'nova-screener-strength',
-                                            String(item.strength),
-                                        );
+                                        persist({}, false);
+                                        rememberScreenerPick(item, mode);
                                         onPickCode(item.code);
                                     }}
                                 >
@@ -481,6 +796,23 @@ export function StrategyScreenerPanel({
                                 <span>{modeLabel(mode)}</span>
                                 <span>RR {item.rr.toFixed(2)}</span>
                                 <span>停損 {fmtPrice(item.stopPrice)}</span>
+                                {item.chipsLabel && (
+                                    <span>{item.chipsLabel}</span>
+                                )}
+                                {item.overnightWinRate != null && (
+                                    <span>
+                                        次開 {item.overnightWinRate}%
+                                        {item.overnightLabel
+                                            ? ` · ${item.overnightLabel}`
+                                            : ''}
+                                    </span>
+                                )}
+                                {item.learnDelta != null && item.learnDelta !== 0 && (
+                                    <span>
+                                        學習 {item.learnDelta > 0 ? '+' : ''}
+                                        {item.learnDelta}
+                                    </span>
+                                )}
                             </div>
                             <div className={styles.badges}>
                                 {item.tags.map((k) => (
@@ -494,14 +826,8 @@ export function StrategyScreenerPanel({
                                     type='button'
                                     className={styles.actionBtn}
                                     onClick={() => {
-                                        sessionStorage.setItem(
-                                            'nova-screener-code',
-                                            item.code,
-                                        );
-                                        sessionStorage.setItem(
-                                            'nova-screener-strength',
-                                            String(item.strength),
-                                        );
+                                        persist({}, false);
+                                        rememberScreenerPick(item, mode);
                                         onPickCode(item.code);
                                     }}
                                 >

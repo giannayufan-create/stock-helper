@@ -8,7 +8,9 @@ html,
 body,
 #root {
     height: 100%;
+    height: 100dvh;
     margin: 0;
+    overscrollBehavior: none;
 }
 
 body {
@@ -16,6 +18,22 @@ body {
     line-height: 1.45;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+}
+
+@media screen and (max-width: 1024px) {
+    /* Prevent iOS rubber-band fighting our scroll areas */
+    html,
+    body {
+        position: fixed;
+        width: 100%;
+        overflow: hidden;
+    }
+    #root {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+    }
 }
 
 a {

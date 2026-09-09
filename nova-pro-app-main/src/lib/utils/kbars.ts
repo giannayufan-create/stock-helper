@@ -29,12 +29,52 @@ export function kbarsToCandles(k: KBars): Candle[] {
         });
     }
     out.sort((a, b) => a.time - b.time);
+    return sanitizeCandles(out);
+}
+
+/** Drop invalid / duplicate times so lightweight-charts setData won't throw. */
+export function sanitizeCandles(candles: Candle[]): Candle[] {
+    const out: Candle[] = [];
+    let prevTime = -Infinity;
+    for (const c of candles) {
+        if (
+            !Number.isFinite(c.time) ||
+            !Number.isFinite(c.open) ||
+            !Number.isFinite(c.high) ||
+            !Number.isFinite(c.low) ||
+            !Number.isFinite(c.close) ||
+            !(c.close > 0) ||
+            !(c.high >= c.low)
+        ) {
+            continue;
+        }
+        const high = Math.max(c.high, c.open, c.close);
+        const low = Math.min(c.low, c.open, c.close);
+        if (c.time < prevTime) continue;
+        if (c.time === prevTime) {
+            const last = out[out.length - 1]!;
+            last.high = Math.max(last.high, high);
+            last.low = Math.min(last.low, low);
+            last.close = c.close;
+            last.volume += c.volume;
+            continue;
+        }
+        out.push({
+            time: c.time,
+            open: c.open,
+            high,
+            low,
+            close: c.close,
+            volume: Number.isFinite(c.volume) ? c.volume : 0,
+        });
+        prevTime = c.time;
+    }
     return out;
 }
 
 // Aggregate 1-minute candles into N-minute or daily bars.
 export function aggregate(candles: Candle[], minutes: number): Candle[] {
-    if (minutes <= 1) return candles;
+    if (minutes <= 1) return sanitizeCandles(candles);
     const out: Candle[] = [];
     let cur: Candle | null = null;
     const bucketSec = minutes * 60;
@@ -54,13 +94,16 @@ export function aggregate(candles: Candle[], minutes: number): Candle[] {
         }
     }
     if (cur) out.push(cur);
-    return out;
+    return sanitizeCandles(out);
 }
 
 export function dateStrOffset(daysAgo: number): string {
-    const d = new Date(Date.now() - daysAgo * 86400_000);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    // Use Taipei calendar day so from/to align with TW market + Fugle dates
+    const ms = Date.now() - daysAgo * 86400_000;
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Taipei',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date(ms));
 }

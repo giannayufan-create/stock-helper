@@ -8,10 +8,11 @@ export const shell = style({
     flexDirection: 'column',
     height: '100%',
     background: vars.color.background,
+    overflow: 'hidden',
     '@media': {
-        'screen and (max-width: 900px)': {
-            minHeight: '100%',
-            height: 'auto',
+        'screen and (max-width: 1024px)': {
+            height: '100dvh',
+            maxHeight: '100dvh',
         },
     },
 });
