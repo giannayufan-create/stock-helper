@@ -253,22 +253,31 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
     }
 
     async subscribe(key: ContractKey, quote: StreamQuoteType): Promise<void> {
-        const set = this.subs.get(key.code) ?? new Set();
+        // Bridge is equity-only for now — skip futures/options/warrants quietly.
+        if (key.security_type !== 'STK') return;
+        const code = key.code.trim();
+        if (!/^\d{4,6}$/.test(code)) return;
+
+        const set = this.subs.get(code) ?? new Set();
         if (set.has(quote)) return;
         set.add(quote);
-        this.subs.set(key.code, set);
+        this.subs.set(code, set);
         try {
             await this.postJson('/subscribe', {
                 security_type: key.security_type,
                 exchange: key.exchange ?? 'TSE',
-                code: key.code,
+                code,
                 quote_type: quote,
             });
         } catch (err) {
-            console.warn(
-                'shioaji subscribe:',
-                err instanceof Error ? err.message : err,
-            );
+            const msg = err instanceof Error ? err.message : String(err);
+            // Unknown code (warrant/ETF edge) — drop and keep going.
+            if (/404|找不到商品/.test(msg)) {
+                set.delete(quote);
+                if (!set.size) this.subs.delete(code);
+                return;
+            }
+            console.warn('shioaji subscribe:', msg);
         }
     }
 
