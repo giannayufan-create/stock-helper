@@ -33,13 +33,13 @@ if [ -n "${SHIOAJI_API_KEY:-}" ] && [ -n "${SHIOAJI_SECRET_KEY:-}" ]; then
     sleep 1
   done
   if [ "$ready" -ne 1 ]; then
-    echo "FATAL: shioaji-bridge health timeout. Log:"
+    echo "WARN: shioaji-bridge health timeout — continuing with Node (will fall back). Log:"
     cat "${BRIDGE_LOG}" || true
-    exit 1
   fi
   cd /app/server
 else
   echo "SHIOAJI keys not set — bridge skipped"
 fi
 
+# Bind Render $PORT ASAP (public HTTP). Bridge stays on 127.0.0.1:18080 only.
 exec npx tsx src/index.ts

@@ -58,6 +58,83 @@ def is_production() -> bool:
     return raw not in ("0", "false", "no", "sim", "simulation")
 
 
+def _as_dict(obj: Any) -> dict[str, Any]:
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    if hasattr(obj, "to_dict"):
+        try:
+            return dict(obj.to_dict())  # type: ignore[no-untyped-call]
+        except Exception:
+            pass
+    try:
+        return dict(obj)  # type: ignore[arg-type]
+    except Exception:
+        pass
+    out: dict[str, Any] = {}
+    for k in dir(obj):
+        if k.startswith("_"):
+            continue
+        try:
+            v = getattr(obj, k)
+        except Exception:
+            continue
+        if callable(v):
+            continue
+        out[k] = v
+    return out
+
+
+def _register_quote_callbacks(client: sj.Shioaji) -> None:
+    """shioaji 1.7+ removed @quote.on_quote; use v1 tick/bidask callbacks."""
+
+    def _on_tick(exchange: Any, tick: Any) -> None:
+        try:
+            q = _as_dict(tick)
+            code = str(q.get("code") or getattr(tick, "code", "") or "")
+            ex = str(getattr(exchange, "value", exchange) or "TSE")
+            event_q.put_nowait(
+                {
+                    "type": "quote",
+                    "topic": f"MKT/{ex}/{code}",
+                    "quote": q,
+                }
+            )
+        except Exception:
+            pass
+
+    def _on_bidask(exchange: Any, bidask: Any) -> None:
+        try:
+            q = _as_dict(bidask)
+            code = str(q.get("code") or getattr(bidask, "code", "") or "")
+            ex = str(getattr(exchange, "value", exchange) or "TSE")
+            event_q.put_nowait(
+                {
+                    "type": "quote",
+                    "topic": f"BIDASK/{ex}/{code}",
+                    "quote": q,
+                }
+            )
+        except Exception:
+            pass
+
+    quote = client.quote
+    if hasattr(quote, "set_on_tick_stk_v1_callback"):
+        quote.set_on_tick_stk_v1_callback(_on_tick)
+    if hasattr(quote, "set_on_bidask_stk_v1_callback"):
+        quote.set_on_bidask_stk_v1_callback(_on_bidask)
+    elif hasattr(quote, "set_quote_callback"):
+        # legacy fallback
+        def _on_quote(topic: str, raw: dict) -> None:  # type: ignore[no-untyped-def]
+            try:
+                event_q.put_nowait({"type": "quote", "topic": topic, "quote": raw})
+            except Exception:
+                pass
+
+        quote.set_quote_callback(_on_quote)
+
+
 def ensure_api() -> sj.Shioaji:
     global api, login_error
     if api is not None:
@@ -71,16 +148,7 @@ def ensure_api() -> sj.Shioaji:
     try:
         client = sj.Shioaji(simulation=not is_production())
         client.login(api_key=key, secret_key=secret)
-
-        @client.quote.on_quote
-        def _on_quote(topic: str, quote: dict) -> None:  # type: ignore[no-untyped-def]
-            try:
-                event_q.put_nowait(
-                    {"type": "quote", "topic": topic, "quote": quote}
-                )
-            except Exception:
-                pass
-
+        _register_quote_callbacks(client)
         api = client
         login_error = None
         return client
@@ -212,13 +280,19 @@ class SubBody(BaseModel):
 
 @app.on_event("startup")
 def _startup() -> None:
+    # Login in background so /health binds immediately (Render + start-cloud wait).
     key, secret = env_key()
-    if key and secret:
+    if not (key and secret):
+        return
+
+    def _bg_login() -> None:
         try:
             ensure_api()
             print("shioaji-bridge: logged in", flush=True)
         except Exception as err:  # noqa: BLE001
             print(f"shioaji-bridge: login deferred ({err})", flush=True)
+
+    threading.Thread(target=_bg_login, name="shioaji-login", daemon=True).start()
 
 
 @app.get("/health")
@@ -471,7 +545,12 @@ def subscribe(body: SubBody) -> dict[str, str]:
     else:
         qt = sj.constant.QuoteType.Tick
         key = "Tick"
-    client.quote.subscribe(contract, quote_type=qt)
+    sub_kw: dict[str, Any] = {"quote_type": qt}
+    try:
+        sub_kw["version"] = sj.constant.QuoteVersion.v1
+    except Exception:
+        pass
+    client.quote.subscribe(contract, **sub_kw)
     with subs_lock:
         active_subs.add((body.code, key))
     return {"status": "ok", "code": body.code, "quote_type": key}
