@@ -393,6 +393,11 @@ export function fetchOpenConfirm(opts: {
     });
 }
 
+/** Read-only B latest — does NOT setCandidates / sync / evaluate. */
+export function fetchOpenConfirmLatest() {
+    return apiGet<OpenConfirmV2Result>('/api/v1/data/open-confirm');
+}
+
 /** [C] Intraday Rank */
 export interface IntradayRankItemDto {
     symbol: string;

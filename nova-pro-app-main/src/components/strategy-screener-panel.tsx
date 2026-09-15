@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     fetchFullScreener,
+    fetchHealth,
+    fetchIntradayEvents,
+    fetchIntradayRank,
     fetchOpenConfirm,
+    fetchOpenConfirmLatest,
     fetchOvernightEdge,
     fetchPublicChips,
     fetchScanner,
     type FullScreenerItem,
+    type IntradayRankItemDto,
     type OpenConfirmStatus,
     type OpenConfirmV2Item,
 } from '../lib/backend';
@@ -31,6 +36,55 @@ import {
 import { fmtPct, fmtPrice } from '../lib/utils/format';
 import * as panel from './panel.css';
 import * as styles from './strategy-screener-panel.css';
+
+const LIVE_POLL_MS = 5000;
+
+function openStatusZh(c?: OpenConfirmStatus | null): string {
+    switch (c) {
+        case 'pass':
+            return '通過';
+        case 'early_pass':
+            return '提早通過';
+        case 'early':
+            return '早盤確認中';
+        case 'provisional':
+            return '暫定';
+        case 'watch':
+            return '觀察';
+        case 'reject':
+            return '剔除';
+        default:
+            return c ?? '—';
+    }
+}
+
+function cStateZh(state?: string | null): string {
+    switch ((state ?? '').toUpperCase()) {
+        case 'STRONG':
+            return '強勢';
+        case 'HEATING':
+            return '升溫';
+        case 'EMERGING':
+            return '萌芽';
+        case 'COOLING':
+            return '冷卻';
+        case 'INVALID':
+            return '失效';
+        case 'DORMANT':
+            return '休眠';
+        default:
+            return state || '—';
+    }
+}
+
+function secondsAgo(iso?: string | null): string {
+    if (!iso) return '—';
+    const t = new Date(iso).getTime();
+    if (!Number.isFinite(t)) return '—';
+    const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (sec < 60) return `${sec} 秒前`;
+    return `${Math.floor(sec / 60)} 分前`;
+}
 
 type TagKey =
     | 'momentum'
@@ -104,6 +158,19 @@ interface Scored extends ScannerItem {
     open_tradeable_candidate?: boolean;
     open_signal_id?: string | null;
     open_late_candidate?: boolean;
+    /** Frozen A observation score — never overwritten by live poll */
+    a_score?: number;
+    /** [C] live fields from intraday-rank poll */
+    c_score?: number | null;
+    c_heat?: number | null;
+    c_rank?: number | null;
+    c_rank_prev?: number | null;
+    c_rank_velocity?: number | null;
+    c_state?: string | null;
+    c_event?: string | null;
+    c_data_health?: string | null;
+    c_updated_at?: string | null;
+    live_as_of?: string | null;
 }
 
 const tagLabels: Record<TagKey, string> = {
@@ -543,6 +610,10 @@ export function StrategyScreenerPanel({
         cached?.status ??
             '選好模式後按「智能篩選」。結果依強度分數排序。',
     );
+    const [liveStale, setLiveStale] = useState(false);
+    const [liveHint, setLiveHint] = useState<string | null>(null);
+    const livePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const liveEnabledRef = useRef(false);
 
     const persist = (
         next: Partial<{
@@ -567,11 +638,168 @@ export function StrategyScreenerPanel({
         saveScreenerStore(payload, { allowEmpty });
     };
 
+    const stopLivePoll = () => {
+        liveEnabledRef.current = false;
+        if (livePollRef.current) {
+            clearInterval(livePollRef.current);
+            livePollRef.current = null;
+        }
+    };
+
+    const mergeLiveIntoRows = (
+        prev: Scored[],
+        b: OpenConfirmV2Item[] | undefined,
+        cItems: IntradayRankItemDto[] | undefined,
+        events: Array<{ event_type: string; symbol: string }> | undefined,
+        asOf: string | null,
+    ): Scored[] => {
+        const bMap = new Map((b ?? []).map((x) => [x.symbol, x]));
+        const cMap = new Map((cItems ?? []).map((x) => [x.symbol, x]));
+        const evMap = new Map<string, string>();
+        for (const e of events ?? []) {
+            if (!evMap.has(e.symbol)) evMap.set(e.symbol, e.event_type);
+        }
+        return prev.map((row) => {
+            const g = bMap.get(row.code);
+            const c = cMap.get(row.code);
+            const aScore = row.a_score ?? row.strength;
+            const next: Scored = {
+                ...row,
+                a_score: aScore,
+                strength: aScore,
+                live_as_of: asOf,
+            };
+            if (g) {
+                next.open_score = g.final_open_score;
+                next.open_confirm = g.open_confirm;
+                next.open_stage = g.phase;
+                next.open_phase = g.phase;
+                next.open_reasons = g.reasons;
+                next.open_risks = g.risks;
+                next.open_tradable = g.tradeable_candidate ?? g.tradeable;
+                next.open_tradeable_candidate =
+                    g.tradeable_candidate ?? g.tradeable;
+                next.open_rvol = g.metrics.rvol_same_time;
+                next.open_vwap = g.metrics.vwap;
+                next.open_vwap_pos = g.metrics.vwap_pos_pct;
+                next.open_momentum = g.metrics.momentum_score;
+                next.open_liquidity = g.liquidity_score;
+                next.open_market = g.market_regime;
+                next.open_chase = g.risk.chase_risk;
+                next.open_invalid = g.risk.invalid_price;
+                next.open_data_health = g.data_health;
+                next.open_data_blocked = g.data_blocked;
+                next.open_expires_at = g.signal_valid_until ?? g.expires_at;
+                next.open_signal_id = g.signal_id;
+                next.open_late_candidate = g.late_candidate;
+            }
+            if (c) {
+                next.c_score = c.intraday_score;
+                next.c_heat = c.heat_score;
+                next.c_rank = c.rank;
+                next.c_rank_prev = c.rank_prev;
+                next.c_rank_velocity = c.rank_velocity;
+                next.c_state = c.state;
+                next.c_event =
+                    evMap.get(row.code) ??
+                    (c.events?.length ? c.events[0]! : null);
+                next.c_data_health = c.data_health;
+                next.c_updated_at = c.updated_at;
+            }
+            return next;
+        });
+    };
+
+    const pollLiveOnce = async () => {
+        if (!liveEnabledRef.current) return;
+        try {
+            const [bRes, cRes, evRes, health] = await Promise.all([
+                fetchOpenConfirmLatest().catch(() => null),
+                fetchIntradayRank({ limit: 50, includeWatch: true }).catch(
+                    () => null,
+                ),
+                fetchIntradayEvents(40).catch(() => null),
+                fetchHealth().catch(() => null),
+            ]);
+            if (!liveEnabledRef.current) return;
+
+            const healthBad =
+                !!health &&
+                health.status !== 'ok' &&
+                health.status !== 'healthy';
+            const staleCount =
+                bRes?.items?.filter(
+                    (i) =>
+                        i.data_health === 'stale' ||
+                        i.data_health === 'disconnected' ||
+                        i.data_blocked,
+                ).length ?? 0;
+            const isStale =
+                healthBad ||
+                staleCount > Math.max(3, (bRes?.items?.length ?? 0) * 0.3);
+            setLiveStale(isStale);
+
+            const asOf = bRes?.as_of ?? cRes?.as_of ?? new Date().toISOString();
+            setRows((prev) => {
+                if (!prev.length) return prev;
+                const next = mergeLiveIntoRows(
+                    prev,
+                    bRes?.items,
+                    cRes?.items,
+                    evRes?.items?.map((e) => ({
+                        event_type: e.event_type,
+                        symbol: e.symbol,
+                    })),
+                    asOf,
+                );
+                persist({ rows: next }, true);
+                return next;
+            });
+
+            if (bRes) {
+                setGateMeta(
+                    `OPEN GATE 即時｜${bRes.phase}｜${bRes.market_regime}｜通過 ${bRes.pass}／觀察 ${bRes.watch}／剔除 ${bRes.reject}｜池 ${bRes.count}`,
+                );
+            }
+            setLiveHint(
+                isStale
+                    ? `DATA STALE · 最後更新 ${secondsAgo(asOf)}`
+                    : `即時更新 · ${secondsAgo(asOf)}`,
+            );
+        } catch {
+            setLiveStale(true);
+            setLiveHint('DATA STALE · 無法取得即時狀態');
+        }
+    };
+
+    const startLivePoll = () => {
+        stopLivePoll();
+        liveEnabledRef.current = true;
+        void pollLiveOnce();
+        livePollRef.current = setInterval(() => {
+            void pollLiveOnce();
+        }, LIVE_POLL_MS);
+    };
+
     useEffect(() => {
         // Never let empty remount wipe a good store
         persist({}, false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mode, scannedMode, includeWatchlist, rows, status]);
+
+    useEffect(() => () => stopLivePoll(), []);
+
+    // Resume read-only live poll after remount if A/B already set by a prior scan
+    useEffect(() => {
+        const cachedRows = (cached?.rows as Scored[] | undefined) ?? [];
+        if (
+            (cached?.mode ?? mode) === 'intraday' &&
+            cachedRows.some((r) => r.open_confirm != null)
+        ) {
+            startLivePoll();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount resume only
+    }, []);
 
     const preset = MODE_PRESET[mode];
     const staleResults =
@@ -714,6 +942,9 @@ export function StrategyScreenerPanel({
 
     async function runScan(): Promise<void> {
         if (loading) return;
+        stopLivePoll();
+        setLiveHint(null);
+        setLiveStale(false);
         setLoading(true);
         setStatus('掃描中…全上市櫃宇宙與強度計算');
         try {
@@ -895,6 +1126,8 @@ export function StrategyScreenerPanel({
                             if (!g) return s;
                             return {
                                 ...s,
+                                a_score: s.a_score ?? s.strength,
+                                strength: s.a_score ?? s.strength,
                                 open_score: g.final_open_score,
                                 open_confirm: g.open_confirm,
                                 open_stage: g.phase,
@@ -985,16 +1218,26 @@ export function StrategyScreenerPanel({
                     ],
                 });
             }
-            finalRows = kept.sort(
-                (a, b) =>
-                    b.strength - a.strength ||
-                    b.rr - a.rr ||
-                    b.chgPct - a.chgPct,
-            );
+            finalRows = kept
+                .map((s) => ({
+                    ...s,
+                    a_score: s.a_score ?? s.strength,
+                    strength: s.a_score ?? s.strength,
+                }))
+                .sort(
+                    (a, b) =>
+                        b.strength - a.strength ||
+                        b.rr - a.rr ||
+                        b.chgPct - a.chgPct,
+                );
 
             setRows(finalRows);
             setScannedMode(mode);
             persist({ rows: finalRows, scannedMode: mode }, true);
+
+            if (mode === 'intraday' && finalRows.some((r) => r.open_confirm != null)) {
+                startLivePoll();
+            }
 
             // 第一段自主學習：自動記入前 N 名，供收盤／次日驗證
             if (onAutoScanPredictions && finalRows.length) {
@@ -1233,6 +1476,18 @@ export function StrategyScreenerPanel({
                 {gateMeta && mode === 'intraday' && (
                     <p className={styles.modeBlurb}>{gateMeta}</p>
                 )}
+                {liveHint && mode === 'intraday' && (
+                    <p
+                        className={styles.modeBlurb}
+                        style={{
+                            color: liveStale ? '#fbbf24' : undefined,
+                            fontWeight: liveStale ? 700 : undefined,
+                        }}
+                    >
+                        {liveHint}
+                        {liveStale ? ' · 舊資料僅供參考' : ' · B/C 自動刷新中'}
+                    </p>
+                )}
             </div>
 
             <div className={compactMobile ? styles.bodyFlow : styles.body}>
@@ -1316,26 +1571,134 @@ export function StrategyScreenerPanel({
                                 </div>
                                 <div className={styles.priceBox}>
                                     <span className={styles.priceLabel}>
-                                        強度
+                                        A 觀察
                                     </span>
                                     <span className={styles.priceValue}>
-                                        {item.strength}
+                                        {item.a_score ?? item.strength}
                                     </span>
                                 </div>
                                 {item.open_score != null && (
                                     <div className={styles.priceBox}>
                                         <span className={styles.priceLabel}>
-                                            開盤閘
+                                            B 開盤
                                         </span>
                                         <span className={styles.priceValue}>
                                             {item.open_score}
                                             {item.open_confirm
-                                                ? `·${item.open_confirm}`
+                                                ? `·${openStatusZh(item.open_confirm)}`
+                                                : ''}
+                                        </span>
+                                    </div>
+                                )}
+                                {item.c_score != null && (
+                                    <div className={styles.priceBox}>
+                                        <span className={styles.priceLabel}>
+                                            C 盤中
+                                        </span>
+                                        <span className={styles.priceValue}>
+                                            {Math.round(item.c_score)}
+                                            {item.c_heat != null
+                                                ? `·熱${Math.round(item.c_heat)}`
                                                 : ''}
                                         </span>
                                     </div>
                                 )}
                             </div>
+                            {(item.open_confirm != null ||
+                                item.c_score != null) && (
+                                <div className={styles.liveLayers}>
+                                    <div className={styles.liveLayer}>
+                                        <span className={styles.liveLayerCap}>
+                                            A 觀察池
+                                        </span>
+                                        <span>
+                                            分數 {item.a_score ?? item.strength}
+                                        </span>
+                                    </div>
+                                    <div className={styles.liveLayer}>
+                                        <span className={styles.liveLayerCap}>
+                                            B 開盤閘門
+                                        </span>
+                                        <span
+                                            style={{
+                                                color:
+                                                    item.open_data_health ===
+                                                        'stale' ||
+                                                    item.open_data_health ===
+                                                        'disconnected' ||
+                                                    item.open_data_blocked
+                                                        ? '#a78bfa'
+                                                        : item.open_confirm ===
+                                                                'pass' ||
+                                                            item.open_confirm ===
+                                                                'early_pass'
+                                                          ? '#34d399'
+                                                          : item.open_confirm ===
+                                                              'watch'
+                                                            ? '#fbbf24'
+                                                            : item.open_confirm ===
+                                                                'reject'
+                                                              ? '#f87171'
+                                                              : '#9ca3af',
+                                            }}
+                                        >
+                                            {item.open_confirm
+                                                ? openStatusZh(item.open_confirm)
+                                                : '—'}
+                                            {item.open_score != null
+                                                ? ` ${item.open_score}`
+                                                : ''}
+                                            {item.open_data_blocked ||
+                                            item.open_data_health ===
+                                                'stale' ||
+                                            item.open_data_health ===
+                                                'disconnected'
+                                                ? ' · DATA STALE'
+                                                : ''}
+                                        </span>
+                                    </div>
+                                    <div className={styles.liveLayer}>
+                                        <span className={styles.liveLayerCap}>
+                                            C 盤中雷達
+                                        </span>
+                                        <span>
+                                            {item.c_score != null
+                                                ? `強度 ${Math.round(item.c_score)}`
+                                                : '強度 —'}
+                                            {item.c_heat != null
+                                                ? ` · 熱度 ${Math.round(item.c_heat)}`
+                                                : ''}
+                                            {item.c_rank != null
+                                                ? ` · #${item.c_rank}`
+                                                : ''}
+                                            {item.c_rank_velocity != null &&
+                                            item.c_rank_velocity !== 0
+                                                ? item.c_rank_velocity > 0
+                                                    ? ` ↑${Math.round(item.c_rank_velocity)}`
+                                                    : ` ↓${Math.round(Math.abs(item.c_rank_velocity))}`
+                                                : ''}
+                                            {item.c_state
+                                                ? ` · ${cStateZh(item.c_state)}`
+                                                : ''}
+                                            {item.c_event
+                                                ? ` · ${item.c_event}`
+                                                : ''}
+                                        </span>
+                                    </div>
+                                    <div className={styles.liveLayerMeta}>
+                                        更新{' '}
+                                        {secondsAgo(
+                                            item.c_updated_at ??
+                                                item.live_as_of,
+                                        )}
+                                        {liveStale ||
+                                        item.open_data_health === 'stale' ||
+                                        item.c_data_health === 'stale'
+                                            ? ' · DATA STALE'
+                                            : ''}
+                                    </div>
+                                </div>
+                            )}
                             <div className={styles.meta}>
                                 <span>{modeLabel(mode)}</span>
                                 {item.open_confirm && (
@@ -1364,7 +1727,7 @@ export function StrategyScreenerPanel({
                                         {item.open_phase === 'early'
                                             ? '早盤確認中·'
                                             : ''}
-                                        OPEN {item.open_confirm}
+                                        B {openStatusZh(item.open_confirm)}
                                         {item.open_tradeable_candidate
                                             ? '·可做'
                                             : item.open_tradable
@@ -1378,11 +1741,6 @@ export function StrategyScreenerPanel({
                                             : ''}
                                         {item.open_late_candidate
                                             ? '·late→C'
-                                            : ''}
-                                        {item.open_data_health &&
-                                        item.open_data_health !== 'healthy' &&
-                                        !item.open_data_blocked
-                                            ? `·${item.open_data_health}`
                                             : ''}
                                     </span>
                                 )}

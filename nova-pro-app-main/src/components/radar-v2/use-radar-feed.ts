@@ -3,7 +3,7 @@ import {
     fetchHealth,
     fetchIntradayEvents,
     fetchIntradayRank,
-    fetchOpenConfirm,
+    fetchOpenConfirmLatest,
     fetchSnapshots,
     type IntradayRankItemDto,
     type OpenConfirmV2Result,
@@ -142,18 +142,12 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     setHealthNote(null);
                 }
 
-                // Soft B pass counts from top symbols (no extra broker sub — server uses runtime)
-                const codes = list.slice(0, 25).map((i) => ({
-                    code: i.symbol,
-                    name: i.name,
-                }));
-                if (codes.length) {
-                    try {
-                        const oc = await fetchOpenConfirm({ codes });
-                        if (!cancelled) setOpenConfirm(oc);
-                    } catch {
-                        /* open confirm optional for home */
-                    }
+                // Read-only B — never POST /open-confirm (would replace A pool)
+                try {
+                    const oc = await fetchOpenConfirmLatest();
+                    if (!cancelled) setOpenConfirm(oc);
+                } catch {
+                    /* open confirm optional for home */
                 }
 
                 setLoading(false);

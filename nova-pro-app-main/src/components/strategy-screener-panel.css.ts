@@ -269,6 +269,38 @@ export const meta = style({
     flexWrap: 'wrap',
 });
 
+export const liveLayers = style({
+    display: 'grid',
+    gap: 4,
+    marginTop: 6,
+    marginBottom: 4,
+    padding: '8px 10px',
+    borderRadius: vars.radius.sm,
+    border: `1px solid ${vars.color.border}`,
+    background: vars.color.inset,
+    fontSize: '0.72rem',
+    lineHeight: 1.45,
+});
+
+export const liveLayer = style({
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+});
+
+export const liveLayerCap = style({
+    minWidth: '4.8rem',
+    fontWeight: 700,
+    color: vars.color.mutedForeground,
+});
+
+export const liveLayerMeta = style({
+    fontSize: '0.64rem',
+    color: vars.color.mutedForeground,
+    marginTop: 2,
+});
+
 export const badges = style({
     display: 'flex',
     flexWrap: 'wrap',
