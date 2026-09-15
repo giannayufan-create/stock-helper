@@ -20,6 +20,7 @@ import { WatchlistStore } from './watchlist-store.ts';
 import { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import { IntradayRankService } from './lib/intraday-rank/service.ts';
 import { MarketIntelligenceService } from './lib/market-intelligence/index.ts';
+import { BrokerIntelligenceService } from './lib/broker-intelligence/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -159,6 +160,11 @@ async function main(): Promise<void> {
     );
     marketIntelligence.start();
 
+    const brokerIntelligence = new BrokerIntelligenceService(intradayRank);
+    console.log(
+        `broker-intelligence: ${brokerIntelligence.getHealth().status} provider=${brokerIntelligence.getProvider().id}`,
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -171,6 +177,7 @@ async function main(): Promise<void> {
         openGateV2,
         intradayRank,
         marketIntelligence,
+        brokerIntelligence,
         startedAt: Date.now(),
     };
 

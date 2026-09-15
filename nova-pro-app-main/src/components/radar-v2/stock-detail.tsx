@@ -10,6 +10,11 @@ import {
     fetchMiSymbol,
     type SymbolIntelligenceDto,
 } from '../../lib/market-intelligence';
+import {
+    fetchBrokerSummary,
+    fmtLotsShares,
+    type BrokerSummaryDto,
+} from '../../lib/broker-intelligence';
 import { fmtPct, fmtPrice } from '../../lib/utils/format';
 import { vars } from '../../theme.css';
 import { toggleFavorite } from './favorites';
@@ -274,6 +279,7 @@ export function StockDetailPage({
                 </div>
 
                 <MarketIntelBlock symbol={item.symbol} />
+                <BrokerChipBlock symbol={item.symbol} />
 
                 {/* AI CTA at top — always visible without scrolling past metrics */}
                 <div className={s.aiCard} style={{ marginBottom: 16 }}>
@@ -686,4 +692,135 @@ function MarketIntelBlock({ symbol }: { symbol: string }) {
         </div>
     );
 }
+
+function BrokerChipBlock({ symbol }: { symbol: string }) {
+    const [data, setData] = useState<BrokerSummaryDto | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        void fetchBrokerSummary(symbol)
+            .then((d) => {
+                if (!cancelled) setData(d);
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [symbol]);
+
+    if (!data) return null;
+
+    const freshnessLabel =
+        data.freshness === 'INTRADAY'
+            ? '即時分點'
+            : data.freshness === 'EOD' || data.freshness === 'T_PLUS_1'
+              ? '盤後／最近可用交易日分點'
+              : '分點 freshness 未知';
+
+    return (
+        <div className={s.glass} style={{ padding: 14, margin: '0 0 16px' }}>
+            <strong style={{ fontSize: 15 }}>籌碼情報</strong>
+            <div style={{ fontSize: 13, marginTop: 10, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>法人籌碼</div>
+                {data.institutional.available ? (
+                    <>
+                        <div>
+                            外資{' '}
+                            {fmtLotsShares(data.institutional.foreign_net)}
+                            {' · '}投信{' '}
+                            {fmtLotsShares(data.institutional.trust_net)}
+                        </div>
+                        <div
+                            style={{
+                                fontSize: 11,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            {data.institutional.freshness}
+                            {data.institutional.as_of
+                                ? ` · ${data.institutional.as_of}`
+                                : ''}{' '}
+                            · 與券商分點分開
+                        </div>
+                    </>
+                ) : (
+                    <div style={{ color: vars.color.mutedForeground }}>
+                        法人公開籌碼暫無
+                    </div>
+                )}
+
+                <div style={{ fontWeight: 700, margin: '12px 0 4px' }}>
+                    券商分點
+                </div>
+                {!data.branch_available ? (
+                    <div style={{ color: radarColor.healthWarn, fontSize: 13 }}>
+                        目前尚未接入券商分點資料來源
+                        <div
+                            style={{
+                                color: vars.color.mutedForeground,
+                                fontSize: 11,
+                                marginTop: 4,
+                            }}
+                        >
+                            不會顯示假券商名稱。Trade Aggression ≠ 分點身份。
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <div
+                            style={{
+                                fontSize: 11,
+                                color: vars.color.mutedForeground,
+                                marginBottom: 6,
+                            }}
+                        >
+                            {freshnessLabel}
+                            {data.trade_date ? ` · ${data.trade_date}` : ''}
+                        </div>
+                        <div>
+                            Top3 集中度{' '}
+                            {data.concentration?.concentration_top3 != null
+                                ? `${data.concentration.concentration_top3}%`
+                                : '—'}
+                        </div>
+                        <div>
+                            主力集中度推估{' '}
+                            <b>{data.main_force.label}</b>
+                            {data.main_force.score != null
+                                ? ` ${Math.round(data.main_force.score)}`
+                                : ''}
+                            <span
+                                style={{
+                                    fontSize: 11,
+                                    color: vars.color.mutedForeground,
+                                }}
+                            >
+                                {' '}
+                                · inferred · {data.main_force.confidence}
+                            </span>
+                        </div>
+                        {data.top_buy_branches.slice(0, 3).map((b, i) => (
+                            <div key={i} style={{ marginTop: 4 }}>
+                                {b.broker_name} {b.branch_name}{' '}
+                                {fmtLotsShares(b.net_volume * 1000)}
+                            </div>
+                        ))}
+                        <div
+                            style={{
+                                marginTop: 8,
+                                fontSize: 12,
+                                color:
+                                    data.alignment === 'BULLISH_ALIGNMENT'
+                                        ? radarColor.heating
+                                        : vars.color.mutedForeground,
+                            }}
+                        >
+                            {data.alignment_note}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
 

@@ -63,7 +63,13 @@ export interface StrategySignal {
     learning_eligible: boolean;
     universe_source?: string;
 
-    /** Immutable snapshot at signal formation — never overwrite. */
+    /** Immutable snapshot at signal formation — never overwrite.
+     * Optional future keys (point-in-time only; never backfill):
+     * broker_context?: {
+     *   available, main_force_score, top3_concentration,
+     *   net_buy_5d, consecutive_buy_days, freshness, inferred
+     * }
+     */
     feature_snapshot: Record<string, unknown>;
 
     metadata?: Record<string, unknown>;

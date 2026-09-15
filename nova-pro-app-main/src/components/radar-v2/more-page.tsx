@@ -8,10 +8,12 @@ export function MorePage({
     feed,
     onOpenSearch,
     onGoIntel,
+    onGoBrokerRadar,
 }: {
     feed: RadarFeed;
     onOpenSearch?: () => void;
     onGoIntel?: () => void;
+    onGoBrokerRadar?: () => void;
 }) {
     const coverageB =
         feed.openConfirm?.items?.length
@@ -83,6 +85,25 @@ export function MorePage({
                     </p>
                 )}
             </div>
+
+            <button
+                type="button"
+                className={s.stockCard}
+                onClick={onGoBrokerRadar}
+                disabled={!onGoBrokerRadar}
+                style={{ marginBottom: 10 }}
+            >
+                <strong>籌碼雷達</strong>
+                <div
+                    style={{
+                        fontSize: 13,
+                        color: vars.color.mutedForeground,
+                        marginTop: 4,
+                    }}
+                >
+                    主力集中推估 · 連續買進 · 籌碼＋動能共振
+                </div>
+            </button>
 
             <button
                 type="button"

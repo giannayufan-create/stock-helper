@@ -1,0 +1,32 @@
+# Broker / Branch Intelligence v1 — context only (never mutates A/B/C)
+
+enabled: true
+version: bi_v1
+
+# No live branch provider in-repo yet. Keep capability explicit.
+provider: unavailable
+
+cache:
+  eod_ttl_sec: 1800
+  ranking_ttl_sec: 300
+
+history:
+  max_lookback_days: 20
+  windows: [1, 3, 5, 10, 20]
+
+main_force:
+  top3_weight: 0.35
+  top5_weight: 0.25
+  persistence_weight: 0.20
+  consistency_weight: 0.20
+
+ranking_guards:
+  min_total_branch_volume: 500
+  min_positive_volume: 200
+  min_active_branches: 3
+  min_coverage_days_for_10d: 8
+  min_coverage_days_for_20d: 15
+
+alignment:
+  min_main_force_score: 70
+  min_c_score: 75

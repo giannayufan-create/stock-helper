@@ -127,6 +127,8 @@ export interface ReplayRunReport {
     scanner_replay_available: false;
     /** Live MI must never be injected into historical replay (no point-in-time dataset). */
     market_intelligence_available: false;
+    /** Live broker/branch intelligence must never leak into historical replay. */
+    broker_intelligence_available: false;
     discovery_capability: 'fixed_universe_only';
     status: 'completed' | 'failed';
     started_at: string;
@@ -563,6 +565,7 @@ export async function runHistoricalReplay(
         index_available: indexAvailable,
         scanner_replay_available: false,
         market_intelligence_available: false,
+        broker_intelligence_available: false,
         discovery_capability: 'fixed_universe_only',
         status: 'completed',
         started_at: startedWall,

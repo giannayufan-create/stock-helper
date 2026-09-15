@@ -11,6 +11,7 @@ import { loadFavorites } from './favorites';
 import { liveStatusLabel, taipeiClock } from './helpers';
 import { MorePage } from './more-page';
 import { IntelPage } from './intel-page';
+import { BrokerRadarPage } from './broker-radar-page';
 import { PerformancePage } from './performance-page';
 import * as s from './radar.css';
 import { RadarPage } from './radar-page';
@@ -48,6 +49,7 @@ export function RadarApp({
         null,
     );
     const [showIntel, setShowIntel] = useState(false);
+    const [showBrokerRadar, setShowBrokerRadar] = useState(false);
 
     useEffect(() => {
         const t = setInterval(() => setClock(taipeiClock()), 15_000);
@@ -83,7 +85,15 @@ export function RadarApp({
 
     const mainContent = (
         <>
-            {showIntel ? (
+            {showBrokerRadar ? (
+                <BrokerRadarPage
+                    onBack={() => setShowBrokerRadar(false)}
+                    onOpenSymbol={(sym) => {
+                        setShowBrokerRadar(false);
+                        openSymbol(sym);
+                    }}
+                />
+            ) : showIntel ? (
                 <IntelPage
                     onBack={() => {
                         setShowIntel(false);
@@ -126,6 +136,10 @@ export function RadarApp({
                     feed={feed}
                     favorites={favorites}
                     onOpenSymbol={openSymbol}
+                    onGoBrokerRadar={() => {
+                        setShowBrokerRadar(true);
+                        if (!isDesktop) closeDetail();
+                    }}
                 />
             )}
             {tab === 'perf' && <PerformancePage />}
@@ -134,6 +148,7 @@ export function RadarApp({
                     feed={feed}
                     onOpenSearch={onOpenSearch}
                     onGoIntel={() => setShowIntel(true)}
+                    onGoBrokerRadar={() => setShowBrokerRadar(true)}
                 />
             )}
             <div className={s.pageEnd} />

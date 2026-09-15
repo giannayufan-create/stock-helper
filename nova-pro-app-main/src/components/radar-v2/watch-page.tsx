@@ -20,12 +20,14 @@ export function WatchPage({
     feed,
     favorites,
     onOpenSymbol,
+    onGoBrokerRadar,
 }: {
     feed: RadarFeed;
     favorites: string[];
     onOpenSymbol: (symbol: string) => void;
+    onGoBrokerRadar?: () => void;
 }) {
-    const [tab, setTab] = useState<'pass' | 'fav'>('pass');
+    const [tab, setTab] = useState<'pass' | 'fav' | 'chips'>('pass');
 
     const passes = (feed.openConfirm?.items ?? []).filter(
         (i) => i.open_confirm === 'pass' || i.open_confirm === 'early_pass',
@@ -51,9 +53,40 @@ export function WatchPage({
                 >
                     我的關注
                 </button>
+                <button
+                    type="button"
+                    className={`${s.tabChip} ${tab === 'chips' ? s.tabChipOn : ''}`}
+                    onClick={() => setTab('chips')}
+                >
+                    籌碼雷達
+                </button>
             </div>
 
-            {tab === 'pass' ? (
+            {tab === 'chips' ? (
+                <div className={s.glass} style={{ padding: 16, marginTop: 8 }}>
+                    <strong>籌碼／主力雷達</strong>
+                    <p
+                        style={{
+                            fontSize: 13,
+                            color: vars.color.mutedForeground,
+                            marginTop: 8,
+                            lineHeight: 1.45,
+                        }}
+                    >
+                        主力集中推估、連續買進、籌碼＋動能共振。分點未接入時顯示
+                        UNAVAILABLE，不假造券商名稱。
+                    </p>
+                    <button
+                        type="button"
+                        className={s.quickBtn}
+                        style={{ marginTop: 12, width: '100%' }}
+                        onClick={onGoBrokerRadar}
+                        disabled={!onGoBrokerRadar}
+                    >
+                        開啟籌碼雷達
+                    </button>
+                </div>
+            ) : tab === 'pass' ? (
                 passes.length === 0 ? (
                     <div className={s.empty}>
                         目前沒有開盤通過標的
