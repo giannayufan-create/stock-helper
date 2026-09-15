@@ -10,6 +10,7 @@ import { vars } from '../../theme.css';
 import { loadFavorites } from './favorites';
 import { liveStatusLabel, taipeiClock } from './helpers';
 import { MorePage } from './more-page';
+import { IntelPage } from './intel-page';
 import { PerformancePage } from './performance-page';
 import * as s from './radar.css';
 import { RadarPage } from './radar-page';
@@ -38,7 +39,6 @@ export function RadarApp({
 }) {
     const isDesktop = useMediaQuery('screen and (min-width: 1025px)');
     const feed = useRadarFeed(5000);
-    // Default to 雷達 — fastest path to “誰最強”
     const [tab, setTab] = useState<RadarTab>('radar');
     const [radarInner, setRadarInner] = useState<string>('strong');
     const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
@@ -47,6 +47,7 @@ export function RadarApp({
     const [provider, setProvider] = useState<'mock' | 'fugle' | 'shioaji' | null>(
         null,
     );
+    const [showIntel, setShowIntel] = useState(false);
 
     useEffect(() => {
         const t = setInterval(() => setClock(taipeiClock()), 15_000);
@@ -82,6 +83,14 @@ export function RadarApp({
 
     const mainContent = (
         <>
+            {showIntel ? (
+                <IntelPage
+                    onBack={() => {
+                        setShowIntel(false);
+                    }}
+                />
+            ) : (
+                <>
             {tab === 'today' && (
                 <TodayPage
                     feed={feed}
@@ -97,6 +106,10 @@ export function RadarApp({
                         if (!isDesktop) closeDetail();
                     }}
                     onSearch={onOpenSearch}
+                    onGoIntel={() => {
+                        setShowIntel(true);
+                        if (!isDesktop) closeDetail();
+                    }}
                 />
             )}
             {tab === 'radar' && (
@@ -117,9 +130,15 @@ export function RadarApp({
             )}
             {tab === 'perf' && <PerformancePage />}
             {tab === 'more' && (
-                <MorePage feed={feed} onOpenSearch={onOpenSearch} />
+                <MorePage
+                    feed={feed}
+                    onOpenSearch={onOpenSearch}
+                    onGoIntel={() => setShowIntel(true)}
+                />
             )}
             <div className={s.pageEnd} />
+                </>
+            )}
         </>
     );
 

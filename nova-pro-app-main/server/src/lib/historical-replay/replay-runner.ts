@@ -125,6 +125,8 @@ export interface ReplayRunReport {
     amount_available: boolean;
     index_available: boolean;
     scanner_replay_available: false;
+    /** Live MI must never be injected into historical replay (no point-in-time dataset). */
+    market_intelligence_available: false;
     discovery_capability: 'fixed_universe_only';
     status: 'completed' | 'failed';
     started_at: string;
@@ -560,6 +562,7 @@ export async function runHistoricalReplay(
         amount_available,
         index_available: indexAvailable,
         scanner_replay_available: false,
+        market_intelligence_available: false,
         discovery_capability: 'fixed_universe_only',
         status: 'completed',
         started_at: startedWall,

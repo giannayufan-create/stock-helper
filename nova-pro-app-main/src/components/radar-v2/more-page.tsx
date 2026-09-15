@@ -7,9 +7,11 @@ import type { RadarFeed } from './use-radar-feed';
 export function MorePage({
     feed,
     onOpenSearch,
+    onGoIntel,
 }: {
     feed: RadarFeed;
     onOpenSearch?: () => void;
+    onGoIntel?: () => void;
 }) {
     const coverageB =
         feed.openConfirm?.items?.length
@@ -81,6 +83,25 @@ export function MorePage({
                     </p>
                 )}
             </div>
+
+            <button
+                type="button"
+                className={s.stockCard}
+                onClick={onGoIntel}
+                disabled={!onGoIntel}
+                style={{ marginBottom: 10 }}
+            >
+                <strong>市場情報</strong>
+                <div
+                    style={{
+                        fontSize: 13,
+                        color: vars.color.mutedForeground,
+                        marginTop: 4,
+                    }}
+                >
+                    全球市場 · 熱門產業 · 題材 · 新聞摘要
+                </div>
+            </button>
 
             <button
                 type="button"

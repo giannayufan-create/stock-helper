@@ -2,6 +2,7 @@
 
 import type { Config } from './config.ts';
 import type { IntradayRankService } from './lib/intraday-rank/service.ts';
+import type { MarketIntelligenceService } from './lib/market-intelligence/index.ts';
 import type { MarketRuntime } from './lib/market-runtime/index.ts';
 import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import type { MarketManager } from './providers/manager.ts';
@@ -27,6 +28,8 @@ export interface AppContext {
     marketRuntime: MarketRuntime;
     openGateV2: OpenGateV2Service;
     intradayRank: IntradayRankService;
+    /** Context layer only — never mutates A/B/C scores. */
+    marketIntelligence: MarketIntelligenceService | null;
     startedAt: number;
 }
 

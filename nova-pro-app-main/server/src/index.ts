@@ -19,6 +19,7 @@ import { SubscriptionRegistry } from './sse/subscriptions.ts';
 import { WatchlistStore } from './watchlist-store.ts';
 import { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import { IntradayRankService } from './lib/intraday-rank/service.ts';
+import { MarketIntelligenceService } from './lib/market-intelligence/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -151,6 +152,13 @@ async function main(): Promise<void> {
     );
     intradayRank.start();
 
+    const marketIntelligence = new MarketIntelligenceService(
+        intradayRank,
+        openGateV2,
+        config.geminiApiKey,
+    );
+    marketIntelligence.start();
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -162,6 +170,7 @@ async function main(): Promise<void> {
         marketRuntime,
         openGateV2,
         intradayRank,
+        marketIntelligence,
         startedAt: Date.now(),
     };
 

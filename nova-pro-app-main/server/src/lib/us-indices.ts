@@ -1,5 +1,7 @@
 // server/src/lib/us-indices.ts — best-effort US index quotes (Yahoo public chart API)
 
+import { fetchYahooChartMeta } from './yahoo-chart.ts';
+
 export interface UsIndexQuote {
     symbol: string;
     label: string;
@@ -15,43 +17,19 @@ const US_SYMBOLS: Array<{ yahoo: string; label: string }> = [
     { yahoo: '^SOX', label: '費半' },
 ];
 
-interface YahooChartResult {
-    chart?: {
-        result?: Array<{
-            meta?: {
-                regularMarketPrice?: number;
-                chartPreviousClose?: number;
-                previousClose?: number;
-                regularMarketTime?: number;
-            };
-        }>;
-    };
-}
-
 async function fetchOne(yahoo: string, label: string): Promise<UsIndexQuote | null> {
-    const url =
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahoo)}` +
-        '?interval=1d&range=5d';
-    const ctrl = AbortSignal.timeout(8000);
-    const res = await fetch(url, {
-        signal: ctrl,
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; stock-helper/1.0)',
-            Accept: 'application/json',
-        },
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as YahooChartResult;
-    const meta = json.chart?.result?.[0]?.meta;
-    if (!meta?.regularMarketPrice) return null;
-    const close = meta.regularMarketPrice;
-    const prev = meta.chartPreviousClose ?? meta.previousClose ?? close;
-    const changeRate = prev ? ((close - prev) / prev) * 100 : 0;
-    const asOf =
-        typeof meta.regularMarketTime === 'number'
-            ? new Date(meta.regularMarketTime * 1000).toISOString()
-            : null;
-    return { symbol: yahoo, label, close, changeRate, asOf };
+    const meta = await fetchYahooChartMeta(yahoo);
+    if (!meta) return null;
+    return {
+        symbol: yahoo,
+        label,
+        close: meta.price,
+        changeRate: meta.changePct,
+        asOf:
+            meta.marketTime != null
+                ? new Date(meta.marketTime * 1000).toISOString()
+                : null,
+    };
 }
 
 export async function fetchUsIndices(): Promise<UsIndexQuote[]> {

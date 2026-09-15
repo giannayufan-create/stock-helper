@@ -1,0 +1,105 @@
+{
+  "version": "theme_map_v1",
+  "updated_at": "2026-03-16",
+  "source": "manual_curated",
+  "themes": [
+    {
+      "theme_id": "ai_server",
+      "name": "AI Server",
+      "aliases": ["AI伺服器", "人工智慧伺服器", "AI server", "伺服器"],
+      "symbols": ["2382", "3231", "6669", "2356", "2376", "2377", "3017", "2308", "3706"],
+      "confidence": "medium"
+    },
+    {
+      "theme_id": "pcb",
+      "name": "PCB",
+      "aliases": ["印刷電路板", "PCB板", "載板"],
+      "symbols": ["3037", "8046", "2313", "2368", "2355", "6213", "5469", "3189"],
+      "confidence": "high"
+    },
+    {
+      "theme_id": "ccl",
+      "name": "CCL",
+      "aliases": ["銅箔基板", "CCL", "台光電"],
+      "symbols": ["2383", "6213", "6274"],
+      "confidence": "medium"
+    },
+    {
+      "theme_id": "cowos",
+      "name": "CoWoS",
+      "aliases": ["先進封裝", "CoWoS", "封測"],
+      "symbols": ["2330", "3711", "6239", "2449", "3532"],
+      "confidence": "medium"
+    },
+    {
+      "theme_id": "advanced_packaging",
+      "name": "Advanced Packaging",
+      "aliases": ["先進封裝", "封裝測試"],
+      "symbols": ["3711", "6239", "2449", "3532", "2329"],
+      "confidence": "medium"
+    },
+    {
+      "theme_id": "cooling",
+      "name": "Cooling",
+      "aliases": ["散熱", "水冷", "熱管理"],
+      "symbols": ["3017", "3324", "6230", "2421", "3653"],
+      "confidence": "high"
+    },
+    {
+      "theme_id": "memory",
+      "name": "Memory",
+      "aliases": ["記憶體", "DRAM", "NAND", "HBM"],
+      "symbols": ["2303", "2337", "2344", "2408", "8299", "2451"],
+      "confidence": "medium"
+    },
+    {
+      "theme_id": "robot",
+      "name": "Robot",
+      "aliases": ["機器人", "自動化", "線性滑軌"],
+      "symbols": ["2049", "1590", "6605", "1560"],
+      "confidence": "medium"
+    },
+    {
+      "theme_id": "silicon_photonics",
+      "name": "Silicon Photonics",
+      "aliases": ["矽光子", "光通訊", "光模組"],
+      "symbols": ["2345", "3081", "4979", "3363"],
+      "confidence": "low"
+    },
+    {
+      "theme_id": "leo",
+      "name": "Low Earth Orbit",
+      "aliases": ["低軌衛星", "衛星通訊", "LEO"],
+      "symbols": ["2485", "3105", "4991"],
+      "confidence": "low"
+    },
+    {
+      "theme_id": "defense",
+      "name": "Defense",
+      "aliases": ["軍工", "國防", "航太"],
+      "symbols": ["2634", "2208", "8021"],
+      "confidence": "medium"
+    },
+    {
+      "theme_id": "heavy_electrical",
+      "name": "Heavy Electrical",
+      "aliases": ["重電", "變壓器", "電力設備"],
+      "symbols": ["1519", "1513", "1504", "1608"],
+      "confidence": "high"
+    },
+    {
+      "theme_id": "energy_storage",
+      "name": "Energy Storage",
+      "aliases": ["儲能", "綠能", "電網"],
+      "symbols": ["1513", "1519", "6443", "1795"],
+      "confidence": "medium"
+    },
+    {
+      "theme_id": "shipping",
+      "name": "Shipping",
+      "aliases": ["航運", "貨櫃", "海運"],
+      "symbols": ["2603", "2609", "2615", "2605"],
+      "confidence": "high"
+    }
+  ]
+}

@@ -1,3 +1,10 @@
+import { useEffect, useState } from 'react';
+import {
+    deltaLabel,
+    fetchMiOverview,
+    type MiOverview,
+} from '../../lib/market-intelligence';
+import { vars } from '../../theme.css';
 import {
     fmtPctSigned,
     regimeMeta,
@@ -7,8 +14,8 @@ import {
 } from './helpers';
 import * as s from './radar.css';
 import { CompactStockRow, MiniHeatCard, MiniPullbackCard } from './stock-cards';
+import { radarColor } from './tokens';
 import type { RadarFeed } from './use-radar-feed';
-import { vars } from '../../theme.css';
 
 export function TodayPage({
     feed,
@@ -17,6 +24,7 @@ export function TodayPage({
     onGoRadar,
     onGoWatch,
     onSearch,
+    onGoIntel,
 }: {
     feed: RadarFeed;
     selectedSymbol?: string | null;
@@ -24,9 +32,9 @@ export function TodayPage({
     onGoRadar: (tab?: string) => void;
     onGoWatch: () => void;
     onSearch?: () => void;
+    onGoIntel?: () => void;
 }) {
     const regime = regimeMeta(feed.marketRegime, feed.marketScore);
-    // Always show strongest by C score — never leave first screen empty if data exists
     const top = sortStrong(feed.items).slice(0, 5);
     const heating = sortHeating(feed.items)
         .filter(
@@ -37,6 +45,32 @@ export function TodayPage({
         )
         .slice(0, 8);
     const pullbacks = sortPullback(feed.items).slice(0, 6);
+
+    const [mi, setMi] = useState<MiOverview | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        const load = () =>
+            void fetchMiOverview()
+                .then((ov) => {
+                    if (!cancelled) setMi(ov);
+                })
+                .catch(() => undefined);
+        load();
+        const t = setInterval(load, 30_000);
+        return () => {
+            cancelled = true;
+            clearInterval(t);
+        };
+    }, []);
+
+    const sectors = (mi?.top_sectors ?? [])
+        .filter((x) => x.eligible_for_ranking !== false)
+        .slice(0, 5);
+    const themes = (mi?.top_themes ?? [])
+        .filter((x) => x.eligible_for_ranking !== false)
+        .slice(0, 5);
+    const sox = mi?.global_markets?.find((a) => a.id === 'sox');
+    const nasdaq = mi?.global_markets?.find((a) => a.id === 'nasdaq');
 
     return (
         <>
@@ -82,6 +116,124 @@ export function TodayPage({
                     ↻
                 </button>
             </div>
+
+            {mi?.market_context && (
+                <div className={s.glass} style={{ padding: 14, marginBottom: 12 }}>
+                    <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                        }}
+                    >
+                        <strong style={{ fontSize: 15 }}>今日情報</strong>
+                        {onGoIntel && (
+                            <button
+                                type="button"
+                                className={s.linkBtn}
+                                onClick={onGoIntel}
+                            >
+                                查看完整情報 ›
+                            </button>
+                        )}
+                    </div>
+                    <div style={{ fontSize: 13, marginTop: 8, lineHeight: 1.45 }}>
+                        市場環境 <b>{mi.market_context.risk_environment}</b>
+                        {' · '}科技 {mi.market_context.tech_context}
+                        {' · '}半導體 {mi.market_context.semiconductor_context}
+                    </div>
+                    <div
+                        style={{
+                            fontSize: 12,
+                            fontFamily: vars.font.mono,
+                            marginTop: 6,
+                            color: vars.color.mutedForeground,
+                        }}
+                    >
+                        SOX{' '}
+                        {sox?.change_pct != null
+                            ? `${sox.change_pct >= 0 ? '+' : ''}${sox.change_pct.toFixed(1)}%`
+                            : '—'}
+                        {' · '}NASDAQ{' '}
+                        {nasdaq?.change_pct != null
+                            ? `${nasdaq.change_pct >= 0 ? '+' : ''}${nasdaq.change_pct.toFixed(1)}%`
+                            : '—'}
+                    </div>
+                </div>
+            )}
+
+            {sectors.length > 0 && (
+                <section className={s.section}>
+                    <div className={s.sectionRow}>
+                        <div className={s.sectionTitle} style={{ marginBottom: 0 }}>
+                            熱門產業
+                        </div>
+                        {onGoIntel && (
+                            <button
+                                type="button"
+                                className={s.linkBtn}
+                                onClick={onGoIntel}
+                            >
+                                全部 ›
+                            </button>
+                        )}
+                    </div>
+                    {sectors.map((sec) => (
+                        <div
+                            key={sec.sector}
+                            className={s.glass}
+                            style={{
+                                padding: '10px 12px',
+                                marginBottom: 6,
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                            }}
+                        >
+                            <span style={{ fontWeight: 700 }}>{sec.sector}</span>
+                            <span style={{ fontFamily: vars.font.mono }}>
+                                <b style={{ color: radarColor.strong }}>
+                                    {sec.heat_score != null
+                                        ? Math.round(sec.heat_score)
+                                        : '—'}
+                                </b>{' '}
+                                <span style={{ color: radarColor.heating }}>
+                                    {deltaLabel(sec.heat_delta_5m)}
+                                </span>
+                            </span>
+                        </div>
+                    ))}
+                </section>
+            )}
+
+            {themes.length > 0 && (
+                <section className={s.section}>
+                    <div className={s.sectionTitle}>熱門題材</div>
+                    {themes.map((th) => (
+                        <div
+                            key={th.theme_id}
+                            className={s.glass}
+                            style={{
+                                padding: '10px 12px',
+                                marginBottom: 6,
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                            }}
+                        >
+                            <span style={{ fontWeight: 700 }}>{th.theme}</span>
+                            <span style={{ fontFamily: vars.font.mono }}>
+                                <b style={{ color: radarColor.strong }}>
+                                    {th.heat_score != null
+                                        ? Math.round(th.heat_score)
+                                        : '—'}
+                                </b>{' '}
+                                <span style={{ color: radarColor.heating }}>
+                                    {deltaLabel(th.heat_delta_5m)}
+                                </span>
+                            </span>
+                        </div>
+                    ))}
+                </section>
+            )}
 
             <div className={s.quickBar}>
                 <button
@@ -132,16 +284,6 @@ export function TodayPage({
                         >
                             重新整理
                         </button>
-                        {onSearch && (
-                            <button
-                                type="button"
-                                className={s.quickBtn}
-                                style={{ marginTop: 8, width: '100%' }}
-                                onClick={onSearch}
-                            >
-                                搜尋股票代碼
-                            </button>
-                        )}
                     </div>
                 ) : (
                     top.map((item, i) => (
@@ -159,10 +301,7 @@ export function TodayPage({
             {heating.length > 0 && (
                 <section className={s.section}>
                     <div className={s.sectionRow}>
-                        <div
-                            className={s.sectionTitle}
-                            style={{ marginBottom: 0 }}
-                        >
+                        <div className={s.sectionTitle} style={{ marginBottom: 0 }}>
                             正在升溫
                         </div>
                         <button
@@ -188,10 +327,7 @@ export function TodayPage({
             {pullbacks.length > 0 && (
                 <section className={s.section}>
                     <div className={s.sectionRow}>
-                        <div
-                            className={s.sectionTitle}
-                            style={{ marginBottom: 0 }}
-                        >
+                        <div className={s.sectionTitle} style={{ marginBottom: 0 }}>
                             回踩機會
                         </div>
                         <button

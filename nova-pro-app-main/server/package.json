@@ -13,6 +13,7 @@
         "test:learning": "tsx src/lib/learning/learning.test.ts",
         "test:fix-pack": "tsx src/lib/fix-pack/fix-pack.test.ts",
         "test:shadow": "tsx src/lib/shadow/shadow.test.ts",
+        "test:mi": "tsx src/lib/market-intelligence/mi.test.ts",
         "acceptance:gate": "tsx src/acceptance-gate.ts",
         "replay": "tsx src/replay-cli.ts",
         "outcome:summary": "tsx src/outcome-summary-cli.ts",

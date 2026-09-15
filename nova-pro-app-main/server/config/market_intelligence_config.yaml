@@ -1,0 +1,52 @@
+# Market Intelligence v1 — context layer only (never mutates A/B/C scores)
+
+enabled: true
+version: mi_v1
+
+refresh:
+  global_sec: 60
+  sector_heat_sec: 15
+  theme_heat_sec: 15
+  news_sec: 600
+  company_events_sec: 600
+  ai_brief_sec: 600
+  persist_heat_sec: 180
+
+sector_heat:
+  breadth: 0.25
+  participation: 0.25
+  leader_strength: 0.20
+  volume_acceleration: 0.15
+  rank_momentum: 0.10
+  event_density: 0.05
+
+theme_heat:
+  breadth: 0.25
+  participation: 0.25
+  leader_strength: 0.20
+  volume_acceleration: 0.15
+  rank_momentum: 0.10
+  event_density: 0.05
+
+coverage:
+  high_min_covered: 10
+  high_min_pct: 70
+  medium_min_covered: 5
+  medium_min_pct: 50
+  min_eligible_covered: 3
+  leader_top_pct: 0.2
+  leader_top_max: 5
+
+news:
+  symbol_ttl_sec: 480
+  sector_ttl_sec: 600
+  theme_ttl_sec: 600
+  global_ttl_sec: 720
+  max_per_query: 8
+  max_headlines_overview: 12
+
+ai_brief:
+  enabled: true
+  ttl_sec: 600
+
+snapshot_history_minutes: 20

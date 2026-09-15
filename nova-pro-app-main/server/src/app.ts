@@ -14,6 +14,7 @@ import { registerPortfolioRoutes } from './routes/portfolio.ts';
 import { registerStreamRoutes } from './routes/stream.ts';
 import { registerWatchlistRoutes } from './routes/watchlist.ts';
 import { registerAiRoutes } from './routes/ai.ts';
+import { registerMarketIntelligenceRoutes } from './routes/market-intelligence.ts';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const app = Fastify({ logger: { level: 'warn' } });
@@ -37,6 +38,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerPortfolioRoutes(app, ctx);
     registerWatchlistRoutes(app, ctx);
     registerAiRoutes(app, ctx);
+    registerMarketIntelligenceRoutes(app, ctx);
 
     // provider events → SSE fan-out
     ctx.market.onTick((channel, tick) => ctx.hub.broadcast(channel, tick));

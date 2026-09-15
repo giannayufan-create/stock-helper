@@ -6,6 +6,10 @@ import {
     analyzeSymbolWithServer,
     type SymbolAnalyzeResult,
 } from '../../lib/radar-ai';
+import {
+    fetchMiSymbol,
+    type SymbolIntelligenceDto,
+} from '../../lib/market-intelligence';
 import { fmtPct, fmtPrice } from '../../lib/utils/format';
 import { vars } from '../../theme.css';
 import { toggleFavorite } from './favorites';
@@ -268,6 +272,8 @@ export function StockDetailPage({
                     {stateLabel(item.state)}
                     {event ? ` · ${eventLabel(event)}` : ''}
                 </div>
+
+                <MarketIntelBlock symbol={item.symbol} />
 
                 {/* AI CTA at top — always visible without scrolling past metrics */}
                 <div className={s.aiCard} style={{ marginBottom: 16 }}>
@@ -587,3 +593,97 @@ function Metric({ lab, val }: { lab: string; val: string }) {
         </div>
     );
 }
+
+/** Context-only block — does not change C/Heat scores. */
+function MarketIntelBlock({ symbol }: { symbol: string }) {
+    const [data, setData] = useState<SymbolIntelligenceDto | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        void fetchMiSymbol(symbol)
+            .then((d) => {
+                if (!cancelled) setData(d);
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [symbol]);
+
+    if (!data) return null;
+
+    return (
+        <div className={s.glass} style={{ padding: 14, margin: '12px 0 16px' }}>
+            <strong style={{ fontSize: 15 }}>市場情報</strong>
+            <div style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
+                {data.sector?.name ? (
+                    <div>
+                        所屬產業 <b>{data.sector.name}</b>
+                        {data.sector.heat != null && (
+                            <>
+                                {' '}
+                                · 產業 Heat {Math.round(data.sector.heat)}{' '}
+                                {data.sector.trend ?? ''}
+                                {data.sector.rank != null &&
+                                    ` · #${data.sector.rank}`}
+                            </>
+                        )}
+                    </div>
+                ) : (
+                    <div style={{ color: vars.color.mutedForeground }}>
+                        產業對應暫無
+                    </div>
+                )}
+                {data.themes.length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                        題材{' '}
+                        {data.themes
+                            .map(
+                                (t) =>
+                                    `${t.name}${t.heat != null ? ` ${Math.round(t.heat)}` : ''}`,
+                            )
+                            .join(' · ')}
+                    </div>
+                )}
+                {data.chips_context.summary && (
+                    <div style={{ marginTop: 4 }}>
+                        法人背景 {data.chips_context.summary}
+                        <span
+                            style={{
+                                color: vars.color.mutedForeground,
+                                fontSize: 11,
+                            }}
+                        >
+                            {' '}
+                            （{data.chips_context.freshness}）
+                        </span>
+                    </div>
+                )}
+                <div style={{ marginTop: 4, color: vars.color.mutedForeground }}>
+                    {data.market_context.summary}
+                </div>
+                {data.news.slice(0, 3).map((n, i) => (
+                    <div
+                        key={i}
+                        style={{
+                            marginTop: 6,
+                            fontSize: 12,
+                            color: vars.color.mutedForeground,
+                        }}
+                    >
+                        [{n.sentiment}] {n.title}
+                    </div>
+                ))}
+                <div
+                    style={{
+                        marginTop: 8,
+                        fontSize: 11,
+                        color: vars.color.mutedForeground,
+                    }}
+                >
+                    公司事件為部分公開來源；完整重大訊息尚未接入。情報不影響強度／熱度分數。
+                </div>
+            </div>
+        </div>
+    );
+}
+
