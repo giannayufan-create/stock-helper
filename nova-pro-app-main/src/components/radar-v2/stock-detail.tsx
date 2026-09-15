@@ -92,9 +92,11 @@ export function StockDetailPage({
                 const chg =
                     snap.change_rate != null
                         ? Number(snap.change_rate)
-                        : snap.prev_close > 0 && snap.close > 0
-                          ? ((snap.close - snap.prev_close) /
-                                snap.prev_close) *
+                        : snap.close > 0 &&
+                            snap.change_price != null &&
+                            snap.close !== snap.change_price
+                          ? (snap.change_price /
+                                (snap.close - snap.change_price)) *
                             100
                           : null;
                 if (chg != null && Number.isFinite(chg)) setSnapPct(chg);
