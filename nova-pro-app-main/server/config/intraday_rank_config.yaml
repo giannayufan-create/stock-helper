@@ -1,0 +1,68 @@
+# C Intraday Rank v1 — discovery + ranking (backtest-tunable)
+
+scanner_interval_sec: 15
+evaluate_interval_sec: 3
+
+scanner_top_n:
+  change_percent: 50
+  volume: 50
+  amount: 50
+  tick_count: 50
+  day_range: 30
+
+max_discovery_pool: 200
+max_active_watch_pool: 100
+max_ranked_pool: 30
+
+weights:
+  momentum: 20
+  volume_acceleration: 20
+  relative_strength: 15
+  vwap_structure: 15
+  breakout: 10
+  trade_aggression: 10
+  pullback_quality: 5
+  liquidity: 5
+
+discovery_weights:
+  amount_rank: 25
+  tick_rank: 25
+  volume_rank: 20
+  change_rank: 10
+  day_range_rank: 5
+  b_bonus: 10
+  a_bonus: 5
+
+strong_enter: 80
+strong_exit: 74
+heating_enter: 70
+heating_exit: 65
+emerging_enter: 60
+min_confirm_evaluations: 2
+
+rank_jump_threshold: 20
+score_log_delta: 3
+heartbeat_sec: 60
+
+chase_penalties:
+  low: 0
+  medium: 4
+  high: 10
+  extreme: 18
+
+b_pass_confidence_bonus: 3
+b_watch_confidence_bonus: 1
+
+event_cooldowns_sec:
+  SURGE: 180
+  BREAKOUT: 120
+  REBREAK: 120
+  PULLBACK_READY: 180
+  RANK_JUMP: 300
+  COOLING: 120
+  INVALID: 60
+
+eligibility:
+  max_spread_pct: 0.8
+  min_turnover: 3000000
+  min_tick_count: 5

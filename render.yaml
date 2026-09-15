@@ -1,20 +1,21 @@
 # Render Blueprint — 股市小幫手
-# Connect this GitHub repo in Render → New → Blueprint
-# Free tier services sleep when idle (first open may take ~30–60s).
+# Dashboard: https://dashboard.render.com → Blueprint / stock-helper-api
+# Free tier sleeps when idle（第一次開啟可能要等 30–60 秒）
+#
+# 原本變數維持不動；永豐行情只用新名稱 SHIOAJI_*（勿再貼 MARKET_PROVIDER）。
 
 services:
-  # Frontend + Node API (same origin → no CORS pain)
   - type: web
     name: stock-helper-api
-    runtime: node
+    runtime: docker
     plan: free
+    region: singapore
     rootDir: nova-pro-app-main
-    buildCommand: corepack enable && pnpm install && pnpm build
-    startCommand: pnpm --filter nova-pro-server start
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /api/v1/health
     envVars:
-      - key: NODE_VERSION
-        value: "22"
+      # ── 原本就有的（不要改名、不要重複貼）──
       - key: HOST
         value: "0.0.0.0"
       - key: MARKET_PROVIDER
@@ -26,22 +27,15 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: ANALYZER_URL
-        fromService:
-          name: stock-helper-analyzer
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
-
-  # Optional Python analyzer (no API key required for scoring)
-  - type: web
-    name: stock-helper-analyzer
-    runtime: python
-    plan: free
-    rootDir: nova-pro-app-main/analyzer
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.8"
-      - key: GEMINI_API_KEY
+        value: ""
+      # ── 永豐行情（新名稱，可另外新增）──
+      - key: SHIOAJI_ENABLED
+        value: shioaji
+      - key: SHIOAJI_PRODUCTION
+        value: "true"
+      - key: SHIOAJI_BRIDGE_PORT
+        value: "18080"
+      - key: SHIOAJI_API_KEY
+        sync: false
+      - key: SHIOAJI_SECRET_KEY
         sync: false

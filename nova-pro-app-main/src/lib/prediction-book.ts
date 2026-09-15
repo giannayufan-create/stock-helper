@@ -17,7 +17,14 @@ export interface PredictionRecord {
     code: string;
     name: string;
     close: number;
+    /** 建議進場價（參考） */
+    entryPrice?: number;
+    entryNote?: string;
     target?: number;
+    /** 預估最佳賣點說明／漲點 */
+    sellNote?: string;
+    gainPts?: number;
+    gainPct?: number;
     rr: number;
     stopLossPct: number;
     takeProfitPct: number;

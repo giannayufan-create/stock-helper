@@ -18,6 +18,7 @@ export type BlockType =
     | 'replay'
     | 'depthmap'
     | 'strategyScreener'
+    | 'intradayRank'
     | 'predictionBook'
     | 'moneyFlow';
 
@@ -60,7 +61,7 @@ export const BLOCK_META: Record<
         defaultSize: { w: 4, h: 11, minW: 3, minH: 5 },
     },
     dock: {
-        label: '持倉/委託/帳務',
+        label: '持倉/委託/帳務（已移除）',
         pinnable: false,
         singleton: true,
         defaultSize: { w: 15, h: 9, minW: 6, minH: 5 },
@@ -78,7 +79,7 @@ export const BLOCK_META: Record<
         defaultSize: { w: 5, h: 8, minW: 4, minH: 7 },
     },
     ticket: {
-        label: '下單面板',
+        label: '下單面板（已移除）',
         pinnable: true,
         singleton: false,
         defaultSize: { w: 5, h: 11, minW: 4, minH: 10 },
@@ -90,13 +91,13 @@ export const BLOCK_META: Record<
         defaultSize: { w: 4, h: 8, minW: 3, minH: 4 },
     },
     flash: {
-        label: '閃電下單',
+        label: '閃電下單（已移除）',
         pinnable: true,
         singleton: false,
         defaultSize: { w: 5, h: 14, minW: 4, minH: 8 },
     },
     pnl: {
-        label: '損益分析',
+        label: '損益分析（已移除）',
         pinnable: false,
         singleton: true,
         defaultSize: { w: 8, h: 8, minW: 6, minH: 6 },
@@ -137,6 +138,12 @@ export const BLOCK_META: Record<
         singleton: true,
         defaultSize: { w: 8, h: 12, minW: 6, minH: 8 },
     },
+    intradayRank: {
+        label: '盤中強攻雷達',
+        pinnable: false,
+        singleton: true,
+        defaultSize: { w: 8, h: 14, minW: 5, minH: 8 },
+    },
     predictionBook: {
         label: '布局本',
         pinnable: false,
@@ -157,11 +164,9 @@ export const DEFAULT_WORKSPACE: Workspace = {
         { id: 'strategyScreener-0', type: 'strategyScreener', pin: null },
         { id: 'moneyFlow-0', type: 'moneyFlow', pin: null },
         { id: 'chart-0', type: 'chart', pin: null },
-        { id: 'dock-0', type: 'dock', pin: null },
+        { id: 'intradayRank-0', type: 'intradayRank', pin: null },
         { id: 'depth-0', type: 'depth', pin: null },
         { id: 'volprofile-0', type: 'volprofile', pin: null },
-        { id: 'ticket-0', type: 'ticket', pin: null },
-        { id: 'tape-0', type: 'tape', pin: null },
         { id: 'predictionBook-0', type: 'predictionBook', pin: null },
     ],
     layout: [
@@ -185,24 +190,38 @@ export const DEFAULT_WORKSPACE: Workspace = {
             minH: 8,
         },
         { i: 'chart-0', x: 4, y: 0, w: 15, h: 16, minW: 6, minH: 7 },
-        { i: 'dock-0', x: 4, y: 16, w: 15, h: 9, minW: 6, minH: 5 },
+        {
+            i: 'intradayRank-0',
+            x: 4,
+            y: 16,
+            w: 15,
+            h: 14,
+            minW: 5,
+            minH: 8,
+        },
         { i: 'depth-0', x: 19, y: 0, w: 5, h: 8, minW: 4, minH: 7 },
         { i: 'volprofile-0', x: 19, y: 8, w: 5, h: 10, minW: 4, minH: 6 },
-        { i: 'ticket-0', x: 19, y: 18, w: 5, h: 9, minW: 4, minH: 8 },
-        { i: 'tape-0', x: 19, y: 27, w: 5, h: 6, minW: 3, minH: 4 },
         {
             i: 'predictionBook-0',
-            x: 4,
-            y: 25,
-            w: 15,
-            h: 8,
-            minW: 6,
-            minH: 6,
+            x: 19,
+            y: 18,
+            w: 5,
+            h: 10,
+            minW: 4,
+            minH: 7,
         },
     ],
 };
 
-const WS_KEY = 'sj-pro-workspace-v3';
+/** Execution-layer panels removed from decision-support product. */
+export const REMOVED_BLOCK_TYPES: ReadonlySet<BlockType> = new Set([
+    'dock',
+    'ticket',
+    'flash',
+    'pnl',
+]);
+
+const WS_KEY = 'sj-pro-workspace-v4';
 const PROFILES_KEY = 'sj-pro-profiles-v1';
 
 function validWorkspace(w: unknown): w is Workspace {
@@ -263,8 +282,19 @@ function ensureMoneyFlow(ws: Workspace): Workspace {
     };
 }
 
+function stripRemovedBlocks(ws: Workspace): Workspace {
+    const blocks = ws.blocks.filter((b) => !REMOVED_BLOCK_TYPES.has(b.type));
+    if (blocks.length === ws.blocks.length) return ws;
+    if (blocks.length === 0) return structuredClone(DEFAULT_WORKSPACE);
+    const keep = new Set(blocks.map((b) => b.id));
+    return {
+        blocks,
+        layout: ws.layout.filter((l) => keep.has(l.i)),
+    };
+}
+
 function migrateWorkspace(ws: Workspace): Workspace {
-    return ensureMoneyFlow(ensureVolProfile(ws));
+    return ensureMoneyFlow(ensureVolProfile(stripRemovedBlocks(ws)));
 }
 
 export function loadWorkspace(): Workspace {

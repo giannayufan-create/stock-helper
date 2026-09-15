@@ -295,9 +295,28 @@ function MarketSourceMenu() {
         }
     };
 
+    const connectShioaji = async () => {
+        if (busy) return;
+        setBusy(true);
+        setError('');
+        try {
+            await setMarketSource({ provider: 'shioaji' });
+            window.location.reload();
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+            setBusy(false);
+        }
+    };
+
     const isFugle = config?.provider === 'fugle';
+    const isShioaji = config?.provider === 'shioaji';
+    const label = isShioaji
+        ? '行情·永豐'
+        : isFugle
+          ? '行情·富果'
+          : '行情·模擬';
     return (
-        <Menu label={isFugle ? '行情·富果' : '行情·模擬'}>
+        <Menu label={label}>
             {() => (
                 <>
                     <span className={styles.settingLabel}>
@@ -305,12 +324,27 @@ function MarketSourceMenu() {
                     </span>
                     <span className={styles.emptyHint}>
                         目前：
-                        {isFugle
-                            ? '富果行情 API（真實報價）'
-                            : '內建模擬行情（隨機走動）'}
+                        {isShioaji
+                            ? '永豐 Shioaji 行情（雲端 Key）'
+                            : isFugle
+                              ? '富果行情 API（真實報價）'
+                              : '內建模擬行情（隨機走動）'}
                     </span>
+                    <button
+                        className={styles.opt[isShioaji ? 'on' : 'off']}
+                        disabled={busy || !config?.has_shioaji}
+                        onClick={connectShioaji}
+                    >
+                        {busy
+                            ? '連接中…'
+                            : isShioaji
+                              ? '↻ 重新連接永豐行情'
+                              : config?.has_shioaji
+                                ? '✓ 使用永豐行情（雲端）'
+                                : '永豐 Key 未設定（請到 Render 環境變數）'}
+                    </button>
                     <span className={styles.settingLabel}>
-                        Fugle API Key
+                        Fugle API Key（備用）
                     </span>
                     <div className={styles.saveRow}>
                         <input
@@ -336,7 +370,7 @@ function MarketSourceMenu() {
                               ? '↻ 重新連接富果行情'
                               : '✓ 連接富果行情'}
                     </button>
-                    {isFugle && (
+                    {(isFugle || isShioaji) && (
                         <button
                             className={styles.opt.off}
                             disabled={busy}
@@ -351,9 +385,7 @@ function MarketSourceMenu() {
                         </span>
                     )}
                     <span className={styles.emptyHint}>
-                        Key 申請：developer.fugle.tw（僅存於本機
-                        server/data/config.json）。注意：免費方案有 WebSocket
-                        訂閱數與 REST 速率上限，自選清單過多時部分報價可能不動。
+                        永豐請在雲端設：SHIOAJI_ENABLED=true、SHIOAJI_API_KEY、SHIOAJI_SECRET_KEY（不必改 MARKET_PROVIDER）。富果 Key 可本機貼上。
                     </span>
                 </>
             )}

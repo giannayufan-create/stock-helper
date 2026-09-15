@@ -10,12 +10,17 @@ import type { AppContext } from './context.ts';
 import { FugleMarketDataProvider } from './providers/fugle/market.ts';
 import { MarketManager } from './providers/manager.ts';
 import { MockMarketDataProvider } from './providers/mock/market.ts';
+import { ShioajiMarketDataProvider } from './providers/shioaji/market.ts';
 import { MockTradingProvider } from './providers/mock/trading.ts';
 import type { TradingProvider } from './providers/trading.ts';
 import { RuntimeConfigStore } from './runtime-config.ts';
 import { SseHub } from './sse/hub.ts';
 import { SubscriptionRegistry } from './sse/subscriptions.ts';
 import { WatchlistStore } from './watchlist-store.ts';
+import { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
+import { IntradayRankService } from './lib/intraday-rank/service.ts';
+import { MarketRuntime } from './lib/market-runtime/index.ts';
+import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
 loadEnvFile();
 
@@ -35,7 +40,42 @@ async function main(): Promise<void> {
     const manager = new MarketManager();
     const saved = runtimeConfig.get();
     let started = false;
-    if (saved.marketProvider === 'fugle' && saved.fugleApiKey) {
+
+    // Prefer SHIOAJI_ENABLED (new name) so Render need not change MARKET_PROVIDER
+    if (
+        config.shioajiEnabled ||
+        config.marketProvider === 'shioaji' ||
+        (saved.marketProvider === 'shioaji' && config.shioajiApiKey)
+    ) {
+        if (!config.shioajiApiKey || !config.shioajiSecretKey) {
+            console.warn(
+                'market: shioaji selected but SHIOAJI_API_KEY/SECRET missing',
+            );
+        } else {
+            // Ensure bridge process can see the same keys (same container)
+            process.env.SHIOAJI_API_KEY = config.shioajiApiKey;
+            process.env.SHIOAJI_SECRET_KEY = config.shioajiSecretKey;
+            process.env.SHIOAJI_BRIDGE_URL = config.shioajiBridgeUrl;
+            const shioaji = new ShioajiMarketDataProvider();
+            try {
+                await shioaji.init();
+                manager.start(shioaji, 'shioaji');
+                started = true;
+                runtimeConfig.set({ marketProvider: 'shioaji' });
+                console.log('market: shioaji (永豐行情)');
+            } catch (err) {
+                console.warn(
+                    `shioaji init failed (${err instanceof Error ? err.message : err}) — falling back`,
+                );
+            }
+        }
+    }
+
+    if (
+        !started &&
+        saved.marketProvider === 'fugle' &&
+        saved.fugleApiKey
+    ) {
         const fugle = new FugleMarketDataProvider(saved.fugleApiKey);
         try {
             await fugle.init();
@@ -77,14 +117,49 @@ async function main(): Promise<void> {
 
     await trading.init();
 
+    const marketRuntime = new MarketRuntime(manager);
+    marketRuntime.start();
+
+    manager.setUpstreamDemand({
+        acquire: (key) =>
+            marketRuntime.acquireStocks([key.code], 'USER_MONITOR'),
+        release: (key) =>
+            marketRuntime.releaseStocks([key.code], 'USER_MONITOR'),
+    });
+
+    const signalBridge = new StrategySignalBridge();
+    signalBridge.setContext({
+        source_mode: 'live',
+        data_resolution: 'tick',
+        universe_source: 'live_scanner',
+        learning_eligible: true,
+    });
+
+    const openGateV2 = new OpenGateV2Service(
+        manager,
+        marketRuntime,
+        signalBridge,
+    );
+    openGateV2.start();
+    const intradayRank = new IntradayRankService(
+        manager,
+        marketRuntime,
+        openGateV2,
+        signalBridge,
+    );
+    intradayRank.start();
+
     const ctx: AppContext = {
         config,
         market: manager,
         trading,
         hub: new SseHub(),
-        subs: new SubscriptionRegistry(manager),
+        subs: new SubscriptionRegistry(marketRuntime),
         watchlists: new WatchlistStore(join(dataDir, 'watchlists.json')),
         runtimeConfig,
+        marketRuntime,
+        openGateV2,
+        intradayRank,
         startedAt: Date.now(),
     };
 

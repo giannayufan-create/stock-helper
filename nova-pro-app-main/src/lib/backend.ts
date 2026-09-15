@@ -52,8 +52,9 @@ function contractKey(c: ContractBase) {
 // ---- market source config ----
 
 export interface MarketConfig {
-    provider: 'mock' | 'fugle';
+    provider: 'mock' | 'fugle' | 'shioaji';
     has_key: boolean;
+    has_shioaji?: boolean;
 }
 
 export function fetchMarketConfig() {
@@ -63,12 +64,12 @@ export function fetchMarketConfig() {
 /** validate + save a Fugle API key and hot-swap the market provider */
 export function setMarketSource(body: {
     api_key?: string;
-    provider?: 'mock' | 'fugle';
+    provider?: 'mock' | 'fugle' | 'shioaji';
 }) {
-    return apiPost<{ provider: 'mock' | 'fugle'; warning?: string }>(
-        '/api/v1/config/market',
-        body,
-    );
+    return apiPost<{
+        provider: 'mock' | 'fugle' | 'shioaji';
+        warning?: string;
+    }>('/api/v1/config/market', body);
 }
 
 // ---- health / info / auth ----
@@ -161,6 +162,319 @@ export function fetchScanner(
         count,
     });
 }
+
+/** 全上市櫃 OpenAPI 宇宙＋多日技術／法人連買／集保 */
+export interface FullScreenerItem extends ScannerItem {
+    market?: 'tse' | 'otc';
+    tech_delta?: number;
+    streak_delta?: number;
+    tdcc_delta?: number;
+    openapi_delta?: number;
+    factors?: {
+        vol_ratio_20: number | null;
+        rs_20: number | null;
+        near_high_20: number | null;
+        above_ma20: boolean | null;
+        inst_buy_streak: number | null;
+        tdcc_large_pct: number | null;
+        pe?: number | null;
+        pb?: number | null;
+        yield_pct?: number | null;
+        revenue_yoy?: number | null;
+        revenue_mom?: number | null;
+        day_trade_pct?: number | null;
+        ex_div_soon?: boolean | null;
+        industry?: string | null;
+        punished?: boolean;
+        attention?: boolean;
+    };
+    factor_notes?: string[];
+}
+
+export interface FullScreenerResult {
+    as_of: string | null;
+    universe_count: number;
+    liquid_count: number;
+    enriched_count: number;
+    items: FullScreenerItem[];
+    warnings: string[];
+    took_ms: number;
+}
+
+export function fetchFullScreener(opts?: {
+    techLimit?: number;
+    tdccLimit?: number;
+}) {
+    return apiPost<FullScreenerResult>('/api/v1/data/full-screener', {
+        tech_limit: opts?.techLimit ?? 160,
+        tdcc_limit: opts?.tdccLimit ?? 50,
+    });
+}
+
+/** [B] OPEN GATE v1 — legacy snapshot gate (kept for fallback) */
+export type OpenConfirmStatus =
+    | 'provisional'
+    | 'early'
+    | 'early_pass'
+    | 'pass'
+    | 'watch'
+    | 'reject'
+    | 'n/a';
+
+export interface OpenGateItem {
+    code: string;
+    name?: string;
+    a_score?: number;
+    as_of: string;
+    stage: 'B0' | 'B1' | 'B2' | 'AFTER';
+    open_confirm: OpenConfirmStatus;
+    open_score: number;
+    dims: {
+        gap: number;
+        rvol: number;
+        price: number;
+        momentum: number;
+        chase: number;
+    };
+    metrics: {
+        prev_close: number;
+        open: number;
+        last: number;
+        vwap: number | null;
+        gap_pct: number;
+        chg_from_open_pct: number;
+        day_chg_pct: number;
+        rvol_5: number | null;
+        rvol_10: number | null;
+        rvol_15: number | null;
+        held_open: boolean;
+        above_vwap: boolean;
+        higher_highs: boolean;
+        pullback_from_high_pct: number;
+        session_minutes: number;
+    };
+    reasons: string[];
+    tradable: boolean;
+    lite?: boolean;
+}
+
+export interface OpenGateResult {
+    stage: 'B0' | 'B1' | 'B2' | 'AFTER';
+    as_of: string;
+    session_minutes: number;
+    count: number;
+    pass: number;
+    watch: number;
+    reject: number;
+    items: OpenGateItem[];
+    warnings: string[];
+}
+
+export function fetchOpenGate(opts: {
+    codes: Array<{ code: string; name?: string; a_score?: number }>;
+    includeScannerSurges?: boolean;
+}) {
+    return apiPost<OpenGateResult>('/api/v1/data/open-gate', {
+        codes: opts.codes,
+        include_scanner_surges: opts.includeScannerSurges ?? true,
+    });
+}
+
+/** [B] OPEN GATE v2 — Final Patch contract */
+export interface OpenConfirmV2Item {
+    symbol: string;
+    name?: string;
+    timestamp: string;
+    a_score: number;
+    a_score_source?: 'legacy_frontend' | 'server';
+    phase: 'provisional' | 'early' | 'confirmed' | 'after';
+    tradeable: boolean;
+    tradeable_candidate?: boolean;
+    raw_open_score: number;
+    market_adjustment: number;
+    liquidity_adjustment: number;
+    risk_adjustment: number;
+    final_open_score: number;
+    open_confirm: OpenConfirmStatus;
+    hard_reject: boolean;
+    soft_reject?: boolean;
+    data_blocked?: boolean;
+    market_regime: string;
+    market_score: number;
+    score_components?: {
+        rvol_score: number;
+        vwap_score: number;
+        open_hold_score: number;
+        pullback_score: number;
+        momentum_score: number;
+        gap_score: number;
+    };
+    metrics: {
+        gap_pct: number;
+        rvol_same_time: number | null;
+        vwap: number | null;
+        vwap_pos_pct: number | null;
+        vwap_source?: string | null;
+        vwap_valid?: boolean;
+        open_pos_pct: number | null;
+        high_pullback_pct: number | null;
+        momentum_score: number;
+        spread_pct: number | null;
+    };
+    risk: {
+        chase_risk: 'low' | 'medium' | 'high' | 'extreme';
+        invalid_price: number | null;
+        invalid_reason?: string | null;
+        risk_pct: number | null;
+        risk_distance_pct?: number | null;
+        risk_score?: number;
+        risk_adjustment?: number;
+    };
+    liquidity_score: number;
+    reasons: string[];
+    risks: string[];
+    data_health: 'healthy' | 'degraded' | 'stale' | 'disconnected';
+    signal_status: 'active' | 'expired';
+    signal_expired?: boolean;
+    evaluation_stale?: boolean;
+    confirmation_count?: number;
+    pass_streak?: number;
+    signal_maturity?: string;
+    open_gate_passed_before_cutoff?: boolean;
+    late_candidate?: boolean;
+    evaluation_id?: string;
+    signal_id?: string | null;
+    generated_at: string;
+    fresh_until?: string;
+    signal_valid_until?: string;
+    expires_at: string;
+    ttl_seconds: number;
+}
+
+export interface OpenConfirmV2Result {
+    phase: 'provisional' | 'early' | 'confirmed' | 'after';
+    as_of: string;
+    session_minutes: number;
+    count: number;
+    pass: number;
+    watch: number;
+    reject: number;
+    early_pass?: number;
+    provisional?: number;
+    tradeable_count?: number;
+    items: OpenConfirmV2Item[];
+    market_regime: string;
+    market_score: number;
+    warnings: string[];
+    evaluate_interval_sec: number;
+    adapted?: number;
+    a_pool_updated_at?: string | null;
+}
+
+export function fetchOpenConfirm(opts: {
+    codes: Array<{
+        code: string;
+        name?: string;
+        a_score?: number;
+        strength?: number;
+        market?: string;
+        close?: number;
+        total_volume?: number;
+        total_amount?: number;
+        volume_ratio?: number;
+        yesterday_volume?: number;
+        factors?: FullScreenerItem['factors'];
+        lite?: boolean;
+        source?: 'eod_a' | 'scanner_candidate';
+    }>;
+}) {
+    return apiPost<OpenConfirmV2Result>('/api/v1/data/open-confirm', {
+        codes: opts.codes,
+    });
+}
+
+/** [C] Intraday Rank */
+export interface IntradayRankItemDto {
+    symbol: string;
+    name: string;
+    candidate_origin: string;
+    candidate_sources: string[];
+    rank: number;
+    rank_prev: number | null;
+    rank_change: number | null;
+    rank_1m_ago?: number | null;
+    rank_5m_ago?: number | null;
+    rank_velocity: number | null;
+    intraday_score: number;
+    heat_score: number;
+    state: string;
+    change_pct?: number | null;
+    last_price?: number | null;
+    open_score?: number | null;
+    open_gate_status?: string | null;
+    score_coverage_pct?: number | null;
+    score_confidence?: string | null;
+    metrics: {
+        return_1m: number | null;
+        return_3m: number | null;
+        momentum_acceleration: number;
+        volume_acceleration: number | null;
+        rvol_same_time?: number | null;
+        vwap_pos_pct: number | null;
+        relative_strength_score: number;
+        breakout_type: string;
+        pullback_quality_score: number;
+        pullback_state: string;
+        liquidity_score?: number | null;
+    };
+    risk: {
+        chase_risk: string;
+        invalid_price: number | null;
+    };
+    events: string[];
+    reasons: string[];
+    risks: string[];
+    data_health: string;
+    data_blocked: boolean;
+    updated_at: string;
+}
+
+export function fetchIntradayRank(opts?: {
+    limit?: number;
+    state?: string;
+    includeWatch?: boolean;
+}) {
+    const q = new URLSearchParams();
+    q.set('limit', String(opts?.limit ?? 20));
+    if (opts?.state) q.set('state', opts.state);
+    if (opts?.includeWatch) q.set('include_watch', 'true');
+    return apiGet<{
+        as_of: string;
+        strong?: number;
+        heating?: number;
+        emerging?: number;
+        items: IntradayRankItemDto[];
+        warnings?: string[];
+    }>(`/api/v1/data/intraday-rank?${q.toString()}`);
+}
+
+export function fetchIntradayEvents(limit = 50) {
+    return apiGet<{
+        items: Array<{
+            event_type: string;
+            symbol: string;
+            rank: number | null;
+            timestamp: string;
+        }>;
+    }>(`/api/v1/data/intraday-events?limit=${limit}`);
+}
+
+export function fetchIntradayDiscovery() {
+    return apiGet<{ count: number; items: unknown[] }>(
+        '/api/v1/data/intraday-discovery',
+    );
+}
+
 
 // ---- streaming subscriptions ----
 

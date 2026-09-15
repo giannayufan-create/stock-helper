@@ -195,6 +195,24 @@ export async function fetchTwOvernightPool(
     type: ScannerType,
     count: number,
 ): Promise<ScannerItem[]> {
+    // Prefer full-market OpenAPI day quotes when available
+    try {
+        const { fetchTwMarketDayAll, pickLiquidUniverse, dayQuoteToScannerItem } =
+            await import('./tw-market-day.ts');
+        const all = await fetchTwMarketDayAll();
+        if (all.length) {
+            const liquid = pickLiquidUniverse(all, {
+                topVolume: 80,
+                topAmount: 80,
+                topGainers: 60,
+            });
+            const items = liquid.map(dayQuoteToScannerItem);
+            if (items.length) return sortPool(items, type).slice(0, count);
+        }
+    } catch {
+        // fall through to Yahoo seed
+    }
+
     const rows: ScannerItem[] = [];
     const batchSize = 8;
     for (let i = 0; i < SEED.length; i += batchSize) {

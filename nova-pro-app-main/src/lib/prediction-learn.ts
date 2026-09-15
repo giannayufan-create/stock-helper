@@ -358,6 +358,25 @@ export function buildLearnModel(
     };
 }
 
+export function findMutedHits(
+    model: LearnModel,
+    mode: StrategyMode,
+    conditionLabels: string[],
+): string[] {
+    const hits: string[] = [];
+    const seen = new Set<string>();
+    for (const label of conditionLabels) {
+        const key = `${mode}|${label}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const bucket =
+            model.muted.find((t) => t.key === key) ??
+            model.tags.find((t) => t.key === key && t.muted);
+        if (bucket?.muted) hits.push(label);
+    }
+    return hits;
+}
+
 export function learnDeltaForTags(
     model: LearnModel,
     mode: StrategyMode,

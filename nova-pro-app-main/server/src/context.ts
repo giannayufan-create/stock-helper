@@ -1,6 +1,9 @@
 // server/src/context.ts — shared wiring passed to every route module.
 
 import type { Config } from './config.ts';
+import type { IntradayRankService } from './lib/intraday-rank/service.ts';
+import type { MarketRuntime } from './lib/market-runtime/index.ts';
+import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import type { MarketManager } from './providers/manager.ts';
 import type { TradingProvider } from './providers/trading.ts';
 import type { RuntimeConfigStore } from './runtime-config.ts';
@@ -13,9 +16,17 @@ export interface AppContext {
     market: MarketManager;
     trading: TradingProvider;
     hub: SseHub;
+    /**
+     * Downstream UI SSE client registry — acquires/releases UI_VIEW via
+     * marketRuntime. NEVER owns Shioaji upstream directly.
+     */
     subs: SubscriptionRegistry;
     watchlists: WatchlistStore;
     runtimeConfig: RuntimeConfigStore;
+    /** Upstream market ownership (engine + SubscriptionManager). */
+    marketRuntime: MarketRuntime;
+    openGateV2: OpenGateV2Service;
+    intradayRank: IntradayRankService;
     startedAt: number;
 }
 

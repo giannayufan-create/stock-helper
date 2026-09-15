@@ -6,7 +6,20 @@
     "scripts": {
         "dev": "tsx watch src/index.ts",
         "start": "tsx src/index.ts",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "test:subscription-manager": "tsx src/lib/market-runtime/subscription-manager.test.ts",
+        "test:replay": "tsx src/lib/historical-replay/replay.test.ts",
+        "test:outcome": "tsx src/lib/signal-outcome/outcome.test.ts",
+        "test:learning": "tsx src/lib/learning/learning.test.ts",
+        "test:fix-pack": "tsx src/lib/fix-pack/fix-pack.test.ts",
+        "test:shadow": "tsx src/lib/shadow/shadow.test.ts",
+        "acceptance:gate": "tsx src/acceptance-gate.ts",
+        "replay": "tsx src/replay-cli.ts",
+        "outcome:summary": "tsx src/outcome-summary-cli.ts",
+        "learning:analyze": "tsx src/learning-analyze-cli.ts",
+        "learning:tune": "tsx src/learning-tune-cli.ts",
+        "shadow:summary": "tsx src/shadow-cli.ts",
+        "shadow:daily": "tsx src/shadow-daily-cli.ts"
     },
     "dependencies": {
         "@fastify/static": "^10.1.3",

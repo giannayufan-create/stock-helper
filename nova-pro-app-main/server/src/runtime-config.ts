@@ -26,7 +26,11 @@ export class RuntimeConfigStore {
         this.config = {
             marketProvider:
                 loaded.marketProvider ??
-                (envSeed.marketProvider === 'fugle' ? 'fugle' : 'mock'),
+                (envSeed.marketProvider === 'shioaji'
+                    ? 'shioaji'
+                    : envSeed.marketProvider === 'fugle'
+                      ? 'fugle'
+                      : 'mock'),
             fugleApiKey: loaded.fugleApiKey ?? envSeed.fugleApiKey ?? '',
         };
     }

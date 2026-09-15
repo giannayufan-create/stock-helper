@@ -27,6 +27,12 @@ import {
     settleBatch,
     type SettleInput,
 } from '../lib/prediction-settle.ts';
+import { runFullScreener } from '../lib/tw-full-screener.ts';
+import {
+    ensureOpenApiBundle,
+    openApiDto,
+} from '../lib/tw-openapi-enrich.ts';
+import { runOpenGate } from '../lib/open-gate.ts';
 
 interface ContractsQuery {
     security_type?: string;
@@ -114,6 +120,252 @@ export function registerDataRoutes(
             req.body.ascending ?? false,
         ),
     );
+
+    /**
+     * 全上市櫃日線宇宙＋多日技術＋法人連買＋集保大戶（開源式補強）
+     * 不依賴 Fugle 中階盤中快照。
+     */
+    app.post<{
+        Body: { tech_limit?: number; tdcc_limit?: number };
+    }>('/api/v1/data/full-screener', async (req) => {
+        const techLimit = Number(req.body?.tech_limit ?? 160);
+        const tdccLimit = Number(req.body?.tdcc_limit ?? 50);
+        return runFullScreener({
+            techLimit: Number.isFinite(techLimit)
+                ? Math.min(240, Math.max(40, techLimit))
+                : 160,
+            tdccLimit: Number.isFinite(tdccLimit)
+                ? Math.min(80, Math.max(0, tdccLimit))
+                : 50,
+        });
+    });
+
+    /** OpenAPI 補強快取狀態（估值／營收／當沖／注意處置等） */
+    app.get('/api/v1/data/openapi-enrich', async () => {
+        const bundle = await ensureOpenApiBundle();
+        const sampleCodes = [...bundle.byCode.keys()].slice(0, 5);
+        const sample: Record<string, unknown> = {};
+        for (const c of sampleCodes) {
+            const e = bundle.byCode.get(c);
+            if (e) sample[c] = openApiDto(e);
+        }
+        return {
+            loaded_at: bundle.loadedAt,
+            market: bundle.market,
+            stats: {
+                valuation: bundle.valuationCount,
+                revenue: bundle.revenueCount,
+                day_trade: bundle.dayTradeCount,
+                ex_div: bundle.exDivCount,
+                profile: bundle.profileCount,
+                punish: bundle.punishCount,
+                attention: bundle.attentionCount,
+                codes: bundle.byCode.size,
+            },
+            sources: [
+                'TWSE BWIBBU_ALL',
+                'TWSE STOCK_DAY_AVG_ALL',
+                'TWSE TWTB4U',
+                'TWSE TWT48U_ALL',
+                'TWSE t187ap05_L',
+                'TWSE t187ap03_L',
+                'TWSE FMTQIK',
+                'TWSE announcement punish/notetrans',
+                'TPEx tpex_mainboard_peratio_analysis',
+                'TPEx mopsfin_t187ap05_O / revenue',
+                'TPEx mopsfin_t187ap03_O / profile',
+                'TPEx disposal/warning',
+            ],
+            sample,
+        };
+    });
+
+    /**
+     * [B] OPEN GATE — 開盤品質閘門（B0/B1/B2 + open_score）
+     * 當沖可交易候選應以 open_confirm=pass 為準。
+     */
+    app.post<{
+        Body: {
+            codes?: Array<{ code?: string; name?: string; a_score?: number }>;
+            include_scanner_surges?: boolean;
+        };
+    }>('/api/v1/data/open-gate', async (req) => {
+        const raw = Array.isArray(req.body?.codes) ? req.body.codes : [];
+        const codes = raw
+            .map((c) => ({
+                code: String(c?.code ?? '').trim(),
+                name: c?.name,
+                a_score:
+                    typeof c?.a_score === 'number' ? c.a_score : undefined,
+            }))
+            .filter((c) => c.code);
+        return runOpenGate({
+            market: ctx.market,
+            codes,
+            includeScannerSurges: Boolean(req.body?.include_scanner_surges),
+        });
+    });
+
+    /**
+     * [B] OPEN GATE v2 — set A candidate pool + run evaluator
+     * (stream state + same-time RVOL + regime/liquidity/risk + TTL)
+     */
+    app.post<{
+        Body: {
+            codes?: Array<{
+                code?: string;
+                symbol?: string;
+                name?: string;
+                a_score?: number;
+                strength?: number;
+                market?: string;
+                close?: number;
+                prev_close?: number;
+                total_volume?: number;
+                total_amount?: number;
+                volume_ratio?: number;
+                yesterday_volume?: number;
+                factors?: Record<string, unknown>;
+                lite?: boolean;
+                source?: 'eod_a' | 'scanner_candidate';
+            }>;
+        };
+    }>('/api/v1/data/open-confirm', async (req) => {
+        const raw = Array.isArray(req.body?.codes) ? req.body.codes : [];
+        const batch = await ctx.openGateV2.setCandidates(raw);
+        const result = ctx.openGateV2.getLastBatch();
+        return {
+            adapted: batch.length,
+            ...(result ?? {
+                phase: 'after',
+                as_of: new Date().toISOString(),
+                session_minutes: 0,
+                count: 0,
+                pass: 0,
+                watch: 0,
+                reject: 0,
+                early_pass: 0,
+                provisional: 0,
+                items: [],
+                market_regime: 'neutral',
+                market_score: 50,
+                warnings: ['no evaluation yet'],
+                evaluate_interval_sec: 3,
+            }),
+        };
+    });
+
+    /** Latest cached B results (cadence-updated). */
+    app.get('/api/v1/data/open-confirm', async () => {
+        const result = ctx.openGateV2.getLastBatch();
+        if (!result) {
+            return {
+                phase: 'after',
+                as_of: new Date().toISOString(),
+                session_minutes: 0,
+                count: 0,
+                pass: 0,
+                watch: 0,
+                reject: 0,
+                early_pass: 0,
+                provisional: 0,
+                items: [],
+                market_regime: 'neutral',
+                market_score: 50,
+                warnings: ['pool empty — POST candidates first'],
+                evaluate_interval_sec: 3,
+            };
+        }
+        return result;
+    });
+
+    app.get<{ Params: { symbol: string } }>(
+        '/api/v1/data/open-confirm/:symbol',
+        async (req) => {
+            const symbol = String(req.params.symbol ?? '').trim();
+            const item = ctx.openGateV2.getResult(symbol);
+            if (!item) {
+                return {
+                    error: 'not_found',
+                    symbol,
+                    hint: 'POST /api/v1/data/open-confirm with A pool first',
+                };
+            }
+            return item;
+        },
+    );
+
+    /** [C] Intraday Rank — 盤中強攻雷達 */
+    app.get<{
+        Querystring: {
+            limit?: string;
+            state?: string;
+            include_watch?: string;
+        };
+    }>('/api/v1/data/intraday-rank', async (req) => {
+        const batch = ctx.intradayRank.getLastBatch();
+        const limit = Math.min(
+            50,
+            Math.max(1, Number(req.query.limit ?? 20) || 20),
+        );
+        const stateFilter = (req.query.state ?? '').toLowerCase();
+        const includeWatch = req.query.include_watch === 'true';
+        if (!batch) {
+            return {
+                as_of: new Date().toISOString(),
+                count: 0,
+                items: [],
+                warnings: ['warming up — wait for discovery cycle'],
+            };
+        }
+        let items = batch.items;
+        if (stateFilter === 'strong') {
+            items = items.filter((i) => i.state === 'STRONG');
+        } else if (stateFilter === 'heating') {
+            items = items.filter(
+                (i) => i.state === 'HEATING' || i.state === 'STRONG',
+            );
+        } else if (!includeWatch) {
+            items = items.filter(
+                (i) =>
+                    i.state === 'STRONG' ||
+                    i.state === 'HEATING' ||
+                    i.state === 'EMERGING',
+            );
+        }
+        return { ...batch, items: items.slice(0, limit), count: items.length };
+    });
+
+    app.get<{ Params: { symbol: string } }>(
+        '/api/v1/data/intraday-rank/:symbol',
+        async (req) => {
+            const symbol = String(req.params.symbol ?? '').trim();
+            const item = ctx.intradayRank.getSymbol(symbol);
+            if (!item) {
+                return { error: 'not_found', symbol };
+            }
+            return item;
+        },
+    );
+
+    app.get<{ Querystring: { limit?: string } }>(
+        '/api/v1/data/intraday-events',
+        async (req) => {
+            const limit = Math.min(
+                100,
+                Math.max(1, Number(req.query.limit ?? 50) || 50),
+            );
+            return { items: ctx.intradayRank.getEvents(limit) };
+        },
+    );
+
+    app.get('/api/v1/data/intraday-discovery', async () => {
+        const pool = ctx.intradayRank.getDiscoveryPool();
+        return {
+            count: pool.length,
+            items: pool.slice(0, 100),
+        };
+    });
 
     app.post<{ Body: { contracts?: ContractKey[] } }>(
         '/api/v1/data/credit_enquire',

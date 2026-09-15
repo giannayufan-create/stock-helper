@@ -20,11 +20,9 @@ import {
     overnightEdgeForCode,
 } from '../ai/overnight-edge.ts';
 import {
-    finalizeScore,
-    scoreBars,
-    type AiBar,
-    type AnalyzeCore,
-} from '../ai/score.ts';
+    analyzeSymbolSnapshot,
+    type SymbolAnalyzeInput,
+} from '../ai/symbol-analyze.ts';
 import { getChipRow } from '../lib/tw-chips.ts';
 import {
     fetchUsIndices,
@@ -427,4 +425,60 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
             });
         }
     });
+
+    /** Radar Detail: structured snapshot → structured JSON (no markdown). */
+    const symbolAiCache = new Map<
+        string,
+        { at: number; result: ReturnType<typeof analyzeSymbolSnapshot> }
+    >();
+
+    app.post<{ Body: SymbolAnalyzeInput }>(
+        '/api/v1/ai/analyze-symbol',
+        async (req, reply) => {
+            const body = req.body ?? ({} as SymbolAnalyzeInput);
+            const symbol = String(body.symbol ?? '').trim();
+            if (!symbol) {
+                return reply.code(400).send({ error: 'symbol required' });
+            }
+            const featureHash =
+                body.feature_hash ??
+                [
+                    symbol,
+                    body.c_score,
+                    body.heat,
+                    body.rank,
+                    body.chase_risk,
+                    body.data_health,
+                    body.score_coverage_pct,
+                    (body.recent_events ?? []).join(','),
+                ].join('|');
+
+            const cacheKey = `${symbol}::${featureHash}`;
+            const hit = symbolAiCache.get(cacheKey);
+            const now = Date.now();
+            if (hit && now - hit.at < 90_000) {
+                return { ...hit.result, cached: true };
+            }
+
+            try {
+                const result = analyzeSymbolSnapshot({
+                    ...body,
+                    symbol,
+                    feature_hash: featureHash,
+                });
+                symbolAiCache.set(cacheKey, { at: now, result });
+                // bound cache
+                if (symbolAiCache.size > 200) {
+                    const first = symbolAiCache.keys().next().value;
+                    if (first) symbolAiCache.delete(first);
+                }
+                return { ...result, cached: false };
+            } catch (err) {
+                return reply.code(500).send({
+                    error: err instanceof Error ? err.message : String(err),
+                    message: 'AI 暫時無法分析，系統即時分數仍正常',
+                });
+            }
+        },
+    );
 }

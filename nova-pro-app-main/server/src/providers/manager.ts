@@ -29,7 +29,7 @@ import type {
     TickChannel,
 } from './market-data.ts';
 
-export type MarketName = 'mock' | 'fugle';
+export type MarketName = 'mock' | 'fugle' | 'shioaji';
 
 /** what paper trading needs from the market side */
 export interface PriceFeed {
@@ -48,12 +48,19 @@ interface SubEntry {
     quote: StreamQuoteType;
 }
 
+export type UpstreamDemandHook = {
+    acquire: (key: ContractKey) => void | Promise<void>;
+    release: (key: ContractKey) => void | Promise<void>;
+};
+
 export class MarketManager implements MarketDataProvider, PriceFeed {
     private active!: MarketDataProvider;
     private activeName: MarketName = 'mock';
 
     private subs = new Map<string, SubEntry>();
     private holds = new Map<string, { key: ContractKey; count: number }>();
+    /** When set, hold/release route through MarketRuntime (USER_MONITOR). */
+    private upstreamDemand: UpstreamDemandHook | null = null;
 
     private tickCbs: ((ch: TickChannel, t: SseTick) => void)[] = [];
     private bidaskCbs: ((ch: BidAskChannel, b: SseBidAsk) => void)[] = [];
@@ -63,6 +70,11 @@ export class MarketManager implements MarketDataProvider, PriceFeed {
         this.active = provider;
         this.activeName = name;
         this.attach(provider);
+    }
+
+    /** Wire paper-trading holds to MarketRuntime USER_MONITOR demand. */
+    setUpstreamDemand(hook: UpstreamDemandHook | null): void {
+        this.upstreamDemand = hook;
     }
 
     name(): MarketName {
@@ -227,6 +239,12 @@ export class MarketManager implements MarketDataProvider, PriceFeed {
             return;
         }
         this.holds.set(key.code, { key, count: 1 });
+        if (this.upstreamDemand) {
+            void Promise.resolve(this.upstreamDemand.acquire(key)).catch(
+                () => undefined,
+            );
+            return;
+        }
         void this.active.subscribe(key, 'Tick').catch(() => undefined);
     }
 
@@ -236,6 +254,13 @@ export class MarketManager implements MarketDataProvider, PriceFeed {
         entry.count -= 1;
         if (entry.count <= 0) {
             this.holds.delete(key.code);
+            if (this.upstreamDemand) {
+                // Never call active.unsubscribe when ownership is via runtime
+                void Promise.resolve(this.upstreamDemand.release(key)).catch(
+                    () => undefined,
+                );
+                return;
+            }
             // only drop the provider subscription if the frontend doesn't
             // also subscribe this symbol
             if (!this.subs.has(`${key.code}:Tick`)) {

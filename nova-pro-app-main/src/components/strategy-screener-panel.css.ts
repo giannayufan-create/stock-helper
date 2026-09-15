@@ -171,7 +171,8 @@ export const inlineCheck = style({
 export const priceRow = style({
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
+    flexWrap: 'wrap',
+    gap: '8px 10px',
 });
 
 export const priceBox = style({

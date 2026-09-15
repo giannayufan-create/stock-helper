@@ -25,6 +25,7 @@ import { VolProfile } from './components/vol-profile';
 import { ReplayPanel } from './components/replay-panel';
 import { DepthMap } from './components/depth-map';
 import { StrategyScreenerPanel } from './components/strategy-screener-panel';
+import { IntradayRankPanel } from './components/intraday-rank-panel';
 import { MoneyFlowPanel } from './components/money-flow-panel';
 import { PredictionBookPanel } from './components/prediction-book-panel';
 import { MobileShell } from './components/mobile-shell';
@@ -55,6 +56,7 @@ import type { Position } from './lib/types/portfolio';
 import {
     BLOCK_META,
     DEFAULT_WORKSPACE,
+    REMOVED_BLOCK_TYPES,
     loadProfiles,
     loadWorkspace,
     newBlockId,
@@ -80,14 +82,11 @@ const GRID_COLS = 24;
 const POPOUT_TYPES: ReadonlySet<string> = new Set([
     'chart',
     'depth',
-    'ticket',
     'tape',
-    'flash',
     'chips',
     'volprofile',
     'moneyFlow',
     'optchain',
-    'pnl',
     'replay',
     'depthmap',
 ]);
@@ -153,7 +152,10 @@ function BlockBody({
         case 'movers':
             return <ScannerPanel onPick={onSelectCode} />;
         case 'dock':
-            return <BottomDock {...dockProps} />;
+        case 'ticket':
+        case 'flash':
+        case 'pnl':
+            return null;
         case 'chart':
             return contract ? (
                 <>
@@ -173,26 +175,12 @@ function BlockBody({
             ) : (
                 <BlockPlaceholder />
             );
-        case 'ticket':
-            return contract ? (
-                <OrderTicket contract={contract} onPlaced={refreshTrading} />
-            ) : (
-                <BlockPlaceholder />
-            );
         case 'tape':
             return contract ? (
                 <TickTape contract={contract} />
             ) : (
                 <BlockPlaceholder />
             );
-        case 'flash':
-            return contract ? (
-                <FlashOrder contract={contract} />
-            ) : (
-                <BlockPlaceholder />
-            );
-        case 'pnl':
-            return <PnlPanel />;
         case 'chips':
             return contract ? (
                 <ChipsCard contract={contract} />
@@ -228,6 +216,8 @@ function BlockBody({
                     onAutoScanPredictions={onAutoScanPredictions}
                 />
             );
+        case 'intradayRank':
+            return <IntradayRankPanel onPickCode={onSelectCode} />;
         case 'moneyFlow':
             return <MoneyFlowPanel onPickCode={onSelectCode} />;
         case 'predictionBook':
@@ -350,19 +340,8 @@ function PopoutView({
             case 'depth':
                 body = <DepthLadder code={contract.code} />;
                 break;
-            case 'ticket':
-                body = (
-                    <OrderTicket
-                        contract={contract}
-                        onPlaced={tradesPoll.refresh}
-                    />
-                );
-                break;
             case 'tape':
                 body = <TickTape contract={contract} />;
-                break;
-            case 'flash':
-                body = <FlashOrder contract={contract} />;
                 break;
             case 'chips':
                 body = <ChipsCard contract={contract} />;
@@ -727,18 +706,22 @@ export default function App() {
 
     const addableTypes = useMemo(
         () =>
-            (Object.keys(BLOCK_META) as BlockType[]).map((type) => ({
-                type,
-                label: BLOCK_META[type].label,
-                disabled:
-                    BLOCK_META[type].singleton &&
-                    workspace.blocks.some((b) => b.type === type),
-            })),
+            (Object.keys(BLOCK_META) as BlockType[])
+                .filter((type) => !REMOVED_BLOCK_TYPES.has(type))
+                .map((type) => ({
+                    type,
+                    label: BLOCK_META[type].label,
+                    disabled:
+                        BLOCK_META[type].singleton &&
+                        workspace.blocks.some((b) => b.type === type),
+                })),
         [workspace.blocks],
     );
 
     const booting = loading && items.length === 0;
     const isMobile = useMediaQuery('screen and (max-width: 1024px)');
+    const useLegacy =
+        new URLSearchParams(window.location.search).get('legacy') === '1';
 
     if (POPOUT_TYPE && POPOUT_TYPES.has(POPOUT_TYPE)) {
         return <PopoutView type={POPOUT_TYPE} code={POPOUT_CODE} />;
@@ -759,7 +742,44 @@ export default function App() {
         onTradesChanged: refreshTrading,
     };
 
-    // 手機：只渲染一頁式殼，絕不掛桌面 HUD / Grid（避免舊分頁殼殘留）
+    // Primary product: AI 當沖雷達 (mobile + desktop). Trading grid only via ?legacy=1
+    if (!useLegacy) {
+        return (
+            <div className={styles.shell}>
+                <EventToasts onEvent={refreshTrading} />
+                <CommandPalette
+                    open={paletteOpen}
+                    onClose={() => setPaletteOpen(false)}
+                    onJump={jumpToCode}
+                />
+                {booting ? (
+                    <div className={styles.loading}>
+                        <span>Nova Pro</span>
+                        <span style={{ fontSize: '0.7rem' }}>AI 當沖雷達載入中…</span>
+                    </div>
+                ) : (
+                    <MobileShell
+                        contract={selected}
+                        snapshot={selectedSnapshot}
+                        trades={dockProps.trades}
+                        onOrdersChanged={refreshTrading}
+                        onRefreshTrading={refreshTrading}
+                        watchlistSeed={watchlistSeed}
+                        onSelectCode={selectByCode}
+                        onAddPrediction={addPrediction}
+                        onAutoScanPredictions={addAutoScanPredictions}
+                        predictions={predictions}
+                        onClearPredictions={clearPredictions}
+                        onVerifyPredictions={runVerifyPredictions}
+                        verifyingPredictions={verifyingPredictions}
+                        onOpenSearch={() => setPaletteOpen(true)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    // Legacy multi-panel trading terminal (desktop research / execution experiments)
     if (isMobile) {
         return (
             <div className={styles.shell}>
@@ -827,7 +847,14 @@ export default function App() {
                 )}
                 {!booting && mounted && (
                     <GridLayout
-                        layout={workspace.layout}
+                        layout={workspace.layout.filter(
+                            (l) =>
+                                workspace.blocks.some(
+                                    (b) =>
+                                        b.id === l.i &&
+                                        !REMOVED_BLOCK_TYPES.has(b.type),
+                                ),
+                        )}
                         width={width}
                         gridConfig={{
                             cols: GRID_COLS,
@@ -841,7 +868,9 @@ export default function App() {
                         }}
                         onLayoutChange={onLayoutChange}
                     >
-                        {workspace.blocks.map((block) => (
+                        {workspace.blocks
+                            .filter((b) => !REMOVED_BLOCK_TYPES.has(b.type))
+                            .map((block) => (
                             <div key={block.id} className={grid.cell}>
                                 <BlockView
                                     block={block}

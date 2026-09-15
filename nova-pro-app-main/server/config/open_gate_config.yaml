@@ -1,0 +1,128 @@
+# OPEN GATE v2 — Final Architecture Patch (thresholds backtest-tunable)
+# Patch rules override earlier specs when conflicting.
+
+evaluate_interval_sec: 3
+
+# Dual TTL
+fresh_ttl_sec: 10
+signal_ttl_sec: 180
+
+# Legacy aliases (mapped to enter thresholds if hysteresis missing)
+pass_threshold: 78
+watch_threshold: 62
+
+# Hysteresis — avoid PASS/WATCH flicker at 77.9↔78.1
+pass_enter_threshold: 78
+pass_exit_threshold: 74
+watch_enter_threshold: 62
+reject_exit_threshold: 65
+min_confirm_evaluations: 2
+
+# early (09:03–09:10) never tradeable unless explicitly enabled
+early_tradeable: false
+
+phase:
+  provisional_end_min: 3   # 09:00 + 3
+  early_end_min: 10        # 09:00 + 10
+  confirmed_end_min: 30    # 09:00 + 30
+
+cutoff:
+  allow_new_tradeable_after_cutoff: false
+
+score_weights:
+  rvol: 30
+  vwap: 20
+  open_hold: 15
+  pullback: 15
+  momentum: 15
+  gap: 5
+
+rvol_thresholds:
+  excellent: 2.5
+  good: 1.8
+  ok: 1.2
+  weak: 0.8
+
+vwap_thresholds:
+  strong_above: 0.8
+  above: 0.15
+  soft_below: -0.4
+  hard_below: -1.2
+
+open_hold_thresholds:
+  strong_above: 0.6
+  above: 0.1
+  soft_below: -0.3
+  hard_below: -0.8
+
+pullback_thresholds:
+  ideal_max: 0.8
+  ok_max: 1.5
+  weak_max: 2.5
+
+gap_thresholds:
+  ideal_low: 0.5
+  ideal_high: 3.5
+  hot: 5.0
+  cold: -1.0
+
+liquidity:
+  min_turnover_5m: 8000000
+  min_turnover_10m: 15000000
+  min_tick_count: 8
+  max_spread_pct: 0.6
+  min_rvol: 0.5
+  # structural only — temporary illiquidity is soft
+  hard_min_turnover: 500000
+  hard_max_spread_pct: 3.0
+  score_to_adjustment:
+    adj_min: -10
+    adj_max: 5
+
+market_regime:
+  weights:
+    taiex: 0.45
+    tpex: 0.25
+    breadth: 0.20
+    us_overnight: 0.10
+  adjustment_limits:
+    min: -12
+    max: 8
+
+risk:
+  max_chase_gap_pct: 5.0
+  max_day_chg_pct: 8.0
+  max_vwap_extension_pct: 2.5
+  tick_buffer_ticks: 2
+  bad_rr_soft_to_watch: true
+  adj_min: -12
+  adj_max: 4
+
+chase_risk_thresholds:
+  low_max: 2.0
+  medium_max: 4.0
+  high_max: 6.5
+
+data_health:
+  stale_seconds: 45
+  disconnected_seconds: 120
+  require_profile_for_pass: true
+
+# Hard Reject = structural / regulatory ONLY (never data stale / overheat / VWAP break)
+hard_reject:
+  disposition: true
+  attention_only_soft: true
+  structural_illiquidity: true
+  missing_essential_data: true
+
+logging:
+  log_score_delta_threshold: 3
+  log_heartbeat_sec: 60
+
+historical_profile:
+  lookback_days: 20
+  anchor_minutes: [1, 3, 5, 10, 15, 20, 30]
+  prefer_minute_curve: true
+
+outcome:
+  horizons_min: [5, 15, 30, 60]

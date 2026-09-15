@@ -1,0 +1,187 @@
+# Learning Analytics + Semi-Auto Tuning v1
+# Never auto-writes production open_gate / intraday_rank configs.
+
+dataset:
+  signal_schema_version: strategy-signal-v1
+  outcome_schema_version: signal-outcome-v1
+  learning_schema_version: learning-dataset-v1
+  require_learning_eligible: true
+  exclude_universe_sources:
+    - synthetic
+    - manual_test
+  exclude_score_confidence:
+    - low
+  exclude_outcome_status:
+    - invalid_data
+  exclude_replay_quality_invalid: true
+
+sample_guards:
+  min_sample_warning: 30
+  min_sample_recommendation: 100
+  min_combo_sample: 40
+  insufficient_below: 30
+  exploratory_below: 100
+
+quality_score:
+  forward_return_15m_weight: 1.0
+  mfe_15m_weight: 0.6
+  mae_15m_penalty: 1.2
+  invalid_hit_penalty: 2.0
+  ambiguous_penalty: 0.5
+
+objective:
+  positive_15m_weight: 40
+  avg_mfe_15m_weight: 20
+  avg_mae_15m_penalty: 25
+  invalid_rate_penalty: 30
+  instability_penalty: 20
+  low_sample_penalty: 40
+  complexity_penalty: 15
+  count_drop_soft_penalty: 5
+
+walk_forward:
+  train_months_min: 2
+  validate_months: 1
+  holdout_months: 1
+  # last N months reserved as holdout (never used for selection)
+  holdout_tail_months: 1
+
+search:
+  # Stage 1 — thresholds only
+  open_gate_pass_enter:
+    - 76
+    - 78
+    - 80
+    - 82
+    - 85
+  open_gate_pass_exit:
+    - 72
+    - 74
+    - 76
+  intraday_strong_enter:
+    - 76
+    - 78
+    - 80
+    - 82
+    - 85
+  intraday_strong_exit:
+    - 70
+    - 74
+    - 76
+  # Stage 2 — small weight perturbations (±relative)
+  weight_perturb_pct:
+    - -10
+    - 0
+    - 10
+  max_stage2_candidates: 12
+
+recommendation:
+  min_folds_improved_ratio: 0.6
+  max_mae_worsen_abs: 0.4
+  max_invalid_rate_worsen_pp: 5
+  min_stability_score: 0.45
+  max_count_drop_pct: 35
+
+shadow:
+  enabled: false
+  min_shadow_days: 10
+  min_shadow_signals: 200
+  # Shadow uses same MarketRuntime state — never opens a second subscription.
+  reuse_market_runtime: true
+
+promotion:
+  # F2 never auto-promotes. Manual review only.
+  auto_promote: false
+  status_when_ready: READY_FOR_MANUAL_REVIEW
+
+feature_buckets:
+  rvol:
+    - label: "<1.0"
+      max: 1.0
+    - label: "1.0-1.5"
+      min: 1.0
+      max: 1.5
+    - label: "1.5-2.0"
+      min: 1.5
+      max: 2.0
+    - label: "2.0-3.0"
+      min: 2.0
+      max: 3.0
+    - label: "3.0+"
+      min: 3.0
+  vwap_pos:
+    - label: "<0"
+      max: 0
+    - label: "0-0.5%"
+      min: 0
+      max: 0.5
+    - label: "0.5-1%"
+      min: 0.5
+      max: 1.0
+    - label: "1-2%"
+      min: 1.0
+      max: 2.0
+    - label: "2%+"
+      min: 2.0
+  heat:
+    - label: "Heat <70"
+      max: 70
+    - label: "70-79"
+      min: 70
+      max: 80
+    - label: "80-89"
+      min: 80
+      max: 90
+    - label: "90+"
+      min: 90
+  open_score:
+    - label: "78-81"
+      min: 78
+      max: 82
+    - label: "82-85"
+      min: 82
+      max: 86
+    - label: "86-89"
+      min: 86
+      max: 90
+    - label: "90+"
+      min: 90
+  intraday_score:
+    - label: "60-69"
+      min: 60
+      max: 70
+    - label: "70-79"
+      min: 70
+      max: 80
+    - label: "80-84"
+      min: 80
+      max: 85
+    - label: "85-89"
+      min: 85
+      max: 90
+    - label: "90+"
+      min: 90
+
+time_of_day:
+  - label: "09:00-09:30"
+    min_minute: 0
+    max_minute: 30
+  - label: "09:30-10:30"
+    min_minute: 30
+    max_minute: 90
+  - label: "10:30-11:30"
+    min_minute: 90
+    max_minute: 150
+  - label: "11:30-12:30"
+    min_minute: 150
+    max_minute: 210
+  - label: "12:30-13:30"
+    min_minute: 210
+    max_minute: 270
+
+regimes:
+  - strong_bull
+  - bull
+  - neutral
+  - bear
+  - strong_bear

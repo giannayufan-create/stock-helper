@@ -36,7 +36,7 @@ import {
 import { getRegulatoryFlag } from '../lib/regulatory';
 import { cancelOrder, fetchKbars, updateOrderPrice } from '../lib/backend';
 import { setPickedPrice } from '../lib/price-sync';
-import { notify, placeQuickOrder } from '../lib/trade';
+import { notify } from '../lib/trade';
 import {
     addTrigger,
     removeTrigger,
@@ -66,14 +66,10 @@ const TIMEFRAMES = [
     { label: '1D', minutes: 1440, days: 360 },
 ] as const;
 
-type TradeMode = 'observe' | 'buy' | 'sell' | 'stop' | 'take' | 'alert';
+type TradeMode = 'observe' | 'alert';
 
 const TRADE_MODES: { key: TradeMode; label: string }[] = [
     { key: 'observe', label: '游標' },
-    { key: 'buy', label: '點價買' },
-    { key: 'sell', label: '點價賣' },
-    { key: 'stop', label: '停損' },
-    { key: 'take', label: '停利' },
     { key: 'alert', label: '警示' },
 ];
 
@@ -170,7 +166,6 @@ export function CandleChart({
     const colors = getChartColors(themeSettings);
     const themeKey = `${themeSettings.mode}-${themeSettings.convention}-${themeSettings.fontScale}`;
     const [mode, setMode] = useState<TradeMode>('observe');
-    const [tradeQty, setTradeQty] = useState(1);
     const [indicators, setIndicators] = useState<Set<string>>(loadIndicators);
     const [maPeriods, setMaPeriods] = useState<Record<string, number>>(loadMaPeriods);
     const [indMenuOpen, setIndMenuOpen] = useState(false);
@@ -303,8 +298,6 @@ export function CandleChart({
     // refs so the chart click handler always sees current values
     const modeRef = useRef(mode);
     modeRef.current = mode;
-    const qtyRef = useRef(tradeQty);
-    qtyRef.current = tradeQty;
     const contractRef = useRef(contract);
     contractRef.current = contract;
     const lastPriceRef = useRef<number | null>(null);
@@ -778,42 +771,21 @@ export function CandleChart({
             const c = contractRef.current;
             const price = roundToTick(c, Number(raw));
             if (m === 'observe') {
-                setPickedPrice(c.code, price); // sync to order tickets
+                setPickedPrice(c.code, price);
                 return;
             }
-            const qty = qtyRef.current;
             const last = lastPriceRef.current;
             setMode('observe'); // one-shot
-            if (m === 'buy' || m === 'sell') {
-                const action = m === 'buy' ? 'Buy' : 'Sell';
-                placeQuickOrder(c, action, price, qty)
-                    .then((trade) =>
-                        notify({
-                            kind: 'ok',
-                            title: `📈 圖表${action === 'Buy' ? '買進' : '賣出'}已送出`,
-                            body: `${c.code} ${qty} @ ${fmtPrice(price)} (${trade.status.status})`,
-                        }),
-                    )
-                    .catch((e) =>
-                        notify({
-                            kind: 'err',
-                            title: '圖表下單失敗',
-                            body: e instanceof Error ? e.message : String(e),
-                        }),
-                    );
-                return;
-            }
-            // stop / take triggers — direction inferred from click vs last
-            if (last === null) {
-                notify({
-                    kind: 'err',
-                    title: '無法掛觸價單',
-                    body: '尚未收到即時成交價',
-                });
-                return;
-            }
-            const below = price <= last;
             if (m === 'alert') {
+                if (last === null) {
+                    notify({
+                        kind: 'err',
+                        title: '無法設定警示',
+                        body: '尚未收到即時成交價',
+                    });
+                    return;
+                }
+                const below = price <= last;
                 addTrigger({
                     code: c.code,
                     condition: below ? 'below' : 'above',
@@ -821,26 +793,6 @@ export function CandleChart({
                     action: 'Sell', // unused for alerts
                     quantity: 0,
                     kind: 'alert',
-                });
-                return;
-            }
-            if (m === 'stop') {
-                addTrigger({
-                    code: c.code,
-                    condition: below ? 'below' : 'above',
-                    price,
-                    action: below ? 'Sell' : 'Buy',
-                    quantity: qty,
-                    kind: 'stop',
-                });
-            } else {
-                addTrigger({
-                    code: c.code,
-                    condition: below ? 'below' : 'above',
-                    price,
-                    action: below ? 'Buy' : 'Sell',
-                    quantity: qty,
-                    kind: 'take',
                 });
             }
         });
@@ -1587,16 +1539,6 @@ export function CandleChart({
                         {m.label}
                     </button>
                 ))}
-                <input
-                    className={styles.qtyInput}
-                    value={tradeQty}
-                    inputMode='numeric'
-                    title='下單數量'
-                    onChange={(e) => {
-                        const v = Number(e.target.value);
-                        if (Number.isInteger(v) && v >= 1) setTradeQty(v);
-                    }}
-                />
                 <div className={styles.maQuickRow}>
                     {INDICATOR_DEFS.filter((ind) => ind.kind === 'ma').map(
                         (ind) => {
@@ -1781,11 +1723,8 @@ export function CandleChart({
                 )}
                 {mode !== 'observe' && (
                     <div className={styles.modeHint}>
-                        {mode === 'buy' && '點擊圖表價位 → 限價買進'}
-                        {mode === 'sell' && '點擊圖表價位 → 限價賣出'}
-                        {mode === 'stop' && '點擊價位掛停損（觸價市價單）'}
-                        {mode === 'take' && '點擊價位掛停利（觸價市價單）'}
-                        {mode === 'alert' && '點擊價位設定到價警示（只通知不下單）'}
+                        {mode === 'alert' &&
+                            '點擊價位設定到價警示（只通知，不下單）'}
                     </div>
                 )}
                 {rangeMarks && (

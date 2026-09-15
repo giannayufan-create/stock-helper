@@ -1,0 +1,146 @@
+import type { IntradayRankItemDto } from '../../lib/backend';
+import { vars } from '../../theme.css';
+import {
+    fmtPctSigned,
+    primaryEvent,
+    stateTone,
+} from './helpers';
+import * as s from './radar.css';
+
+function pctTone(pct: number | null | undefined) {
+    if (pct == null || pct === 0) return s.toneFlat;
+    return pct > 0 ? s.toneUp : s.toneDown;
+}
+
+/** One-line scannable row — primary interaction surface. */
+export function CompactStockRow({
+    item,
+    rank,
+    selected,
+    onOpen,
+}: {
+    item: IntradayRankItemDto;
+    rank?: number;
+    selected?: boolean;
+    onOpen: (symbol: string) => void;
+}) {
+    const pct = item.change_pct ?? item.metrics?.return_3m ?? null;
+    const event = primaryEvent(item);
+    return (
+        <button
+            type="button"
+            className={`${s.rowCard} ${selected ? s.rowCardOn : ''}`}
+            onClick={() => onOpen(item.symbol)}
+        >
+            <div className={s.rowLeft}>
+                {rank != null && <span className={s.rowRank}>#{rank}</span>}
+                <div>
+                    <div className={s.rowSym}>
+                        {item.symbol}
+                        <span className={s.rowName}>{item.name}</span>
+                    </div>
+                    <div
+                        className={s.rowState}
+                        style={{ color: stateTone(item.state) }}
+                    >
+                        {item.state}
+                        {event ? ` · ${event}` : ''}
+                    </div>
+                </div>
+            </div>
+            <div className={s.rowMid}>
+                <div>
+                    <span className={s.rowCap}>C</span>
+                    <span className={s.rowC}>{Math.round(item.intraday_score)}</span>
+                </div>
+                <div>
+                    <span className={s.rowCap}>H</span>
+                    <span className={s.rowH}>{Math.round(item.heat_score)}</span>
+                </div>
+            </div>
+            <div className={`${s.rowPct} ${pctTone(pct)}`}>
+                {fmtPctSigned(pct)}
+            </div>
+        </button>
+    );
+}
+
+export function TopStockCard({
+    item,
+    rank,
+    onOpen,
+}: {
+    item: IntradayRankItemDto;
+    rank: number;
+    onOpen: (symbol: string) => void;
+}) {
+    return (
+        <CompactStockRow item={item} rank={rank} onOpen={onOpen} />
+    );
+}
+
+export function MiniHeatCard({
+    item,
+    onOpen,
+}: {
+    item: IntradayRankItemDto;
+    onOpen: (symbol: string) => void;
+}) {
+    return (
+        <button
+            type="button"
+            className={s.chipCard}
+            onClick={() => onOpen(item.symbol)}
+        >
+            <div className={s.chipCode}>{item.symbol}</div>
+            <div className={s.chipMeta}>
+                C{Math.round(item.intraday_score)} · H
+                {Math.round(item.heat_score)}
+            </div>
+            <div
+                style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: stateTone(item.state),
+                }}
+            >
+                {primaryEvent(item) ?? item.state}
+            </div>
+        </button>
+    );
+}
+
+export function MiniPullbackCard({
+    item,
+    onOpen,
+}: {
+    item: IntradayRankItemDto;
+    onOpen: (symbol: string) => void;
+}) {
+    const pb = item.metrics?.pullback_state ?? 'PULLBACK';
+    return (
+        <button
+            type="button"
+            className={s.chipCard}
+            onClick={() => onOpen(item.symbol)}
+        >
+            <div className={s.chipCode}>{item.symbol}</div>
+            <div className={s.chipMeta}>
+                C{Math.round(item.intraday_score)} · H
+                {Math.round(item.heat_score)}
+            </div>
+            <div
+                style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color:
+                        pb === 'RECLAIMING'
+                            ? '#fecaca'
+                            : vars.color.mutedForeground,
+                }}
+            >
+                {pb}
+            </div>
+        </button>
+    );
+}

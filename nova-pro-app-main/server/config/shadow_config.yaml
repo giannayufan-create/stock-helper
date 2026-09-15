@@ -1,0 +1,46 @@
+# Shadow Live Observation — 3 independent experiments.
+# NEVER auto-promotes. NEVER writes production yaml.
+# All experiments share one MarketRuntime / Clock / MarketState.
+# No extra broker subscriptions.
+
+enabled: true
+min_shadow_days: 10
+min_shadow_signals: 200
+# AND gate: both days AND signals required for READY_FOR_MANUAL_REVIEW
+promotion_require_both_gates: true
+
+# Promotion metrics only use learning_eligible + non-low confidence by default
+require_learning_eligible: true
+exclude_low_confidence_from_promotion: true
+
+# Observe first — raise later if Live coverage is healthy
+min_promotion_coverage_pct: 50
+
+promotion:
+  auto_promote: false
+  max_mae_worsen_abs: 0.4
+  max_invalid_rate_worsen_pp: 5
+  min_days_improved_ratio: 0.6
+  max_signal_coverage_drop_pct: 35
+  min_stability_score: 0.45
+
+# Round-1 candidates only (no weight / chase changes)
+experiments:
+  shadow_b_pass81_v1:
+    label: SHADOW_B
+    # B only: pass_enter 78 → 81; C unchanged (= production)
+    open_gate:
+      pass_enter_threshold: 81
+  shadow_c_82_76_v1:
+    label: SHADOW_C
+    # C only: strong 80/74 → 82/76; B unchanged
+    intraday_rank:
+      strong_enter: 82
+      strong_exit: 76
+  shadow_bc_v1:
+    label: SHADOW_BC
+    open_gate:
+      pass_enter_threshold: 81
+    intraday_rank:
+      strong_enter: 82
+      strong_exit: 76

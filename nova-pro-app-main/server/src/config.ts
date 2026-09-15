@@ -1,14 +1,19 @@
 // server/src/config.ts
 
-export type MarketProviderName = 'mock' | 'fugle';
+export type MarketProviderName = 'mock' | 'fugle' | 'shioaji';
 export type TradeProviderName = 'mock' | 'fubon' | 'nova';
 
 export interface Config {
     port: number;
     host: string;
     marketProvider: MarketProviderName;
+    /** Explicit cloud flag: SHIOAJI_ENABLED=true → prefer 永豐行情 */
+    shioajiEnabled: boolean;
     tradeProvider: TradeProviderName;
     fugleApiKey: string;
+    shioajiApiKey: string;
+    shioajiSecretKey: string;
+    shioajiBridgeUrl: string;
     geminiApiKey: string;
     analyzerUrl: string;
     broker: {
@@ -35,17 +40,53 @@ function pick<T extends string>(
     return fallback;
 }
 
+function truthy(v: string | undefined): boolean {
+    if (!v) return false;
+    const s = v.trim().toLowerCase();
+    return (
+        s === '1' ||
+        s === 'true' ||
+        s === 'yes' ||
+        s === 'on' ||
+        s === 'shioaji' // allow SHIOAJI_ENABLED=shioaji
+    );
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+    const shioajiApiKey = env.SHIOAJI_API_KEY ?? env.SJ_API_KEY ?? '';
+    const shioajiSecretKey = env.SHIOAJI_SECRET_KEY ?? env.SJ_SEC_KEY ?? '';
+    const shioajiEnabled =
+        truthy(env.SHIOAJI_ENABLED) ||
+        // auto: keys present + no conflicting preference against
+        (Boolean(shioajiApiKey && shioajiSecretKey) &&
+            truthy(env.SHIOAJI_AS_PRIMARY));
+
+    let marketProvider = pick(
+        env.MARKET_PROVIDER,
+        ['mock', 'fugle', 'shioaji'],
+        'mock',
+    );
+    // New name preferred: SHIOAJI_ENABLED=true (does not require changing MARKET_PROVIDER)
+    if (shioajiEnabled && shioajiApiKey && shioajiSecretKey) {
+        marketProvider = 'shioaji';
+    }
+
     return {
         port: Number(env.PORT) || 8787,
         host: env.HOST || '0.0.0.0',
-        marketProvider: pick(env.MARKET_PROVIDER, ['mock', 'fugle'], 'mock'),
+        marketProvider,
+        shioajiEnabled,
         tradeProvider: pick(
             env.TRADE_PROVIDER,
             ['mock', 'fubon', 'nova'],
             'mock',
         ),
         fugleApiKey: env.FUGLE_API_KEY ?? '',
+        shioajiApiKey,
+        shioajiSecretKey,
+        shioajiBridgeUrl:
+            env.SHIOAJI_BRIDGE_URL?.replace(/\/$/, '') ||
+            'http://127.0.0.1:18080',
         geminiApiKey: env.GEMINI_API_KEY ?? '',
         analyzerUrl: (env.ANALYZER_URL ?? '').replace(/\/$/, ''),
         broker: {
