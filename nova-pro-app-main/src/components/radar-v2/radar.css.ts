@@ -87,7 +87,7 @@ export const page = style({
 });
 
 export const pageEnd = style({
-    height: 24,
+    height: 48,
 });
 
 export const section = style({
@@ -465,9 +465,14 @@ export const iconBtn = style({
 
 export const detailBody = style({
     flex: 1,
+    minHeight: 0,
     overflowY: 'auto',
+    overflowX: 'hidden',
     padding: '16px',
+    paddingBottom: 28,
     WebkitOverflowScrolling: 'touch',
+    overscrollBehavior: 'contain',
+    touchAction: 'pan-y',
 });
 
 export const priceHero = style({

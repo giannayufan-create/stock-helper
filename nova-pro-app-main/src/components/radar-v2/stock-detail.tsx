@@ -278,10 +278,7 @@ export function StockDetailPage({
                     {event ? ` · ${eventLabel(event)}` : ''}
                 </div>
 
-                <MarketIntelBlock symbol={item.symbol} />
-                <BrokerChipBlock symbol={item.symbol} />
-
-                {/* AI CTA at top — always visible without scrolling past metrics */}
+                {/* AI first on mobile — visible above the fold, no scroll needed */}
                 <div className={s.aiCard} style={{ marginBottom: 16 }}>
                     <div
                         style={{
@@ -457,6 +454,9 @@ export function StockDetailPage({
                         </div>
                     )}
                 </div>
+
+                <MarketIntelBlock symbol={item.symbol} />
+                <BrokerChipBlock symbol={item.symbol} />
 
                 <div className={s.glass} style={{ padding: 14, marginBottom: 16 }}>
                     <div
