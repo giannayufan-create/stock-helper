@@ -115,6 +115,9 @@ export interface IntradayRankItem {
     rank_1m_ago: number | null;
     rank_5m_ago: number | null;
     rank_velocity: number | null;
+    /** Last trade / reference for UI — may be 0 after hours. */
+    last_price: number | null;
+    change_pct: number | null;
     intraday_score: number;
     raw_intraday_score: number;
     heat_score: number;

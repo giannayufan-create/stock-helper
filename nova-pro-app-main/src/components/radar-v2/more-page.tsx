@@ -1,4 +1,5 @@
 import { vars } from '../../theme.css';
+import { liveStatusLabel } from './helpers';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 import type { RadarFeed } from './use-radar-feed';
@@ -38,12 +39,12 @@ export function MorePage({
                     行情狀態
                 </div>
                 <HealthRow
-                    label="Live Status"
-                    value={feed.liveStatus}
+                    label="連線狀態"
+                    value={liveStatusLabel(feed.liveStatus)}
                     ok={feed.liveStatus === 'LIVE'}
                 />
                 <HealthRow
-                    label="As of"
+                    label="資料時間"
                     value={
                         feed.asOf
                             ? new Date(feed.asOf).toLocaleTimeString('zh-TW', {
@@ -58,12 +59,12 @@ export function MorePage({
                     ok
                 />
                 <HealthRow
-                    label="B Coverage"
+                    label="開盤閘門覆蓋"
                     value={coverageB != null ? `${coverageB}%` : '—'}
                     ok={coverageB == null || coverageB >= 70}
                 />
                 <HealthRow
-                    label="C Coverage"
+                    label="盤中雷達覆蓋"
                     value={coverageC != null ? `${coverageC}%` : '—'}
                     ok={coverageC == null || coverageC >= 70}
                 />
@@ -95,7 +96,7 @@ export function MorePage({
                         marginTop: 4,
                     }}
                 >
-                    代號或名稱 → 進入 Detail
+                    輸入代號或名稱 → 進入詳情
                 </div>
             </button>
 
@@ -108,7 +109,7 @@ export function MorePage({
                         lineHeight: 1.5,
                     }}
                 >
-                    Replay、資金流、隔夜布局、版面設定 → Phase 3。
+                    回放、資金流、隔夜布局、版面設定 → 後續版本開放。
                     <br />
                     舊版多面板交易終端：網址加 <code>?legacy=1</code>
                     <br />

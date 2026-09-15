@@ -35,6 +35,95 @@ export function stateTone(state: string): string {
     }
 }
 
+/** Display labels for intraday states (keep enum values in English). */
+export function stateLabel(state: string | null | undefined): string {
+    switch ((state ?? '').toUpperCase()) {
+        case 'STRONG':
+            return '強勢';
+        case 'HEATING':
+            return '升溫';
+        case 'EMERGING':
+            return '萌芽';
+        case 'COOLING':
+            return '冷卻';
+        case 'INVALID':
+            return '失效';
+        case 'DORMANT':
+            return '休眠';
+        default:
+            return state || '—';
+    }
+}
+
+export function eventLabel(ev: string | null | undefined): string {
+    switch ((ev ?? '').toUpperCase()) {
+        case 'SURGE':
+            return '急漲';
+        case 'BREAKOUT':
+            return '突破';
+        case 'REBREAK':
+            return '再突破';
+        case 'PULLBACK_READY':
+            return '回踩就緒';
+        case 'RANK_JUMP':
+            return '排名急升';
+        case 'COOLING':
+            return '轉弱';
+        case 'INVALID':
+            return '失效';
+        case 'STRONG_ENTER':
+            return '進入強勢';
+        default:
+            return ev || '—';
+    }
+}
+
+export function chaseLabel(chase: string | null | undefined): string {
+    switch ((chase ?? '').toLowerCase()) {
+        case 'low':
+            return '低';
+        case 'medium':
+            return '中';
+        case 'high':
+            return '高';
+        case 'extreme':
+            return '極高';
+        default:
+            return chase ? chase : '—';
+    }
+}
+
+export function liveStatusLabel(status: string): string {
+    switch (status) {
+        case 'LIVE':
+            return '即時';
+        case 'REPLAY':
+            return '回放';
+        case 'DATA STALE':
+            return '資料過期';
+        case 'DISCONNECTED':
+            return '已斷線';
+        default:
+            return status;
+    }
+}
+
+export function openConfirmLabel(v: string | null | undefined): string {
+    switch ((v ?? '').toLowerCase()) {
+        case 'pass':
+            return '開盤通過';
+        case 'early_pass':
+            return '提早通過';
+        case 'watch':
+            return '觀察中';
+        case 'fail':
+        case 'reject':
+            return '未通過';
+        default:
+            return v || '—';
+    }
+}
+
 export function primaryEvent(item: IntradayRankItemDto): string | null {
     const prefer = [
         'REBREAK',

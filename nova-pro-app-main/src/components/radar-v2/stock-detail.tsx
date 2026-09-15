@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { IntradayRankItemDto } from '../../lib/backend';
+import { fetchSnapshots } from '../../lib/backend';
 import { useQuote } from '../../hooks/use-stream';
 import {
     analyzeSymbolWithServer,
@@ -10,10 +11,13 @@ import { vars } from '../../theme.css';
 import { toggleFavorite } from './favorites';
 import {
     buildRulesSummary,
+    chaseLabel,
+    eventLabel,
     fmtNum,
     fmtPctSigned,
     fmtRankMove,
     primaryEvent,
+    stateLabel,
     stateTone,
     volumeLabel,
     vwapLabel,
@@ -41,6 +45,8 @@ export function StockDetailPage({
     desktop?: boolean;
 }) {
     const quote = useQuote(item.symbol);
+    const [snapPrice, setSnapPrice] = useState<number | null>(null);
+    const [snapPct, setSnapPct] = useState<number | null>(null);
     const [ai, setAi] = useState<SymbolAnalyzeResult | null>(null);
     const [aiLoading, setAiLoading] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
@@ -57,14 +63,40 @@ export function StockDetailPage({
         setAi(null);
         setAiError(null);
         setAiAt(null);
+        setSnapPrice(null);
+        setSnapPct(null);
+        let cancelled = false;
+        void (async () => {
+            try {
+                const rows = await fetchSnapshots([
+                    {
+                        code: item.symbol,
+                        security_type: 'STK',
+                        exchange: 'TSE',
+                    },
+                ]);
+                const snap = rows[0];
+                if (cancelled || !snap) return;
+                if (snap.close > 0) setSnapPrice(snap.close);
+                if (snap.change_pct != null) setSnapPct(Number(snap.change_pct));
+            } catch {
+                // keep tick / rank fallbacks
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, [item.symbol]);
 
     const close = quote?.tick
         ? Number(quote.tick.close)
-        : item.last_price ?? null;
+        : snapPrice ??
+          (item.last_price != null && item.last_price > 0
+              ? item.last_price
+              : null);
     const pct = quote?.tick?.pct_chg
         ? Number(quote.tick.pct_chg)
-        : item.change_pct ?? item.metrics?.return_3m ?? null;
+        : snapPct ?? item.change_pct ?? item.metrics?.return_3m ?? null;
     const event = primaryEvent(item);
     const summary = useMemo(() => buildRulesSummary(item), [item]);
     const aiStale = aiAt != null && now - aiAt > AI_STALE_MS;
@@ -74,17 +106,18 @@ export function StockDetailPage({
         setAiError(null);
         void onSelectCode(item.symbol);
         try {
+            // After-hours / thin coverage: still run AI on rule features;
+            // only hard-stop when stream is fully disconnected with no scores.
             if (
-                item.data_health === 'stale' ||
-                item.data_health === 'disconnected' ||
-                (item.score_coverage_pct != null &&
-                    item.score_coverage_pct < 50)
+                item.data_health === 'disconnected' &&
+                (item.score_coverage_pct == null ||
+                    item.score_coverage_pct < 20)
             ) {
                 setAi({
                     verdict: '資料不足',
                     confidence: 20,
                     summary:
-                        '目前行情資料不完整，暫不提供 AI 即時判讀。',
+                        '目前行情連線中斷且分數覆蓋過低，暫不提供 AI 判讀。',
                     reasons: [],
                     risks: ['資料健康度不足'],
                     watch_for: ['等待資料恢復'],
@@ -205,13 +238,13 @@ export function StockDetailPage({
                         <span className={s.scoreCap}>#{item.rank}</span>
                     </div>
                     <div>
-                        <span className={s.scoreCap}>C</span>
+                        <span className={s.scoreCap}>強度</span>
                         <span className={s.scoreBig}>
                             {Math.round(item.intraday_score)}
                         </span>
                     </div>
                     <div>
-                        <span className={s.scoreCap}>HEAT</span>
+                        <span className={s.scoreCap}>熱度</span>
                         <span className={s.heatBig}>
                             {Math.round(item.heat_score)}
                         </span>
@@ -222,8 +255,8 @@ export function StockDetailPage({
                     className={s.stateLine}
                     style={{ color: stateTone(item.state) }}
                 >
-                    {item.state}
-                    {event ? ` · ${event}` : ''}
+                    {stateLabel(item.state)}
+                    {event ? ` · ${eventLabel(event)}` : ''}
                 </div>
 
                 <div className={s.glass} style={{ padding: 14, marginBottom: 16 }}>
@@ -258,32 +291,33 @@ export function StockDetailPage({
                         <span style={{ color: vars.color.mutedForeground }}>
                             系統規則 ·{' '}
                         </span>
-                        C Score {Math.round(item.intraday_score)} · {item.state}
+                        強度 {Math.round(item.intraday_score)} ·{' '}
+                        {stateLabel(item.state)}
                     </div>
                 </div>
 
                 <div className={s.twoCol} style={{ marginBottom: 16 }}>
                     <Metric
-                        lab="RVOL"
+                        lab="相對量能"
                         val={
                             item.metrics?.rvol_same_time != null
                                 ? `${fmtNum(item.metrics.rvol_same_time)}x`
                                 : volumeLabel(item)
                         }
                     />
-                    <Metric lab="VWAP" val={vwapLabel(item)} />
+                    <Metric lab="均價偏離" val={vwapLabel(item)} />
                     <Metric
-                        lab="Momentum"
+                        lab="動能"
                         val={fmtNum(item.metrics?.momentum_acceleration, 0)}
                     />
                     <Metric
-                        lab="RS"
+                        lab="相對強弱"
                         val={fmtNum(item.metrics?.relative_strength_score, 0)}
                     />
-                    <Metric lab="Rank" val={fmtRankMove(item)} />
+                    <Metric lab="排名變化" val={fmtRankMove(item)} />
                     <Metric
-                        lab="Chase"
-                        val={(item.risk?.chase_risk ?? '—').toUpperCase()}
+                        lab="追高風險"
+                        val={chaseLabel(item.risk?.chase_risk)}
                     />
                 </div>
 
@@ -296,7 +330,9 @@ export function StockDetailPage({
                     ) : (
                         (item.events ?? []).map((ev) => (
                             <div key={ev} className={s.eventRow}>
-                                <div style={{ fontWeight: 700 }}>{ev}</div>
+                                <div style={{ fontWeight: 700 }}>
+                                    {eventLabel(ev)}
+                                </div>
                             </div>
                         ))
                     )}
@@ -306,17 +342,17 @@ export function StockDetailPage({
                 <div className={s.glass} style={{ padding: 14, marginBottom: 20 }}>
                     <div className={s.metricGrid}>
                         <div>
-                            <span className={s.metricLab}>Chase Risk</span>
-                            {(item.risk?.chase_risk ?? '—').toUpperCase()}
+                            <span className={s.metricLab}>追高風險</span>
+                            {chaseLabel(item.risk?.chase_risk)}
                         </div>
                         <div>
-                            <span className={s.metricLab}>Invalid Reference</span>
+                            <span className={s.metricLab}>失效參考價</span>
                             {item.risk?.invalid_price != null
                                 ? fmtPrice(item.risk.invalid_price)
                                 : '—'}
                         </div>
                         <div>
-                            <span className={s.metricLab}>Distance to VWAP</span>
+                            <span className={s.metricLab}>距均價</span>
                             {vwapLabel(item)}
                         </div>
                     </div>

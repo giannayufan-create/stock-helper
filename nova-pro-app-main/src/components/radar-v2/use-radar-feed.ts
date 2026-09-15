@@ -129,7 +129,14 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     );
                 } else if (rank.warnings?.length) {
                     setLiveStatus('LIVE');
-                    setHealthNote(rank.warnings[0] ?? null);
+                    const w = rank.warnings[0] ?? null;
+                    setHealthNote(
+                        w === 'historical profile not ready'
+                            ? '歷史盤中基準尚未就緒'
+                            : w?.includes('historical')
+                              ? '歷史盤中基準尚未就緒'
+                              : w,
+                    );
                 } else {
                     setLiveStatus('LIVE');
                     setHealthNote(null);

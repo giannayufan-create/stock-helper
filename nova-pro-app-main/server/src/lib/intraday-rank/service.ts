@@ -371,7 +371,7 @@ export class IntradayRankService {
                 items: ranked,
                 warnings: this.runtime.profilesReady()
                     ? []
-                    : ['historical profile not ready'],
+                    : ['歷史盤中基準尚未就緒'],
                 evaluate_interval_sec: this.cfg.evaluate_interval_sec,
                 scanner_interval_sec: this.cfg.scanner_interval_sec,
             };

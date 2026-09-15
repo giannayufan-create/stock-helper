@@ -68,8 +68,8 @@ export function TodayPage({
                         }}
                     >
                         加權 {fmtPctSigned(feed.taiexPct)} · 櫃買{' '}
-                        {fmtPctSigned(feed.tpexPct)} · B{feed.passCount} C
-                        {feed.strong} H{feed.heating}
+                        {fmtPctSigned(feed.tpexPct)} · 開盤通過 {feed.passCount}{' '}
+                        · 強勢 {feed.strong} · 升溫 {feed.heating}
                     </div>
                 </div>
                 <button
@@ -92,7 +92,7 @@ export function TodayPage({
                     看雷達
                 </button>
                 <button type="button" className={s.quickBtn} onClick={onGoWatch}>
-                    OPEN PASS
+                    開盤通過
                 </button>
                 <button
                     type="button"

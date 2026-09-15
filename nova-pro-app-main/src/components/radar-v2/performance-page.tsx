@@ -3,7 +3,7 @@ import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 
-/** Phase 3 shell — Signals / Shadow / History placeholders. */
+/** 績效頁殼層 — 訊號／影子實驗／歷史（後續接線） */
 export function PerformancePage() {
     const [tab, setTab] = useState<'signals' | 'shadow' | 'history'>('signals');
 
@@ -13,9 +13,9 @@ export function PerformancePage() {
             <div className={s.stickyTabs}>
                 {(
                     [
-                        ['signals', 'Signals'],
-                        ['shadow', 'Shadow'],
-                        ['history', 'History'],
+                        ['signals', '訊號結果'],
+                        ['shadow', '影子實驗'],
+                        ['history', '歷史紀錄'],
                     ] as const
                 ).map(([id, label]) => (
                     <button
@@ -32,13 +32,13 @@ export function PerformancePage() {
             {tab === 'signals' && (
                 <div className={s.glass} style={{ padding: 16 }}>
                     <div style={{ fontSize: 14, color: vars.color.mutedForeground }}>
-                        過去 30 日 Outcome（Phase 3 接線）
+                        過去 30 日訊號結果（後續接線）
                     </div>
                     <div className={s.twoCol} style={{ marginTop: 14 }}>
-                        <Metric lab="Signals" val="—" />
-                        <Metric lab="15m Positive" val="—" />
-                        <Metric lab="Avg MFE" val="—" />
-                        <Metric lab="Avg MAE" val="—" />
+                        <Metric lab="訊號數" val="—" />
+                        <Metric lab="15 分正向率" val="—" />
+                        <Metric lab="平均有利波動" val="—" />
+                        <Metric lab="平均不利波動" val="—" />
                     </div>
                     <p
                         style={{
@@ -48,7 +48,7 @@ export function PerformancePage() {
                             lineHeight: 1.5,
                         }}
                     >
-                        使用 Positive Rate / Signal Outcome，不顯示勝率或獲利率。
+                        顯示正向率與訊號結果，不顯示勝率或獲利率。
                     </p>
                 </div>
             )}
@@ -70,42 +70,42 @@ export function PerformancePage() {
                             marginBottom: 6,
                         }}
                     >
-                        Shadow Lab
+                        影子實驗室
                     </div>
                     <div style={{ fontSize: 13, color: vars.color.mutedForeground }}>
-                        正式版 vs 候選版 · Research Mode
+                        正式版 vs 候選版 · 研究模式
                         <br />
                         不影響正式判斷
                     </div>
                     <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
-                        {['B  78 → 81', 'C  80/74 → 82/76', 'B+C  Combined'].map(
-                            (label) => (
+                        {[
+                            '開盤閘門 B  78 → 81',
+                            '盤中強度 C  80/74 → 82/76',
+                            'B+C  合併實驗',
+                        ].map((label) => (
+                            <div
+                                key={label}
+                                className={s.glass}
+                                style={{ padding: 12 }}
+                            >
+                                <div style={{ fontWeight: 700 }}>{label}</div>
                                 <div
-                                    key={label}
-                                    className={s.glass}
-                                    style={{ padding: 12 }}
+                                    style={{
+                                        fontSize: 12,
+                                        marginTop: 6,
+                                        color: vars.color.mutedForeground,
+                                    }}
                                 >
-                                    <div style={{ fontWeight: 700 }}>{label}</div>
-                                    <div
-                                        style={{
-                                            fontSize: 12,
-                                            marginTop: 6,
-                                            color: vars.color.mutedForeground,
-                                        }}
-                                    >
-                                        NEEDS MORE DATA · Day —/10 · Eligible —/200
-                                    </div>
+                                    資料不足 · 天數 —/10 · 合格樣本 —/200
                                 </div>
-                            ),
-                        )}
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
 
             {tab === 'history' && (
-                <div className={s.empty}>
-                    History / Replay 將於 Phase 3 接入
-                </div>
+                <div className={s.empty}>歷史／回放將於後續版本接入</div>
             )}
         </>
     );

@@ -8,7 +8,7 @@ import type { ContractInfo } from '../../lib/types/contract';
 import type { Snapshot } from '../../lib/types/market';
 import { vars } from '../../theme.css';
 import { loadFavorites } from './favorites';
-import { taipeiClock } from './helpers';
+import { liveStatusLabel, taipeiClock } from './helpers';
 import { MorePage } from './more-page';
 import { PerformancePage } from './performance-page';
 import * as s from './radar.css';
@@ -129,7 +129,7 @@ export function RadarApp({
                 <div className={s.brand}>
                     {isDesktop ? (
                         <>
-                            Nova Pro
+                            股市小幫手
                             <span
                                 style={{
                                     display: 'block',
@@ -161,13 +161,13 @@ export function RadarApp({
                 <span
                     className={`${s.simBadge} ${!isSim ? s.liveBadge : ''}`}
                 >
-                    {isSim ? 'SIM' : 'LIVE'}
+                    {isSim ? '模擬' : '即時'}
                 </span>
                 <div
                     className={`${s.statusPill} ${s.liveVariants[statusLabel]}`}
                 >
                     <span className={s.statusDot} />
-                    {statusLabel}
+                    {liveStatusLabel(statusLabel)}
                 </div>
                 {onOpenSearch && (
                     <button
@@ -247,7 +247,7 @@ export function RadarApp({
             <div className={s.desktopShell}>
                 <aside className={s.sideNav}>
                     <div className={s.sideBrand}>
-                        <div className={s.sideBrandMain}>Nova Pro</div>
+                        <div className={s.sideBrandMain}>股市小幫手</div>
                         <div className={s.sideBrandSub}>AI 當沖雷達</div>
                     </div>
                     {NAV.map((n) => (

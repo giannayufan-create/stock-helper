@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { sortHeating, sortPullback, sortStrong } from './helpers';
+import { sortHeating, sortPullback, sortStrong, eventLabel } from './helpers';
 import * as s from './radar.css';
 import { CompactStockRow } from './stock-cards';
 import { radarColor } from './tokens';
@@ -153,7 +153,7 @@ export function RadarPage({
                         <div className={s.sheetTitle}>雷達篩選</div>
                         <label style={{ display: 'block', marginBottom: 12 }}>
                             <div style={{ fontSize: 13, marginBottom: 6 }}>
-                                最低 C Score：{minC}
+                                最低強度分數：{minC}
                             </div>
                             <input
                                 type="range"
@@ -166,7 +166,7 @@ export function RadarPage({
                         </label>
                         <label style={{ display: 'block', marginBottom: 12 }}>
                             <div style={{ fontSize: 13, marginBottom: 6 }}>
-                                最低 Heat：{minHeat}
+                                最低熱度：{minHeat}
                             </div>
                             <input
                                 type="range"
@@ -241,7 +241,7 @@ function EventsList({
                         className={`${s.tabChip} ${filter === f ? s.tabChipOn : ''}`}
                         onClick={() => setFilter(f)}
                     >
-                        {f}
+                        {eventLabel(f)}
                     </button>
                 ))}
             </div>
@@ -281,7 +281,7 @@ function EventsList({
                         >
                             <div className={s.eventTime}>{hh}</div>
                             <div style={{ fontWeight: 700, fontSize: 15 }}>
-                                {icon} {e.event_type}
+                                {icon} {eventLabel(e.event_type)}
                             </div>
                             <div style={{ fontSize: 14, marginTop: 2 }}>
                                 {e.symbol}

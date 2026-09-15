@@ -1,8 +1,10 @@
 import type { IntradayRankItemDto } from '../../lib/backend';
 import { vars } from '../../theme.css';
 import {
+    eventLabel,
     fmtPctSigned,
     primaryEvent,
+    stateLabel,
     stateTone,
 } from './helpers';
 import * as s from './radar.css';
@@ -43,18 +45,18 @@ export function CompactStockRow({
                         className={s.rowState}
                         style={{ color: stateTone(item.state) }}
                     >
-                        {item.state}
-                        {event ? ` · ${event}` : ''}
+                        {stateLabel(item.state)}
+                        {event ? ` · ${eventLabel(event)}` : ''}
                     </div>
                 </div>
             </div>
             <div className={s.rowMid}>
                 <div>
-                    <span className={s.rowCap}>C</span>
+                    <span className={s.rowCap}>強度</span>
                     <span className={s.rowC}>{Math.round(item.intraday_score)}</span>
                 </div>
                 <div>
-                    <span className={s.rowCap}>H</span>
+                    <span className={s.rowCap}>熱度</span>
                     <span className={s.rowH}>{Math.round(item.heat_score)}</span>
                 </div>
             </div>
@@ -94,7 +96,7 @@ export function MiniHeatCard({
         >
             <div className={s.chipCode}>{item.symbol}</div>
             <div className={s.chipMeta}>
-                C{Math.round(item.intraday_score)} · H
+                強度{Math.round(item.intraday_score)} · 熱度
                 {Math.round(item.heat_score)}
             </div>
             <div
@@ -104,7 +106,10 @@ export function MiniHeatCard({
                     color: stateTone(item.state),
                 }}
             >
-                {primaryEvent(item) ?? item.state}
+                {(() => {
+                    const ev = primaryEvent(item);
+                    return ev ? eventLabel(ev) : stateLabel(item.state);
+                })()}
             </div>
         </button>
     );
@@ -117,7 +122,15 @@ export function MiniPullbackCard({
     item: IntradayRankItemDto;
     onOpen: (symbol: string) => void;
 }) {
-    const pb = item.metrics?.pullback_state ?? 'PULLBACK';
+    const pb = (item.metrics?.pullback_state ?? 'pullback').toLowerCase();
+    const pbZh =
+        pb === 'reclaiming'
+            ? '收復中'
+            : pb === 'holding'
+              ? '守穩'
+              : pb === 'failed'
+                ? '失敗'
+                : '回踩';
     return (
         <button
             type="button"
@@ -126,7 +139,7 @@ export function MiniPullbackCard({
         >
             <div className={s.chipCode}>{item.symbol}</div>
             <div className={s.chipMeta}>
-                C{Math.round(item.intraday_score)} · H
+                強度{Math.round(item.intraday_score)} · 熱度
                 {Math.round(item.heat_score)}
             </div>
             <div
@@ -134,12 +147,12 @@ export function MiniPullbackCard({
                     fontSize: 11,
                     fontWeight: 700,
                     color:
-                        pb === 'RECLAIMING'
+                        pb === 'reclaiming'
                             ? '#fecaca'
                             : vars.color.mutedForeground,
                 }}
             >
-                {pb}
+                {pbZh}
             </div>
         </button>
     );

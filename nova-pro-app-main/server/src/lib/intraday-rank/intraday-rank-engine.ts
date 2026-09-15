@@ -362,6 +362,13 @@ export function scoreIntradaySymbol(opts: {
         signal_id = newId('csig', discovery.symbol, now);
     }
 
+    const last_price =
+        state && state.last_price > 0
+            ? state.last_price
+            : state && state.prev_close > 0
+              ? state.prev_close
+              : null;
+
     return {
         symbol: discovery.symbol,
         name: discovery.name,
@@ -376,6 +383,8 @@ export function scoreIntradaySymbol(opts: {
         rank_1m_ago: null,
         rank_5m_ago: null,
         rank_velocity: null,
+        last_price,
+        change_pct: dayChg,
         intraday_score,
         raw_intraday_score: Math.round(raw),
         heat_score: heat,
