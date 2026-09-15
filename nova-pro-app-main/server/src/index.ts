@@ -64,24 +64,26 @@ async function main(): Promise<void> {
                 runtimeConfig.set({ marketProvider: 'shioaji' });
                 console.log('market: shioaji (永豐行情)');
             } catch (err) {
-                console.warn(
-                    `shioaji init failed (${err instanceof Error ? err.message : err}) — falling back`,
-                );
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`shioaji init failed (${msg}) — falling back`);
+                if (/fetch failed|ECONNREFUSED|AbortError/i.test(msg)) {
+                    console.warn(
+                        `shioaji bridge unreachable at ${config.shioajiBridgeUrl} — Render must run Docker (start-cloud.sh), not native Node`,
+                    );
+                }
             }
         }
     }
 
-    if (
-        !started &&
-        saved.marketProvider === 'fugle' &&
-        saved.fugleApiKey
-    ) {
-        const fugle = new FugleMarketDataProvider(saved.fugleApiKey);
+    const fugleKey = saved.fugleApiKey || config.fugleApiKey;
+    if (!started && fugleKey) {
+        const fugle = new FugleMarketDataProvider(fugleKey);
         try {
             await fugle.init();
             manager.start(fugle, 'fugle');
             started = true;
-            console.log('market: fugle (saved API key)');
+            runtimeConfig.set({ marketProvider: 'fugle', fugleApiKey: fugleKey });
+            console.log('market: fugle (fallback)');
         } catch (err) {
             console.warn(
                 `fugle init failed (${err instanceof Error ? err.message : err}) — falling back to mock`,

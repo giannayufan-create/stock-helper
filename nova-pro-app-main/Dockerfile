@@ -2,7 +2,9 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-pip python3-venv curl \
+      python3 python3-pip python3-venv python3-dev \
+      gcc g++ make curl ca-certificates \
+      libssl-dev libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -15,9 +17,11 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY server/package.json server/package-lock.json* ./server/
 RUN cd server && if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-# Shioaji bridge deps
+# Shioaji bridge deps — fail the image build if import breaks
 COPY shioaji-bridge/requirements.txt ./shioaji-bridge/
-RUN pip3 install --break-system-packages -r shioaji-bridge/requirements.txt
+RUN pip3 install --break-system-packages --upgrade pip \
+    && pip3 install --break-system-packages -r shioaji-bridge/requirements.txt \
+    && python3 -c "import shioaji, fastapi, uvicorn; print('shioaji', shioaji.__version__)"
 
 # Source
 COPY . .

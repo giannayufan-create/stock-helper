@@ -1,5 +1,5 @@
 # Shioaji HTTP bridge for stock-helper Node backend
-fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
-shioaji>=1.2.0
-pydantic>=2.0
+fastapi>=0.115.0,<1
+uvicorn[standard]>=0.32.0,<1
+shioaji>=1.2.5
+pydantic>=2.0,<3
