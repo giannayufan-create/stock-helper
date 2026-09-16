@@ -96,16 +96,14 @@ export function detectOverheated(
     f: BuyPressureFeatures,
     cfg: BuyPressureConfig,
 ): boolean {
+    // Label only — based on heat / extension, NOT a score deduction.
     const chg = f.change_pct ?? 0;
     const heat = f.heat_score ?? 0;
     const dist = Math.abs(f.distance_from_vwap_pct ?? 0);
-    const chase = (f.chase_risk ?? '').toLowerCase();
-    const chaseHit = cfg.overheated.chase_risks.includes(chase);
     let hits = 0;
     if (chg >= cfg.overheated.min_change_pct) hits++;
     if (heat >= cfg.overheated.min_heat) hits++;
     if (dist >= cfg.overheated.min_vwap_distance_pct) hits++;
-    if (chaseHit) hits++;
     return hits >= 2;
 }
 
@@ -238,15 +236,19 @@ export function resolveStates(input: {
     }
 
     const priority: BuyPressureState[] = [
-        'OVERHEATED',
         'VOLUME_BREAKOUT',
         'ASK_EATING',
         'BUY_SURGE',
         'LARGE_BID',
         'EARLY',
+        'OVERHEATED',
         'COOLING',
     ];
+    // OVERHEATED is a risk label — never the sole primary when an action state exists.
+    const action = states.filter((s) => s !== 'OVERHEATED' && s !== 'COOLING');
     const primary =
-        priority.find((p) => states.includes(p)) ?? states[0]!;
+        (action.length
+            ? priority.find((p) => action.includes(p))
+            : priority.find((p) => states.includes(p))) ?? states[0]!;
     return { primary, states };
 }

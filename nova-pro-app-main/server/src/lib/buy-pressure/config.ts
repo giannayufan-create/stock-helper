@@ -66,6 +66,7 @@ export interface BuyPressureConfig {
         early_bonus: number;
         rank_velocity_bonus_scale: number;
         fresh_accel_bonus_scale: number;
+        /** Kept for config compat; default ranking does NOT apply chase/overheated penalties. */
         chase_penalty_scale: number;
         overheated_penalty: number;
     };
@@ -136,8 +137,8 @@ export const DEFAULT_BP_CONFIG: BuyPressureConfig = {
         early_bonus: 12,
         rank_velocity_bonus_scale: 0.35,
         fresh_accel_bonus_scale: 0.12,
-        chase_penalty_scale: 8,
-        overheated_penalty: 25,
+        chase_penalty_scale: 0,
+        overheated_penalty: 0,
     },
     notification_cooldown_sec: 90,
     stale_block_states: true,

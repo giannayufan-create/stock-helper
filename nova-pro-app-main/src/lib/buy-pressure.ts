@@ -33,7 +33,9 @@ export interface BuyPressureItemDto {
     vwap_bucket: string | null;
     distance_from_vwap_pct: number | null;
     chase_penalty: number;
+    chase_risk: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
     overheated: boolean;
+    overheated_note: string | null;
     ask_eating_note: string | null;
     large_bid_note: string | null;
     data_stale: boolean;
@@ -64,9 +66,16 @@ export interface BuyPressureQuery {
     min_price?: number;
     max_price?: number;
     min_score?: number;
-    state?: BuyPressureState | 'ALL';
+    state?: BuyPressureState | 'ALL' | 'OVERHEATED_STRONG';
     market?: 'ALL' | 'TSE' | 'OTC' | 'ESM';
     overheated?: boolean;
+    sort?:
+        | 'strongest'
+        | 'early'
+        | 'rank_surge'
+        | 'volume_surge'
+        | 'ask_eating'
+        | 'overheated_strong';
     limit?: number;
 }
 
@@ -78,6 +87,7 @@ export function fetchBuyPressure(query: BuyPressureQuery = {}) {
     if (query.state && query.state !== 'ALL') qs.set('state', query.state);
     if (query.market && query.market !== 'ALL') qs.set('market', query.market);
     if (query.overheated != null) qs.set('overheated', String(query.overheated));
+    if (query.sort && query.sort !== 'strongest') qs.set('sort', query.sort);
     if (query.limit != null) qs.set('limit', String(query.limit));
     const suffix = qs.toString() ? `?${qs}` : '';
     return apiGet<BuyPressureBatchDto>(`/api/v1/data/buy-pressure${suffix}`);

@@ -20,7 +20,7 @@ import {
     resolveStates,
     vwapBucket,
 } from './detectors.ts';
-import { applyPriceFilter, computeRadarRankScore } from './ranking.ts';
+import { applyPriceFilter, computeBpChaseRisk, computeRadarRankScore, isOverheatedStrong, sortBuyPressureItems, type BpSortMode } from './ranking.ts';
 import { computeBuyPressureScore } from './score-engine.ts';
 import type {
     BidAskSnap,
@@ -145,11 +145,15 @@ export class BuyPressureService {
             );
         }
         if (query.state && query.state !== 'ALL') {
-            items = items.filter(
-                (i) =>
-                    i.primary_state === query.state ||
-                    i.states.includes(query.state as BuyPressureState),
-            );
+            if (query.state === 'OVERHEATED_STRONG') {
+                items = items.filter((i) => isOverheatedStrong(i));
+            } else {
+                items = items.filter(
+                    (i) =>
+                        i.primary_state === query.state ||
+                        i.states.includes(query.state as BuyPressureState),
+                );
+            }
         }
         if (query.market && query.market !== 'ALL') {
             if (query.market === 'ESM') {
@@ -162,13 +166,15 @@ export class BuyPressureService {
                 );
             }
         }
+        // 「僅未過熱」— user opt-in only; default includes OVERHEATED
         if (query.overheated === false) {
             items = items.filter((i) => !i.overheated);
         } else if (query.overheated === true) {
             items = items.filter((i) => i.overheated);
         }
 
-        items.sort((a, b) => b.radar_rank_score - a.radar_rank_score);
+        const sortMode = (query.sort ?? 'strongest') as BpSortMode;
+        items = sortBuyPressureItems(items, sortMode);
         const limit =
             query.limit != null && Number.isFinite(query.limit)
                 ? Math.max(1, Math.min(200, query.limit))
@@ -200,7 +206,11 @@ export class BuyPressureService {
             items.push(item);
         }
 
-        items.sort((a, b) => b.radar_rank_score - a.radar_rank_score);
+        items.sort(
+            (a, b) =>
+                b.buy_pressure_score - a.buy_pressure_score ||
+                b.radar_rank_score - a.radar_rank_score,
+        );
         const out: BuyPressureBatch = {
             as_of: new Date().toISOString(),
             version: BP_VERSION,
@@ -373,14 +383,16 @@ export class BuyPressureService {
             staleBlock: this.cfg.stale_block_states,
         });
 
+        const bpChase = computeBpChaseRisk(features);
         const rankOut = computeRadarRankScore({
             buy_pressure_score: scored.buy_pressure_score,
             states,
             rank_velocity: features.rank_velocity.value,
             volume_acceleration: features.volume_acceleration.value,
-            chase_risk: features.chase_risk,
-            overheated,
+            trade_aggression: features.trade_aggression.value,
             cfg: this.cfg,
+            heat_score: features.heat_score,
+            chase_risk: bpChase,
         });
 
         const nowIso = new Date().toISOString();
@@ -426,7 +438,8 @@ export class BuyPressureService {
         if (volBreak && !features.data_stale)
             pushEv('VOLUME_BREAKOUT', '放量突破', true);
         if (large.hit) pushEv('LARGE_BID_APPEAR', large.note, false);
-        if (overheated) pushEv('OVERHEATED', '偏熱', false);
+        if (overheated)
+            pushEv('OVERHEATED', '買盤強，但短線延伸較大', false);
         if (
             features.rank_velocity.available &&
             (features.rank_velocity.value ?? 0) >= 10
@@ -460,8 +473,12 @@ export class BuyPressureService {
             momentum_acceleration: features.momentum_acceleration.value,
             vwap_bucket: features.vwap_bucket,
             distance_from_vwap_pct: features.distance_from_vwap_pct,
-            chase_penalty: rankOut.chase_penalty,
+            chase_penalty: 0,
+            chase_risk: bpChase,
             overheated,
+            overheated_note: overheated
+                ? '買盤強，但短線延伸較大'
+                : null,
             ask_eating_note: ask.eating ? ask.note : null,
             large_bid_note: large.hit ? large.note : null,
             data_stale: features.data_stale,

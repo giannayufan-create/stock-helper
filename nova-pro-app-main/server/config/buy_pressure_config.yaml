@@ -63,5 +63,5 @@ ranking:
   early_bonus: 12
   rank_velocity_bonus_scale: 0.35
   fresh_accel_bonus_scale: 0.12
-  chase_penalty_scale: 8
-  overheated_penalty: 25
+  chase_penalty_scale: 0
+  overheated_penalty: 0

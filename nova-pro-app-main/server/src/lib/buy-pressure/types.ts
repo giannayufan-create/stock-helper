@@ -107,7 +107,10 @@ export interface BuyPressureItem {
     vwap_bucket: VwapBucket | null;
     distance_from_vwap_pct: number | null;
     chase_penalty: number;
+    /** Independent chase risk — not folded into buy_pressure_score. */
+    chase_risk: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
     overheated: boolean;
+    overheated_note: string | null;
     ask_eating_note: string | null;
     large_bid_note: string | null;
     data_stale: boolean;
@@ -135,9 +138,17 @@ export interface BuyPressureQuery {
     min_price?: number;
     max_price?: number;
     min_score?: number;
-    state?: BuyPressureState | 'ALL';
+    state?: BuyPressureState | 'ALL' | 'OVERHEATED_STRONG';
     market?: BuyPressureMarket;
+    /** User-opt-in only; default undefined = include overheated. */
     overheated?: boolean;
+    sort?:
+        | 'strongest'
+        | 'early'
+        | 'rank_surge'
+        | 'volume_surge'
+        | 'ask_eating'
+        | 'overheated_strong';
     limit?: number;
 }
 

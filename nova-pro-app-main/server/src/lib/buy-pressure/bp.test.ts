@@ -11,9 +11,9 @@ import {
     detectVolumeBreakout,
     resolveStates,
 } from './detectors.ts';
-import { applyPriceFilter, computeRadarRankScore } from './ranking.ts';
+import { applyPriceFilter, computeBpChaseRisk, computeRadarRankScore, isOverheatedStrong, sortBuyPressureItems } from './ranking.ts';
 import { computeBuyPressureScore } from './score-engine.ts';
-import type { BidAskSnap, BuyPressureFeatures } from './types.ts';
+import type { BidAskSnap, BuyPressureFeatures, BuyPressureItem } from './types.ts';
 
 function baseFeatures(
     over: Partial<BuyPressureFeatures> = {},
@@ -125,7 +125,7 @@ function pass(name: string) {
     pass('Test D — ASK_EATING with fills');
 }
 
-// ---- TEST E: OVERHEATED demotes radar rank ----
+// ---- TEST E: OVERHEATED is label — does NOT demote default rank / score ----
 {
     const f = baseFeatures({
         change_pct: 9.5,
@@ -134,27 +134,34 @@ function pass(name: string) {
         chase_risk: 'extreme',
     });
     assert.equal(detectOverheated(f, DEFAULT_BP_CONFIG), true);
-    const score = 90;
-    const hot = computeRadarRankScore({
-        buy_pressure_score: score,
+    const score = computeBuyPressureScore(f, DEFAULT_BP_CONFIG).buy_pressure_score;
+    const coolFeat = baseFeatures({
+        change_pct: 1,
+        heat_score: 50,
+        distance_from_vwap_pct: 0.3,
+    });
+    const coolScore = computeBuyPressureScore(coolFeat, DEFAULT_BP_CONFIG).buy_pressure_score;
+    // Same underlying pressure features → same BP score (heat not in score weights)
+    assert.equal(score, coolScore);
+    const hotRank = computeRadarRankScore({
+        buy_pressure_score: 95,
         states: ['OVERHEATED', 'BUY_SURGE'],
         rank_velocity: 10,
         volume_acceleration: 80,
-        chase_risk: 'extreme',
-        overheated: true,
+        trade_aggression: 70,
         cfg: DEFAULT_BP_CONFIG,
     });
-    const cool = computeRadarRankScore({
-        buy_pressure_score: score,
+    const coolRank = computeRadarRankScore({
+        buy_pressure_score: 95,
         states: ['BUY_SURGE'],
         rank_velocity: 10,
         volume_acceleration: 80,
-        chase_risk: 'low',
-        overheated: false,
+        trade_aggression: 70,
         cfg: DEFAULT_BP_CONFIG,
     });
-    assert.ok(hot.radar_rank_score < cool.radar_rank_score);
-    pass('Test E — OVERHEATED lowers radar rank');
+    assert.equal(hotRank.radar_rank_score, coolRank.radar_rank_score);
+    assert.equal(hotRank.chase_penalty, 0);
+    pass('Test E — OVERHEATED does not demote score/rank');
 }
 
 // ---- TEST F / default ALL ----
@@ -278,6 +285,198 @@ function pass(name: string) {
     });
     assert.equal(detectVolumeBreakout(f, DEFAULT_BP_CONFIG), true);
     pass('VOLUME_BREAKOUT path');
+}
+
+function stubItem(
+    partial: Partial<BuyPressureItem> & {
+        symbol: string;
+        buy_pressure_score: number;
+    },
+): BuyPressureItem {
+    return {
+        symbol: partial.symbol,
+        name: partial.name ?? partial.symbol,
+        market: 'UNKNOWN',
+        last_price: partial.last_price ?? 100,
+        change_pct: partial.change_pct ?? 5,
+        buy_pressure_score: partial.buy_pressure_score,
+        radar_rank_score: partial.radar_rank_score ?? partial.buy_pressure_score,
+        primary_state: partial.primary_state ?? 'BUY_SURGE',
+        states: partial.states ?? ['BUY_SURGE'],
+        c_score: partial.c_score ?? 80,
+        heat_score: partial.heat_score ?? 70,
+        rank: partial.rank ?? 5,
+        rank_prev: partial.rank_prev ?? 20,
+        rank_velocity: partial.rank_velocity ?? 15,
+        volume_acceleration: partial.volume_acceleration ?? 50,
+        rvol: 2,
+        trade_aggression: 60,
+        bidask_imbalance: 0.2,
+        momentum_acceleration: 20,
+        vwap_bucket: 'Above VWAP',
+        distance_from_vwap_pct: partial.distance_from_vwap_pct ?? 1,
+        chase_penalty: 0,
+        chase_risk: partial.chase_risk ?? 'LOW',
+        overheated: partial.overheated ?? false,
+        overheated_note: partial.overheated
+            ? '買盤強，但短線延伸較大'
+            : null,
+        ask_eating_note: null,
+        large_bid_note: null,
+        data_stale: false,
+        data_health: 'healthy',
+        updated_at: new Date().toISOString(),
+        last_updated: new Date().toISOString(),
+        events: [],
+        notification_candidates: [],
+        feature_availability: {},
+        score_coverage_pct: 100,
+    };
+}
+
+// ---- TEST O: overheated still on radar ----
+{
+    const items = [
+        stubItem({
+            symbol: 'HOT',
+            buy_pressure_score: 95,
+            heat_score: 97,
+            overheated: true,
+            states: ['BUY_SURGE', 'OVERHEATED'],
+            rank: 2,
+            rank_prev: 20,
+        }),
+        stubItem({ symbol: 'COOL', buy_pressure_score: 70, heat_score: 50 }),
+    ];
+    const sorted = sortBuyPressureItems(items, 'strongest');
+    assert.ok(sorted.some((i) => i.symbol === 'HOT'));
+    assert.equal(sorted[0]!.symbol, 'HOT');
+    pass('Test O — OVERHEATED remains on radar');
+}
+
+// ---- TEST P: heat does not reduce BP score ----
+{
+    const hi = baseFeatures({ heat_score: 97 });
+    const lo = baseFeatures({ heat_score: 40 });
+    assert.equal(
+        computeBuyPressureScore(hi, DEFAULT_BP_CONFIG).buy_pressure_score,
+        computeBuyPressureScore(lo, DEFAULT_BP_CONFIG).buy_pressure_score,
+    );
+    pass('Test P — Heat independent of Buy Pressure Score');
+}
+
+// ---- TEST Q: strongest sort allows OVERHEATED #1 ----
+{
+    const items = [
+        stubItem({
+            symbol: 'A',
+            buy_pressure_score: 95,
+            heat_score: 97,
+            overheated: true,
+            states: ['BUY_SURGE', 'OVERHEATED'],
+        }),
+        stubItem({
+            symbol: 'B',
+            buy_pressure_score: 82,
+            heat_score: 65,
+            overheated: false,
+        }),
+    ];
+    const sorted = sortBuyPressureItems(items, 'strongest');
+    assert.equal(sorted[0]!.symbol, 'A');
+    pass('Test Q — strongest allows OVERHEATED first');
+}
+
+// ---- TEST R: early sort prefers EARLY over OVERHEATED ----
+{
+    const items = [
+        stubItem({
+            symbol: 'HOT',
+            buy_pressure_score: 95,
+            overheated: true,
+            states: ['OVERHEATED', 'BUY_SURGE'],
+            primary_state: 'BUY_SURGE',
+        }),
+        stubItem({
+            symbol: 'EAR',
+            buy_pressure_score: 78,
+            overheated: false,
+            states: ['EARLY'],
+            primary_state: 'EARLY',
+            heat_score: 55,
+        }),
+    ];
+    const sorted = sortBuyPressureItems(items, 'early');
+    assert.equal(sorted[0]!.symbol, 'EAR');
+    assert.ok(sorted.some((i) => i.symbol === 'HOT'));
+    pass('Test R — early prefers EARLY; OVERHEATED not excluded');
+}
+
+// ---- TEST S: overheated_strong filter ----
+{
+    const items = [
+        stubItem({
+            symbol: 'A',
+            buy_pressure_score: 90,
+            heat_score: 95,
+            overheated: true,
+        }),
+        stubItem({
+            symbol: 'B',
+            buy_pressure_score: 90,
+            heat_score: 70,
+            overheated: false,
+        }),
+        stubItem({
+            symbol: 'C',
+            buy_pressure_score: 60,
+            heat_score: 95,
+            overheated: true,
+        }),
+    ];
+    const sorted = sortBuyPressureItems(items, 'overheated_strong');
+    assert.deepEqual(
+        sorted.map((i) => i.symbol),
+        ['A'],
+    );
+    assert.equal(isOverheatedStrong(items[0]!), true);
+    pass('Test S — 過熱強勢 filter');
+}
+
+// ---- TEST T: default ALL includes all state types ----
+{
+    const items = [
+        stubItem({ symbol: '1', buy_pressure_score: 70, states: ['EARLY'], primary_state: 'EARLY' }),
+        stubItem({ symbol: '2', buy_pressure_score: 80, states: ['BUY_SURGE'], primary_state: 'BUY_SURGE' }),
+        stubItem({ symbol: '3', buy_pressure_score: 85, states: ['ASK_EATING'], primary_state: 'ASK_EATING' }),
+        stubItem({ symbol: '4', buy_pressure_score: 88, states: ['VOLUME_BREAKOUT'], primary_state: 'VOLUME_BREAKOUT' }),
+        stubItem({
+            symbol: '5',
+            buy_pressure_score: 95,
+            states: ['BUY_SURGE', 'OVERHEATED'],
+            primary_state: 'BUY_SURGE',
+            overheated: true,
+            heat_score: 96,
+        }),
+    ];
+    const sorted = sortBuyPressureItems(items, 'strongest');
+    assert.equal(sorted.length, 5);
+    assert.ok(sorted.some((i) => i.overheated));
+    pass('Test T — default ALL keeps all states including OVERHEATED');
+}
+
+// Chase risk independent
+{
+    const chase = computeBpChaseRisk(
+        baseFeatures({
+            change_pct: 9.5,
+            heat_score: 97,
+            distance_from_vwap_pct: 5.8,
+            momentum_acceleration: { value: 50, available: true },
+        }),
+    );
+    assert.ok(chase === 'HIGH' || chase === 'EXTREME');
+    pass('Chase Risk independent helper');
 }
 
 console.log(`\nbp.test.ts ${passed} passed`);

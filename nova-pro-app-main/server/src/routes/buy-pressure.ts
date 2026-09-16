@@ -44,9 +44,17 @@ export function registerBuyPressureRoutes(
             min_price: parseNum(q.min_price),
             max_price: parseNum(q.max_price),
             min_score: parseNum(q.min_score),
-            state: (q.state as BuyPressureState | 'ALL' | undefined) ?? 'ALL',
+            state: (q.state as BuyPressureState | 'ALL' | 'OVERHEATED_STRONG' | undefined) ?? 'ALL',
             market: (q.market as 'ALL' | 'TSE' | 'OTC' | 'ESM' | undefined) ?? 'ALL',
             overheated: parseBool(q.overheated),
+            sort: (q.sort as
+                | 'strongest'
+                | 'early'
+                | 'rank_surge'
+                | 'volume_surge'
+                | 'ask_eating'
+                | 'overheated_strong'
+                | undefined) ?? 'strongest',
             limit: parseNum(q.limit),
         });
     });

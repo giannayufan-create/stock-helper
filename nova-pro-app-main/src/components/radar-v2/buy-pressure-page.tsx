@@ -41,7 +41,7 @@ const STATE_META: Record<
     ASK_EATING: { icon: '⚡', label: '正在吃賣單' },
     VOLUME_BREAKOUT: { icon: '🚀', label: '放量突破' },
     LARGE_BID: { icon: '💰', label: '大額委買出現' },
-    OVERHEATED: { icon: '⚠', label: '偏熱' },
+    OVERHEATED: { icon: '⚠', label: '過熱強勢' },
     COOLING: { icon: '❄', label: '買盤降溫' },
 };
 
@@ -92,11 +92,21 @@ export function BuyPressurePage({
     const [customMin, setCustomMin] = useState('');
     const [customMax, setCustomMax] = useState('');
     const [market, setMarket] = useState<MarketPreset>('ALL');
-    const [stateFilter, setStateFilter] = useState<BuyPressureState | 'ALL'>(
-        'ALL',
-    );
-    const [notOverheated, setNotOverheated] = useState(false);
-    const [showFilters, setShowFilters] = useState(false);
+    const [stateFilter, setStateFilter] = useState<
+        BuyPressureState | 'ALL' | 'OVERHEATED_STRONG'
+    >('ALL');
+    /** User opt-in only — default false so OVERHEATED stays visible. */
+    const [onlyNotOverheated, setOnlyNotOverheated] = useState(false);
+    const [showPricePanel, setShowPricePanel] = useState(false);
+    const [showMarketPanel, setShowMarketPanel] = useState(false);
+    const [sortMode, setSortMode] = useState<
+        | 'strongest'
+        | 'early'
+        | 'rank_surge'
+        | 'volume_surge'
+        | 'ask_eating'
+        | 'overheated_strong'
+    >('strongest');
     const [items, setItems] = useState<BuyPressureItemDto[]>([]);
     const [asOf, setAsOf] = useState<string | null>(null);
     const [staleGlobal, setStaleGlobal] = useState(false);
@@ -110,10 +120,19 @@ export function BuyPressurePage({
             ...bounds,
             state: stateFilter,
             market,
-            overheated: notOverheated ? false : undefined,
+            overheated: onlyNotOverheated ? false : undefined,
+            sort: sortMode,
             limit: 40,
         };
-    }, [pricePreset, customMin, customMax, stateFilter, market, notOverheated]);
+    }, [
+        pricePreset,
+        customMin,
+        customMax,
+        stateFilter,
+        market,
+        onlyNotOverheated,
+        sortMode,
+    ]);
 
     useEffect(() => {
         let cancelled = false;
@@ -186,8 +205,8 @@ export function BuyPressurePage({
                     [
                         ['ALL', '全部'],
                         ['LT100', '<100'],
-                        ['NOT_HOT', '未過熱'],
-                        ['FILTER', '篩選'],
+                        ['PRICE', '價格'],
+                        ['MARKET', '市場'],
                     ] as const
                 ).map(([id, lab]) => (
                     <button
@@ -196,25 +215,98 @@ export function BuyPressurePage({
                         className={`${s.quickBtn} ${
                             (id === 'ALL' &&
                                 pricePreset === 'ALL' &&
-                                !notOverheated &&
-                                !showFilters) ||
+                                !showPricePanel &&
+                                !showMarketPanel) ||
                             (id === 'LT100' && pricePreset === 'LT100') ||
-                            (id === 'NOT_HOT' && notOverheated) ||
-                            (id === 'FILTER' && showFilters)
+                            (id === 'PRICE' && showPricePanel) ||
+                            (id === 'MARKET' && showMarketPanel)
                                 ? s.tabChipOn
                                 : ''
                         }`}
                         onClick={() => {
                             if (id === 'ALL') {
                                 setPricePreset('ALL');
-                                setNotOverheated(false);
-                                setShowFilters(false);
+                                setShowPricePanel(false);
+                                setShowMarketPanel(false);
                             } else if (id === 'LT100') {
                                 setPricePreset('LT100');
-                            } else if (id === 'NOT_HOT') {
-                                setNotOverheated((v) => !v);
+                                setShowPricePanel(false);
+                            } else if (id === 'PRICE') {
+                                setShowPricePanel((v) => !v);
+                                setShowMarketPanel(false);
                             } else {
-                                setShowFilters((v) => !v);
+                                setShowMarketPanel((v) => !v);
+                                setShowPricePanel(false);
+                            }
+                        }}
+                    >
+                        {lab}
+                    </button>
+                ))}
+            </div>
+
+            <div className={s.quickBar} style={{ marginBottom: 8 }}>
+                {(
+                    [
+                        ['ALL', '全部狀態'],
+                        ['EARLY', '🟡 開始轉強'],
+                        ['BUY_SURGE', '🔥 買盤加速'],
+                        ['ASK_EATING', '⚡ 正在吃單'],
+                        ['VOLUME_BREAKOUT', '🚀 放量突破'],
+                        ['OVERHEATED_STRONG', '⚠ 過熱強勢'],
+                    ] as const
+                ).map(([id, lab]) => (
+                    <button
+                        key={id}
+                        type="button"
+                        className={`${s.quickBtn} ${
+                            stateFilter === id ? s.tabChipOn : ''
+                        }`}
+                        onClick={() => {
+                            setStateFilter(
+                                id as BuyPressureState | 'ALL' | 'OVERHEATED_STRONG',
+                            );
+                            if (id === 'OVERHEATED_STRONG') {
+                                setSortMode('overheated_strong');
+                            } else if (id === 'EARLY') {
+                                setSortMode('early');
+                            } else if (id === 'ASK_EATING') {
+                                setSortMode('ask_eating');
+                            } else if (sortMode === 'overheated_strong' || sortMode === 'early' || sortMode === 'ask_eating') {
+                                setSortMode('strongest');
+                            }
+                        }}
+                    >
+                        {lab}
+                    </button>
+                ))}
+            </div>
+
+            <div className={s.quickBar} style={{ marginBottom: 8 }}>
+                {(
+                    [
+                        ['strongest', '買盤最強'],
+                        ['early', '剛開始轉強'],
+                        ['rank_surge', 'Rank暴衝'],
+                        ['volume_surge', '量能暴增'],
+                        ['ask_eating', '正在吃單'],
+                        ['overheated_strong', '過熱強勢'],
+                    ] as const
+                ).map(([id, lab]) => (
+                    <button
+                        key={id}
+                        type="button"
+                        className={`${s.quickBtn} ${
+                            sortMode === id ? s.tabChipOn : ''
+                        }`}
+                        onClick={() => {
+                            setSortMode(id);
+                            if (id === 'overheated_strong') {
+                                setStateFilter('OVERHEATED_STRONG');
+                            } else if (id === 'early') {
+                                setStateFilter('EARLY');
+                            } else if (id === 'ask_eating') {
+                                setStateFilter('ASK_EATING');
                             }
                         }}
                     >
@@ -224,111 +316,122 @@ export function BuyPressurePage({
             </div>
 
             <div className={s.quickBar} style={{ marginBottom: 10 }}>
-                {(
-                    [
-                        ['ALL', '全部'],
-                        ['EARLY', '🟡 開始轉強'],
-                        ['BUY_SURGE', '🔥 買盤加速'],
-                        ['ASK_EATING', '⚡ 正在吃單'],
-                        ['VOLUME_BREAKOUT', '🚀 放量突破'],
-                    ] as const
-                ).map(([id, lab]) => (
-                    <button
-                        key={id}
-                        type="button"
-                        className={`${s.quickBtn} ${
-                            stateFilter === id ? s.tabChipOn : ''
-                        }`}
-                        onClick={() =>
-                            setStateFilter(id as BuyPressureState | 'ALL')
-                        }
-                    >
-                        {lab}
-                    </button>
-                ))}
+                <button
+                    type="button"
+                    className={`${s.quickBtn} ${
+                        onlyNotOverheated ? s.tabChipOn : ''
+                    }`}
+                    onClick={() => setOnlyNotOverheated((v) => !v)}
+                >
+                    僅未過熱
+                </button>
             </div>
 
-            {showFilters && (
+            {(showPricePanel || showMarketPanel) && (
                 <div
                     className={s.glass}
                     style={{ padding: 12, marginBottom: 12 }}
                 >
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
-                        價格
-                    </div>
-                    <div className={s.quickBar} style={{ marginBottom: 8 }}>
-                        {(
-                            [
-                                ['ALL', '全部'],
-                                ['LT50', '<50'],
-                                ['LT100', '<100'],
-                                ['LT200', '<200'],
-                                ['200_500', '200～500'],
-                                ['GT500', '>500'],
-                                ['CUSTOM', '自訂'],
-                            ] as const
-                        ).map(([id, lab]) => (
-                            <button
-                                key={id}
-                                type="button"
-                                className={`${s.quickBtn} ${
-                                    pricePreset === id ? s.tabChipOn : ''
-                                }`}
-                                onClick={() => setPricePreset(id)}
+                    {showPricePanel && (
+                        <>
+                            <div
+                                style={{
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    marginBottom: 8,
+                                }}
                             >
-                                {lab}
-                            </button>
-                        ))}
-                    </div>
-                    {pricePreset === 'CUSTOM' && (
-                        <div
-                            style={{
-                                display: 'flex',
-                                gap: 8,
-                                marginBottom: 10,
-                            }}
-                        >
-                            <input
-                                style={inputStyle}
-                                placeholder="min"
-                                value={customMin}
-                                onChange={(e) => setCustomMin(e.target.value)}
-                                inputMode="decimal"
-                            />
-                            <input
-                                style={inputStyle}
-                                placeholder="max"
-                                value={customMax}
-                                onChange={(e) => setCustomMax(e.target.value)}
-                                inputMode="decimal"
-                            />
-                        </div>
+                                價格
+                            </div>
+                            <div className={s.quickBar} style={{ marginBottom: 8 }}>
+                                {(
+                                    [
+                                        ['ALL', '全部'],
+                                        ['LT50', '<50'],
+                                        ['LT100', '<100'],
+                                        ['LT200', '<200'],
+                                        ['200_500', '200～500'],
+                                        ['GT500', '>500'],
+                                        ['CUSTOM', '自訂'],
+                                    ] as const
+                                ).map(([id, lab]) => (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        className={`${s.quickBtn} ${
+                                            pricePreset === id ? s.tabChipOn : ''
+                                        }`}
+                                        onClick={() => setPricePreset(id)}
+                                    >
+                                        {lab}
+                                    </button>
+                                ))}
+                            </div>
+                            {pricePreset === 'CUSTOM' && (
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        gap: 8,
+                                        marginBottom: 10,
+                                    }}
+                                >
+                                    <input
+                                        style={inputStyle}
+                                        placeholder="min"
+                                        value={customMin}
+                                        onChange={(e) =>
+                                            setCustomMin(e.target.value)
+                                        }
+                                        inputMode="decimal"
+                                    />
+                                    <input
+                                        style={inputStyle}
+                                        placeholder="max"
+                                        value={customMax}
+                                        onChange={(e) =>
+                                            setCustomMax(e.target.value)
+                                        }
+                                        inputMode="decimal"
+                                    />
+                                </div>
+                            )}
+                        </>
                     )}
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
-                        市場
-                    </div>
-                    <div className={s.quickBar}>
-                        {(
-                            [
-                                ['ALL', '全部市場'],
-                                ['TSE', '上市'],
-                                ['OTC', '上櫃'],
-                                ['ESM', '興櫃｜尚未啟用'],
-                            ] as const
-                        ).map(([id, lab]) => (
-                            <button
-                                key={id}
-                                type="button"
-                                className={`${s.quickBtn} ${
-                                    market === id ? s.tabChipOn : ''
-                                }`}
-                                disabled={id === 'ESM'}
-                                onClick={() => setMarket(id)}
+                    {showMarketPanel && (
+                        <>
+                            <div
+                                style={{
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    marginBottom: 8,
+                                }}
                             >
-                                {lab}
-                            </button>
-                        ))}
-                    </div>
+                                市場
+                            </div>
+                            <div className={s.quickBar}>
+                                {(
+                                    [
+                                        ['ALL', '全部市場'],
+                                        ['TSE', '上市'],
+                                        ['OTC', '上櫃'],
+                                        ['ESM', '興櫃｜尚未啟用'],
+                                    ] as const
+                                ).map(([id, lab]) => (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        className={`${s.quickBtn} ${
+                                            market === id ? s.tabChipOn : ''
+                                        }`}
+                                        disabled={id === 'ESM'}
+                                        onClick={() => setMarket(id)}
+                                    >
+                                        {lab}
+                                    </button>
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -420,7 +523,30 @@ export function BuyPressurePage({
                             }}
                         >
                             {meta.icon} {meta.label}
+                            {it.overheated &&
+                                it.primary_state !== 'OVERHEATED' && (
+                                    <span
+                                        style={{
+                                            marginLeft: 8,
+                                            color: '#fcd34d',
+                                        }}
+                                    >
+                                        ⚠ OVERHEATED
+                                    </span>
+                                )}
                         </div>
+                        {(it.overheated || it.overheated_note) && (
+                            <div
+                                style={{
+                                    marginTop: 6,
+                                    fontSize: 13,
+                                    color: vars.color.mutedForeground,
+                                }}
+                            >
+                                {it.overheated_note ??
+                                    '買盤強，但短線延伸較大'}
+                            </div>
+                        )}
                         <div
                             className={s.metricGrid}
                             style={{ marginTop: 10, fontSize: 13 }}
@@ -440,6 +566,10 @@ export function BuyPressurePage({
                                 {it.heat_score != null
                                     ? Math.round(it.heat_score)
                                     : '—'}
+                            </div>
+                            <div>
+                                <span className={s.metricLab}>Chase Risk</span>
+                                {it.chase_risk ?? '—'}
                             </div>
                             <div>
                                 <span className={s.metricLab}>3分量</span>
@@ -568,7 +698,23 @@ function DetailView({
                         <span className={s.metricLab}>Momentum Accel</span>
                         {fmtNum(item.momentum_acceleration, 0)}
                     </div>
+                    <div>
+                        <span className={s.metricLab}>Chase Risk</span>
+                        {item.chase_risk ?? '—'}
+                    </div>
                 </div>
+                {item.overheated && (
+                    <div
+                        style={{
+                            marginTop: 10,
+                            fontSize: 13,
+                            color: '#fcd34d',
+                        }}
+                    >
+                        ⚠ OVERHEATED ·{' '}
+                        {item.overheated_note ?? '買盤強，但短線延伸較大'}
+                    </div>
+                )}
                 {item.data_stale && (
                     <div style={{ marginTop: 10, color: '#fcd34d', fontSize: 13 }}>
                         ⚠ DATA STALE · Last Updated{' '}
