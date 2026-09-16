@@ -2,6 +2,9 @@
 # Start Shioaji Python bridge (internal) + Node API (public).
 set -e
 
+echo "=== start-cloud.sh v2 (no npx) ==="
+echo "cwd=$(pwd) node=$(node -v 2>/dev/null || echo missing)"
+
 BRIDGE_PORT="${SHIOAJI_BRIDGE_PORT:-18080}"
 export SHIOAJI_BRIDGE_URL="${SHIOAJI_BRIDGE_URL:-http://127.0.0.1:${BRIDGE_PORT}}"
 BRIDGE_LOG=/tmp/shioaji-bridge.log
@@ -36,18 +39,28 @@ if [ -n "${SHIOAJI_API_KEY:-}" ] && [ -n "${SHIOAJI_SECRET_KEY:-}" ]; then
     echo "WARN: shioaji-bridge health timeout — continuing with Node (will fall back). Log:"
     cat "${BRIDGE_LOG}" || true
   fi
-  cd /app/server
 else
   echo "SHIOAJI keys not set — bridge skipped"
 fi
 
-# Bind Render $PORT ASAP (public HTTP). Bridge stays on 127.0.0.1:18080 only.
-# Use local node_modules binaries — never npx (which may fetch a bare tsx
-# without installing server deps like fastify).
-if [ ! -d /app/server/node_modules/fastify ]; then
-  echo "FATAL: /app/server/node_modules/fastify missing — image build did not install server deps"
-  ls -la /app/server/node_modules 2>/dev/null | head -50 || true
+cd /app/server
+
+# Never use npx — it can run a bare tsx without server node_modules (fastify missing).
+if [ ! -d ./node_modules/fastify ]; then
+  echo "FATAL: ./node_modules/fastify missing — Docker image did not install server deps"
+  echo "Listing ./node_modules (first 80):"
+  ls -la ./node_modules 2>/dev/null | head -80 || true
   exit 1
 fi
-cd /app/server
-exec npm start
+if [ ! -x ./node_modules/.bin/tsx ] && [ ! -f ./node_modules/tsx/dist/cli.mjs ]; then
+  echo "FATAL: local tsx binary missing under ./node_modules"
+  ls -la ./node_modules/.bin 2>/dev/null | head -40 || true
+  exit 1
+fi
+
+echo "starting Node API with LOCAL tsx (fastify present)"
+# Prefer direct local binary path — immune to npm/npx PATH tricks.
+if [ -x ./node_modules/.bin/tsx ]; then
+  exec ./node_modules/.bin/tsx src/index.ts
+fi
+exec node ./node_modules/tsx/dist/cli.mjs src/index.ts

@@ -1,0 +1,26 @@
+# Render Blueprint — forces Docker + our start script (no dashboard npx override).
+# Root Directory on Render should be: nova-pro-app-main
+# Or set dockerContext / dockerfilePath relative to repo root as needed.
+
+services:
+  - type: web
+    name: stock-helper
+    runtime: docker
+    plan: starter
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerCommand: /app/start-cloud.sh
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: SHIOAJI_BRIDGE_PORT
+        value: "18080"
+      - key: SHIOAJI_BRIDGE_URL
+        value: http://127.0.0.1:18080
+      - key: SHIOAJI_PRODUCTION
+        value: "true"
+      # Set secrets in Render Dashboard (do not commit):
+      # SHIOAJI_API_KEY, SHIOAJI_SECRET_KEY, FIREBASE_*, etc.

@@ -19,7 +19,11 @@ RUN if [ -f package-lock.json ]; then npm ci; \
 # (local pnpm hoist lockfiles break Docker npm ci and leave fastify missing at runtime)
 COPY server/package.json ./server/
 WORKDIR /app/server
-RUN npm install --omit=dev \
+# Install ALL declared deps (include tsx). Do not rely on broken package-lock
+# that linked to host pnpm paths — that left fastify missing at runtime.
+RUN npm install \
+    && test -d node_modules/fastify \
+    && test -f node_modules/tsx/package.json \
     && node -e "require('fastify'); require('tsx/package.json'); console.log('server deps ok')"
 
 WORKDIR /app
