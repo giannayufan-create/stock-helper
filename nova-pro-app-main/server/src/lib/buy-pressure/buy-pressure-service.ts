@@ -10,6 +10,8 @@ import type {
 import type { IntradayRankService } from '../intraday-rank/service.ts';
 import type { MarketRuntime } from '../market-runtime/index.ts';
 import type { WebNotificationService } from '../web-notifications/index.ts';
+import { EvalTimingRegistry } from '../live-acceptance/eval-timing.ts';
+import { ReadinessTracker } from '../live-acceptance/readiness.ts';
 import {
     loadBuyPressureConfig,
     type BuyPressureConfig,
@@ -290,6 +292,16 @@ export class BuyPressureService {
      * → BuyPressureEngine. Never acquire new Shioaji upstream.
      */
     evaluate(): BuyPressureBatch {
+        const t0 = performance.now();
+        try {
+            return this.evaluateInner();
+        } finally {
+            EvalTimingRegistry.note('BP', performance.now() - t0);
+            ReadinessTracker.markBPReady();
+        }
+    }
+
+    private evaluateInner(): BuyPressureBatch {
         const batch = this.intradayRank.getLastBatch();
         const discovery = this.intradayRank.getDiscoveryPool();
         const warnings: string[] = [];

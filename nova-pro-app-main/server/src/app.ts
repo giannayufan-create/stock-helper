@@ -22,6 +22,7 @@ import { registerMarketContextRoutes } from './routes/market-context.ts';
 import { registerEventRoutes } from './routes/events.ts';
 import { registerContextResearchRoutes } from './routes/context-research.ts';
 import { registerCalendarRoutes } from './routes/calendar.ts';
+import { registerLiveAcceptanceRoutes } from './routes/live-acceptance.ts';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const app = Fastify({ logger: { level: 'warn' } });
@@ -53,6 +54,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerEventRoutes(app, ctx);
     registerContextResearchRoutes(app, ctx);
     registerCalendarRoutes(app, ctx);
+    registerLiveAcceptanceRoutes(app, ctx);
 
     // provider events → SSE fan-out
     ctx.market.onTick((channel, tick) => ctx.hub.broadcast(channel, tick));

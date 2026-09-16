@@ -28,6 +28,10 @@ import { EventIntelligenceService } from './lib/event-intelligence/index.ts';
 import { ContextResearchService } from './lib/context-research/index.ts';
 import { createResearchRepositories } from './lib/research-persistence/index.ts';
 import { MarketCalendarService } from './lib/market-calendar/index.ts';
+import {
+    LiveAcceptanceService,
+    ReadinessTracker,
+} from './lib/live-acceptance/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -37,6 +41,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = join(here, '..', 'data');
 
 async function main(): Promise<void> {
+    ReadinessTracker.markServerStarted();
     const config = loadConfig();
     console.log(
         `ai: gemini=${config.geminiApiKey ? 'on' : 'off'} analyzer=${config.analyzerUrl || 'off'}`,
@@ -130,6 +135,7 @@ async function main(): Promise<void> {
 
     const marketRuntime = new MarketRuntime(manager);
     marketRuntime.start();
+    ReadinessTracker.markMarketRuntimeReady();
 
     manager.setUpstreamDemand({
         acquire: (key) =>
@@ -142,6 +148,12 @@ async function main(): Promise<void> {
     console.log(
         `research-persistence: configured=${researchRepos.configured_mode} effective_repository_mode=${researchRepos.mode}`,
     );
+    if (
+        researchRepos.mode === 'firestore' ||
+        researchRepos.mode === 'dual'
+    ) {
+        ReadinessTracker.markFirebaseReady();
+    }
     void researchRepos.hydrate().catch((err) => {
         console.warn(
             '[research-persistence] hydrate failed:',
@@ -175,6 +187,13 @@ async function main(): Promise<void> {
     marketCalendar.start();
     openGateV2.setMarketCalendar(marketCalendar);
     intradayRank.setMarketCalendar(marketCalendar);
+
+    if (manager.name() === 'shioaji' || manager.name() === 'fugle') {
+        ReadinessTracker.markShioajiConnected();
+    }
+    if (manager.contractCount() > 0) {
+        ReadinessTracker.markContractsReady();
+    }
 
     const marketIntelligence = new MarketIntelligenceService(
         intradayRank,
@@ -262,8 +281,12 @@ async function main(): Promise<void> {
         contextResearch,
         researchRepos,
         marketCalendar,
+        liveAcceptance: null,
         startedAt: Date.now(),
     };
+    const liveAcceptance = new LiveAcceptanceService(ctx, dataDir);
+    ctx.liveAcceptance = liveAcceptance;
+    liveAcceptance.start();
 
     const app = await buildApp(ctx);
     await app.listen({ port: config.port, host: config.host });

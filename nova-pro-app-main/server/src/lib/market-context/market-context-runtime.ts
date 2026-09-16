@@ -28,6 +28,8 @@ import type {
     TaiwanRegime,
 } from './types.ts';
 import { MC_VERSION } from './types.ts';
+import { EvalTimingRegistry } from '../live-acceptance/eval-timing.ts';
+import { ReadinessTracker } from '../live-acceptance/readiness.ts';
 
 function changePctOf(q: TwDayQuote): number {
     const prior = q.close - q.change;
@@ -123,6 +125,16 @@ export class MarketContextRuntime {
     }
 
     async evaluate(): Promise<MarketContextOverview> {
+        const t0 = performance.now();
+        try {
+            return await this.evaluateInner();
+        } finally {
+            EvalTimingRegistry.note('Context', performance.now() - t0);
+            ReadinessTracker.markContextReady();
+        }
+    }
+
+    private async evaluateInner(): Promise<MarketContextOverview> {
         const fetchedAt = new Date().toISOString();
         const warnings: string[] = [];
 

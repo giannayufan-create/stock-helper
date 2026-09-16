@@ -12,6 +12,7 @@ import type { ResearchRepositories } from './lib/research-persistence/index.ts';
 import type { ContextResearchService } from './lib/context-research/index.ts';
 import type { MarketRuntime } from './lib/market-runtime/index.ts';
 import type { MarketCalendarService } from './lib/market-calendar/index.ts';
+import type { LiveAcceptanceService } from './lib/live-acceptance/index.ts';
 import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import type { MarketManager } from './providers/manager.ts';
 import type { TradingProvider } from './providers/trading.ts';
@@ -54,6 +55,8 @@ export interface AppContext {
     researchRepos: ResearchRepositories | null;
     /** Market calendar — expiry / corporate actions / gap reference; no strategy mutation. */
     marketCalendar: MarketCalendarService | null;
+    /** Full Live Acceptance sampler — observe only. */
+    liveAcceptance: LiveAcceptanceService | null;
     startedAt: number;
 }
 

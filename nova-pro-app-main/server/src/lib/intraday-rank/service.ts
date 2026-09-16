@@ -28,6 +28,8 @@ import type {
     IntradayRankItem,
 } from './types.ts';
 import type { MarketCalendarService } from '../market-calendar/index.ts';
+import { EvalTimingRegistry } from '../live-acceptance/eval-timing.ts';
+import { ReadinessTracker } from '../live-acceptance/readiness.ts';
 
 /**
  * INTRADAY RANK v1 — C layer.
@@ -247,6 +249,7 @@ export class IntradayRankService {
     private async evaluateCycle(): Promise<void> {
         if (this.evaluating) return;
         this.evaluating = true;
+        const t0 = performance.now();
         try {
             this.cfg = loadIntradayRankConfig();
             try {
@@ -408,7 +411,9 @@ export class IntradayRankService {
                 evaluate_interval_sec: this.cfg.evaluate_interval_sec,
                 scanner_interval_sec: this.cfg.scanner_interval_sec,
             };
+            ReadinessTracker.markCReady();
         } finally {
+            EvalTimingRegistry.note('C', performance.now() - t0);
             this.evaluating = false;
         }
     }
