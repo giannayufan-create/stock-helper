@@ -72,6 +72,15 @@ export interface StrategySignal {
      */
     feature_snapshot: Record<string, unknown>;
 
+    /**
+     * Market Context Phase 3 — research only.
+     * Point-in-time at signal_time; immutable; never mutates scores.
+     */
+    context_snapshot?: import('../context-research/types.ts').ContextSnapshot;
+    context_tags?: import('../context-research/types.ts').ContextTag[];
+    context_alignment?: import('../context-research/types.ts').ContextAlignment;
+    context_strength_score?: number | null;
+
     metadata?: Record<string, unknown>;
 }
 

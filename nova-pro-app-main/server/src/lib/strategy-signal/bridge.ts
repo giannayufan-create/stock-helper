@@ -21,6 +21,11 @@ export interface BridgeContext {
     universe_source?: string;
     learning_eligible?: boolean;
     config_hash?: string;
+    /** Phase 3 — optional context capture (research only). */
+    captureContext?: (args: {
+        symbol: string;
+        signalTime: string;
+    }) => import('../context-research/types.ts').ContextBundle | null;
 }
 
 function defaultSignalsRoot(): string {
@@ -79,6 +84,7 @@ export class StrategySignalBridge {
                 universe_source: this.ctx.universe_source,
                 learning_eligible: this.ctx.learning_eligible !== false,
                 config_hash: configHash,
+                captureContext: this.ctx.captureContext,
             },
             ref,
         );
@@ -107,6 +113,7 @@ export class StrategySignalBridge {
                 universe_source: this.ctx.universe_source,
                 learning_eligible: this.ctx.learning_eligible !== false,
                 config_hash: configHash,
+                captureContext: this.ctx.captureContext,
             },
             ref,
             eventCooldowns,

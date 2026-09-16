@@ -1,11 +1,60 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { vars } from '../../theme.css';
+import {
+    fetchContextCombinations,
+    fetchContextEvents,
+    fetchContextMarket,
+    fetchContextOverview,
+    fetchContextSectors,
+    type CohortStatDto,
+    type ContextOverviewDto,
+} from '../../lib/context-research';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 
-/** 績效頁殼層 — 訊號／影子實驗／歷史（後續接線） */
+type PerfTab = 'signals' | 'shadow' | 'context' | 'history';
+type ContextSub = 'market' | 'sector' | 'events' | 'combo';
+
+/** 績效頁 — 訊號／影子／Context Lab／歷史 */
 export function PerformancePage() {
-    const [tab, setTab] = useState<'signals' | 'shadow' | 'history'>('signals');
+    const [tab, setTab] = useState<PerfTab>('signals');
+    const [ctxSub, setCtxSub] = useState<ContextSub>('combo');
+    const [overview, setOverview] = useState<ContextOverviewDto | null>(null);
+    const [rows, setRows] = useState<CohortStatDto[]>([]);
+    const [signalType, setSignalType] = useState('SURGE');
+
+    useEffect(() => {
+        if (tab !== 'context') return;
+        let cancelled = false;
+        const params = { signal_type: signalType };
+        void (async () => {
+            try {
+                const ov = await fetchContextOverview(params);
+                if (!cancelled) setOverview(ov);
+                if (ctxSub === 'market') {
+                    const r = await fetchContextMarket(params);
+                    if (!cancelled) setRows(r.items ?? []);
+                } else if (ctxSub === 'sector') {
+                    const r = await fetchContextSectors(params);
+                    if (!cancelled) setRows(r.items ?? []);
+                } else if (ctxSub === 'events') {
+                    const r = await fetchContextEvents(params);
+                    if (!cancelled) setRows(r.confirmation ?? []);
+                } else {
+                    const r = await fetchContextCombinations(params);
+                    if (!cancelled) setRows(r.shadow ?? r.items ?? []);
+                }
+            } catch {
+                if (!cancelled) {
+                    setOverview(null);
+                    setRows([]);
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [tab, ctxSub, signalType]);
 
     return (
         <>
@@ -15,6 +64,7 @@ export function PerformancePage() {
                     [
                         ['signals', '訊號結果'],
                         ['shadow', '影子實驗'],
+                        ['context', 'Context Lab'],
                         ['history', '歷史紀錄'],
                     ] as const
                 ).map(([id, label]) => (
@@ -77,35 +127,151 @@ export function PerformancePage() {
                         <br />
                         不影響正式判斷
                     </div>
-                    <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
-                        {[
-                            '開盤閘門 B  78 → 81',
-                            '盤中強度 C  80/74 → 82/76',
-                            'B+C  合併實驗',
-                        ].map((label) => (
+                </div>
+            )}
+
+            {tab === 'context' && (
+                <div className={s.glass} style={{ padding: 16 }}>
+                    <div style={{ fontWeight: 800, fontSize: 16 }}>Context Lab</div>
+                    <div
+                        style={{
+                            fontSize: 12,
+                            color: vars.color.mutedForeground,
+                            marginTop: 4,
+                            marginBottom: 10,
+                        }}
+                    >
+                        Research / Shadow cohorts only · 不標 Winner · 不改正式策略
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                        <select
+                            value={signalType}
+                            onChange={(e) => setSignalType(e.target.value)}
+                            style={{
+                                minHeight: 44,
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                background: vars.color.background,
+                                color: vars.color.foreground,
+                                border: `1px solid ${vars.color.border}`,
+                            }}
+                        >
+                            {[
+                                'OPEN_PASS',
+                                'STRONG_ENTER',
+                                'SURGE',
+                                'BREAKOUT',
+                                'REBREAK',
+                                'RANK_JUMP',
+                                'PULLBACK_READY',
+                            ].map((t) => (
+                                <option key={t} value={t}>
+                                    {t}
+                                </option>
+                            ))}
+                        </select>
+                        {(
+                            [
+                                ['combo', '組合'],
+                                ['market', '市場'],
+                                ['sector', '產業'],
+                                ['events', '事件'],
+                            ] as const
+                        ).map(([id, label]) => (
+                            <button
+                                key={id}
+                                type="button"
+                                className={`${s.quickBtn} ${ctxSub === id ? s.dockBtnOn : ''}`}
+                                onClick={() => setCtxSub(id)}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    {overview && (
+                        <div
+                            style={{
+                                fontSize: 12,
+                                fontFamily: vars.font.mono,
+                                color: vars.color.mutedForeground,
+                                marginBottom: 10,
+                            }}
+                        >
+                            Signals {overview.signal_count}
+                            {overview.daily?.context_coverage_pct != null
+                                ? ` · Coverage ${overview.daily.context_coverage_pct}%`
+                                : ''}
+                            {' · '}Aligned {overview.daily?.market_aligned ?? 0}
+                            {' · '}ROTATING_IN{' '}
+                            {overview.daily?.sector_rotating_in ?? 0}
+                            {' · '}Event Confirmed{' '}
+                            {overview.daily?.event_confirmed ?? 0}
+                        </div>
+                    )}
+                    <div style={{ display: 'grid', gap: 8 }}>
+                        {rows.map((r) => (
                             <div
-                                key={label}
+                                key={r.cohort_id}
                                 className={s.glass}
                                 style={{ padding: 12 }}
                             >
-                                <div style={{ fontWeight: 700 }}>{label}</div>
+                                <div style={{ fontWeight: 700 }}>{r.label}</div>
                                 <div
                                     style={{
-                                        fontSize: 12,
                                         marginTop: 6,
+                                        fontSize: 12,
+                                        fontFamily: vars.font.mono,
                                         color: vars.color.mutedForeground,
                                     }}
                                 >
-                                    資料不足 · 天數 —/10 · 合格樣本 —/200
+                                    n={r.n} · {r.sample_guard}
+                                    {' · '}15m Pos{' '}
+                                    {r.positive_15m_rate != null
+                                        ? `${r.positive_15m_rate}%`
+                                        : '—'}
+                                    {' · '}Med Ret{' '}
+                                    {r.median_forward_return_15m ?? '—'}
+                                    {' · '}MFE {r.median_mfe_15m ?? '—'}
+                                    {' · '}MAE {r.median_mae_15m ?? '—'}
+                                    {' · '}Inv{' '}
+                                    {r.invalid_hit_rate != null
+                                        ? `${r.invalid_hit_rate}%`
+                                        : '—'}
                                 </div>
+                                {r.coverage_note && (
+                                    <div
+                                        style={{
+                                            marginTop: 4,
+                                            fontSize: 11,
+                                            color: vars.color.mutedForeground,
+                                        }}
+                                    >
+                                        {r.coverage_note}
+                                    </div>
+                                )}
                             </div>
                         ))}
+                        {!rows.length && (
+                            <div
+                                style={{
+                                    fontSize: 13,
+                                    color: vars.color.mutedForeground,
+                                }}
+                            >
+                                尚無足夠帶 context_snapshot 的訊號樣本（歷史不足維持
+                                PARTIAL）
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
 
             {tab === 'history' && (
-                <div className={s.empty}>歷史／回放將於後續版本接入</div>
+                <div className={s.empty}>
+                    歷史訊號「當時背景」可經{' '}
+                    <code>/api/v1/research/context/signals/:id</code> 查詢；列表 UI
+                    後續接線
+                </div>
             )}
         </>
     );

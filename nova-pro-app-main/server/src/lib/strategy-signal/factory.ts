@@ -22,6 +22,11 @@ export interface SignalContext {
     learning_eligible: boolean;
     config_hash: string;
     now?: Date;
+    /** Optional Phase 3 context capture — research only; null = skip. */
+    captureContext?: (args: {
+        symbol: string;
+        signalTime: string;
+    }) => import('../context-research/types.ts').ContextBundle | null;
 }
 
 function newId(prefix: string): string {
@@ -113,6 +118,11 @@ export class StrategySignalFactory {
         const learning =
             ctx.learning_eligible && next.data_health !== 'disconnected';
 
+        const ctxBundle = ctx.captureContext?.({
+            symbol: next.symbol,
+            signalTime: nowIso,
+        });
+
         const signal: StrategySignal = {
             signal_id: next.signal_id ?? newId('bsig'),
             evaluation_id: next.evaluation_id,
@@ -156,16 +166,25 @@ export class StrategySignalFactory {
                 phase: next.phase,
                 liquidity_score: next.liquidity_score,
             },
+            context_snapshot: ctxBundle?.context_snapshot,
+            context_tags: ctxBundle?.context_tags,
+            context_alignment: ctxBundle?.context_alignment,
+            context_strength_score: ctxBundle?.context_strength_score ?? null,
             metadata: {
                 open_confirm: next.open_confirm,
                 tradeable_candidate: next.tradeable_candidate,
             },
         };
 
-        // Freeze snapshot
+        // Freeze snapshot (including context) — immutable
         signal.feature_snapshot = Object.freeze({
             ...signal.feature_snapshot,
         }) as Record<string, unknown>;
+        if (signal.context_snapshot) {
+            signal.context_snapshot = Object.freeze({
+                ...signal.context_snapshot,
+            }) as typeof signal.context_snapshot;
+        }
 
         this.repo.save(signal);
         this.life.activate({
@@ -214,6 +233,10 @@ export class StrategySignalFactory {
                 }
                 return;
             }
+            const ctxBundle = ctx.captureContext?.({
+                symbol: next.symbol,
+                signalTime: nowIso,
+            });
             const signal: StrategySignal = {
                 signal_id:
                     type === 'STRONG_ENTER' && next.signal_id
@@ -263,6 +286,15 @@ export class StrategySignalFactory {
                     state: next.state,
                     ...extraSnap,
                 }) as Record<string, unknown>,
+                context_snapshot: ctxBundle?.context_snapshot
+                    ? (Object.freeze({
+                          ...ctxBundle.context_snapshot,
+                      }) as typeof ctxBundle.context_snapshot)
+                    : undefined,
+                context_tags: ctxBundle?.context_tags,
+                context_alignment: ctxBundle?.context_alignment,
+                context_strength_score:
+                    ctxBundle?.context_strength_score ?? null,
                 metadata: {
                     feature_availability: next.feature_availability,
                 },

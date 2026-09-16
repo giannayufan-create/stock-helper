@@ -25,6 +25,7 @@ import { BuyPressureService } from './lib/buy-pressure/index.ts';
 import { WebNotificationService } from './lib/web-notifications/index.ts';
 import { MarketContextRuntime } from './lib/market-context/index.ts';
 import { EventIntelligenceService } from './lib/event-intelligence/index.ts';
+import { ContextResearchService } from './lib/context-research/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -205,6 +206,22 @@ async function main(): Promise<void> {
         `event-intelligence: ${eventIntelligence.getHealth().status} interval=${eventIntelligence.cfg.evaluate_interval_sec}s`,
     );
 
+    const contextResearch = new ContextResearchService(
+        marketContext,
+        eventIntelligence,
+    );
+    signalBridge.setContext({
+        captureContext: ({ symbol, signalTime }) =>
+            contextResearch.captureForSignal({
+                symbol,
+                signalTime,
+                sourceMode: 'live',
+            }),
+    });
+    console.log(
+        `context-research: ${contextResearch.getHealth().version} (shadow/research only)`,
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -222,6 +239,7 @@ async function main(): Promise<void> {
         webNotifications,
         marketContext,
         eventIntelligence,
+        contextResearch,
         startedAt: Date.now(),
     };
 
