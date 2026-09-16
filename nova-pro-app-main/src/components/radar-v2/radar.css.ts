@@ -710,7 +710,10 @@ export const detailPanel = style({
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
+    // Grid/flex default min-height:auto expands to content → shell clips, no scroll.
+    minHeight: 0,
     minWidth: 0,
+    overflow: 'hidden',
     background: vars.color.background,
     borderLeft: `1px solid ${radarColor.glassBorder}`,
 });
@@ -729,6 +732,11 @@ export const desktopShell = style({
             gridTemplateColumns: '180px minmax(0, 1fr)',
         },
     },
+});
+
+globalStyle(`${desktopShell} > *`, {
+    minHeight: 0,
+    minWidth: 0,
 });
 
 export const sideNav = style({

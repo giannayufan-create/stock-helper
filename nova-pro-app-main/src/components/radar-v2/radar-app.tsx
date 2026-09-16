@@ -423,7 +423,7 @@ export function RadarApp({
                     {healthBanner}
                     <div className={s.page}>{mainContent}</div>
                 </div>
-                <div className={s.detailPanel}>
+                <div className={s.detailPanel} style={{ minHeight: 0 }}>
                     {detailInner ?? (
                         <div className={s.empty}>
                             點選股票，詳情顯示於此

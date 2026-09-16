@@ -319,7 +319,11 @@ export function StockDetailPage({
     return (
         <div
             className={desktop ? s.detailPanel : s.detailOverlay}
-            style={desktop ? { position: 'relative', flex: 1 } : undefined}
+            style={
+                desktop
+                    ? { position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden' }
+                    : undefined
+            }
         >
             <header className={s.detailHeader}>
                 {!desktop && (
