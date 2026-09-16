@@ -17,6 +17,7 @@
         "test:bi": "tsx src/lib/broker-intelligence/bi.test.ts",
         "test:mc": "tsx src/lib/market-context/mc.test.ts",
         "test:gap": "tsx src/lib/market-context/gap-layers/gap-layers.test.ts",
+        "test:headless": "tsx src/lib/session-autonomy/headless-autonomy.test.ts",
         "test:ei": "tsx src/lib/event-intelligence/ei.test.ts",
         "test:cr": "tsx src/lib/context-research/cr.test.ts",
         "test:rp": "tsx src/lib/research-persistence/rp.test.ts",

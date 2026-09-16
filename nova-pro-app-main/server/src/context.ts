@@ -14,6 +14,7 @@ import type { MarketRuntime } from './lib/market-runtime/index.ts';
 import type { MarketCalendarService } from './lib/market-calendar/index.ts';
 import type { LiveAcceptanceService } from './lib/live-acceptance/index.ts';
 import type { DecisionSummaryService } from './lib/decision-summary/index.ts';
+import type { SessionAutonomyService } from './lib/session-autonomy/index.ts';
 import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import type { MarketManager } from './providers/manager.ts';
 import type { TradingProvider } from './providers/trading.ts';
@@ -60,6 +61,8 @@ export interface AppContext {
     liveAcceptance: LiveAcceptanceService | null;
     /** Decision Summary — Decision Support Layer; never mutates C/BP/strategy. */
     decisionSummary: DecisionSummaryService | null;
+    /** Headless session FSM + overnight snapshots — never requires UI. */
+    sessionAutonomy: SessionAutonomyService | null;
     startedAt: number;
 }
 

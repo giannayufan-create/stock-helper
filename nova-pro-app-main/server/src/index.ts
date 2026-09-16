@@ -33,6 +33,7 @@ import {
     ReadinessTracker,
 } from './lib/live-acceptance/index.ts';
 import { DecisionSummaryService } from './lib/decision-summary/index.ts';
+import { SessionAutonomyService } from './lib/session-autonomy/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -273,6 +274,18 @@ async function main(): Promise<void> {
         `decision-summary: ${decisionSummary.getHealth().status} interval=${decisionSummary.cfg.evaluate_interval_sec}s (support only)`,
     );
 
+    const sessionAutonomy = new SessionAutonomyService({
+        dataDir,
+        marketContext,
+        researchRepos,
+        getNotificationCandidateCount: () =>
+            webNotifications?.list({ limit: 200 }).length ?? 0,
+    });
+    sessionAutonomy.start(15_000);
+    console.log(
+        `session-autonomy: ${sessionAutonomy.getState()} (headless FSM, no UI_VIEW)`,
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -295,6 +308,7 @@ async function main(): Promise<void> {
         marketCalendar,
         liveAcceptance: null,
         decisionSummary,
+        sessionAutonomy,
         startedAt: Date.now(),
     };
     const liveAcceptance = new LiveAcceptanceService(ctx, dataDir);

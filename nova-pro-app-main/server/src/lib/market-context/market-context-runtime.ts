@@ -122,6 +122,15 @@ export class MarketContextRuntime {
         return this.lastGapLayers ?? this.lastOverview?.gap_layers ?? null;
     }
 
+    /** Headless overnight / Asia assets — reuse private GlobalMarket cache. */
+    getGlobalAssets() {
+        return this.globalMarket.getCached()?.assets ?? [];
+    }
+
+    async refreshGlobalAssets() {
+        return this.globalMarket.refresh(true);
+    }
+
     getSector(name: string): SectorRotationRow | null {
         const key = name.trim();
         return (
