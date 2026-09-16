@@ -135,6 +135,17 @@ export function RadarPage({
                         rank={i + 1}
                         selected={selectedSymbol === item.symbol}
                         onOpen={onOpenSymbol}
+                        enrich={{
+                            bp: feed.bpBySymbol[item.symbol] ?? null,
+                            sectorName:
+                                feed.sectorBySymbol[item.symbol]?.name ?? null,
+                            sectorRank:
+                                feed.sectorBySymbol[item.symbol]?.rank ?? null,
+                            sectorHeat:
+                                feed.sectorBySymbol[item.symbol]?.heat ?? null,
+                            taiwanRegime: null,
+                            eventConfirmed: false,
+                        }}
                     />
                 ))
             )}

@@ -48,7 +48,7 @@ export function RadarApp({
 }) {
     const isDesktop = useMediaQuery('screen and (min-width: 1025px)');
     const feed = useRadarFeed(5000);
-    const [tab, setTab] = useState<RadarTab>('radar');
+    const [tab, setTab] = useState<RadarTab>('today');
     const [radarInner, setRadarInner] = useState<string>('buy');
     const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
     const [favorites, setFavorites] = useState<string[]>(() => loadFavorites());
@@ -106,7 +106,15 @@ export function RadarApp({
         void onSelectCode(symbol);
     };
 
-    const toastLayer = useNotificationToasts(true, openSymbol, setUnreadNotif);
+    const toastLayer = useNotificationToasts(
+        true,
+        openSymbol,
+        setUnreadNotif,
+        (sym) => ({
+            sector: feed.sectorBySymbol[sym]?.name ?? null,
+            market: feed.marketRegime || null,
+        }),
+    );
 
     const closeDetail = () => setDetailSymbol(null);
 

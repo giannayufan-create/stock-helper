@@ -87,8 +87,102 @@ export const page = style({
 });
 
 export const pageEnd = style({
-    height: 48,
+    height: 72,
 });
+
+export const glass = style({
+    background: radarColor.glass,
+    border: `1px solid ${radarColor.glassBorder}`,
+    borderRadius: 18,
+    boxShadow: `inset 0 1px 0 ${radarColor.glassHighlight}`,
+    backdropFilter: 'blur(14px)',
+    WebkitBackdropFilter: 'blur(14px)',
+});
+
+export const healthStrip = style([
+    glass,
+    {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        padding: '12px 14px',
+        marginBottom: 12,
+        minHeight: 52,
+    },
+]);
+
+export const radarCard = style([
+    glass,
+    {
+        padding: '14px 14px 12px',
+        marginBottom: 10,
+        cursor: 'pointer',
+        textAlign: 'left',
+        width: '100%',
+        color: 'inherit',
+        display: 'block',
+        minHeight: 44,
+        transition: 'opacity 160ms ease, border-color 160ms ease',
+        border: `1px solid ${radarColor.glassBorder}`,
+        selectors: {
+            '&:active': {
+                opacity: 0.92,
+            },
+        },
+    },
+]);
+
+export const radarCardOn = style({
+    borderColor: 'rgba(240, 67, 74, 0.45)',
+    boxShadow: `0 0 0 1px rgba(240, 67, 74, 0.2)`,
+});
+
+export const radarCardStale = style({
+    opacity: 0.55,
+});
+
+export const cardMetaGrid = style({
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr 1fr',
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 10,
+});
+
+export const cardMetaCell = style({
+    minWidth: 0,
+});
+
+export const cardMetaLab = style({
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    color: vars.color.mutedForeground,
+    marginBottom: 2,
+});
+
+export const cardMetaVal = style({
+    fontFamily: vars.font.mono,
+    fontSize: 13,
+    fontWeight: 700,
+    fontVariantNumeric: 'tabular-nums',
+});
+
+export const zoneTitle = style({
+    fontSize: 15,
+    fontWeight: 700,
+    letterSpacing: '-0.01em',
+    marginBottom: 8,
+});
+
+export const zoneBlock = style([
+    glass,
+    {
+        padding: '14px',
+        marginBottom: 12,
+    },
+]);
 
 export const section = style({
     marginBottom: 22,
@@ -118,15 +212,6 @@ export const linkBtn = style({
     minWidth: 44,
     padding: '0 8px',
     boxSizing: 'border-box',
-});
-
-export const glass = style({
-    background: radarColor.glass,
-    border: `1px solid ${radarColor.glassBorder}`,
-    borderRadius: 18,
-    boxShadow: `inset 0 1px 0 ${radarColor.glassHighlight}`,
-    backdropFilter: 'blur(14px)',
-    WebkitBackdropFilter: 'blur(14px)',
 });
 
 export const marketCard = style([

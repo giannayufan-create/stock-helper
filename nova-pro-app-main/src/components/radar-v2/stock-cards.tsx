@@ -1,117 +1,280 @@
 import type { IntradayRankItemDto } from '../../lib/backend';
+import type { BuyPressureItemDto } from '../../lib/buy-pressure';
 import { vars } from '../../theme.css';
 import {
+    chaseLabel,
     eventLabel,
     fmtPctSigned,
     primaryEvent,
     stateLabel,
     stateTone,
 } from './helpers';
+import { ConfirmLayersRow } from './confirm-layers';
+import { FreshnessBadge } from './freshness-badge';
 import * as s from './radar.css';
+import { radarColor } from './tokens';
+import {
+    deriveConfirmLayers,
+    SECTOR_STATE_LABEL,
+    type ConfirmLayers,
+} from './ui-context';
 
 function pctTone(pct: number | null | undefined) {
     if (pct == null || pct === 0) return s.toneFlat;
     return pct > 0 ? s.toneUp : s.toneDown;
 }
 
-/** One-line scannable row — primary interaction surface. */
+export interface RadarCardEnrichment {
+    bp?: BuyPressureItemDto | null;
+    sectorName?: string | null;
+    sectorRank?: number | null;
+    sectorState?: string | null;
+    sectorHeat?: number | null;
+    taiwanRegime?: string | null;
+    eventConfirmed?: boolean;
+    layers?: ConfirmLayers;
+}
+
+/** Premium radar card — curated metrics only. */
 export function CompactStockRow({
     item,
     rank,
     selected,
     onOpen,
+    enrich,
 }: {
     item: IntradayRankItemDto;
     rank?: number;
     selected?: boolean;
     onOpen: (symbol: string) => void;
+    enrich?: RadarCardEnrichment;
 }) {
-    const pct =
-        item.adjusted_change_pct ??
-        item.change_pct ??
-        item.metrics?.return_3m ??
-        null;
-    const rawPct = item.raw_change_pct;
+    const bp = enrich?.bp;
+    const adj =
+        item.adjusted_change_pct ?? item.change_pct ?? item.metrics?.return_3m ?? null;
+    const raw = item.raw_change_pct;
     const ca = item.corporate_action;
+    const stale =
+        item.data_blocked ||
+        item.data_health === 'stale' ||
+        item.data_health === 'disconnected' ||
+        Boolean(bp?.data_stale);
+    const price = item.last_price;
+    const layers =
+        enrich?.layers ??
+        deriveConfirmLayers({
+            state: item.state,
+            bpStates: bp?.states,
+            sectorState: enrich?.sectorState,
+            sectorHeat: enrich?.sectorHeat,
+            taiwanRegime: enrich?.taiwanRegime,
+            eventConfirmed: enrich?.eventConfirmed,
+        });
     const event = primaryEvent(item);
+    const rankChg = item.rank_change;
+    const chase = bp?.chase_risk ?? item.risk?.chase_risk;
+    const rvol = bp?.rvol ?? item.metrics?.rvol_same_time;
+    const vwap =
+        bp?.distance_from_vwap_pct ?? item.metrics?.vwap_pos_pct ?? null;
+
     return (
         <button
             type="button"
-            className={`${s.rowCard} ${selected ? s.rowCardOn : ''}`}
+            className={`${s.radarCard} ${selected ? s.radarCardOn : ''} ${stale ? s.radarCardStale : ''}`}
             onClick={() => onOpen(item.symbol)}
         >
-            <div className={s.rowLeft}>
-                {rank != null && <span className={s.rowRank}>#{rank}</span>}
-                <div>
-                    <div className={s.rowSym}>
-                        {item.symbol}
-                        <span className={s.rowName}>{item.name}</span>
+            <div
+                style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    alignItems: 'flex-start',
+                }}
+            >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            flexWrap: 'wrap',
+                        }}
+                    >
+                        {rank != null && (
+                            <span
+                                style={{
+                                    fontFamily: vars.font.mono,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: vars.color.mutedForeground,
+                                }}
+                            >
+                                #{rank}
+                            </span>
+                        )}
+                        <span
+                            style={{
+                                fontFamily: vars.font.mono,
+                                fontSize: 17,
+                                fontWeight: 800,
+                            }}
+                        >
+                            {item.symbol}
+                        </span>
+                        <span
+                            style={{
+                                fontSize: 13,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            {item.name}
+                        </span>
                         {ca?.has_action_today && ca.badge ? (
                             <span
                                 style={{
-                                    marginLeft: 6,
                                     fontSize: 10,
                                     fontWeight: 800,
-                                    letterSpacing: 0.3,
-                                    color: '#c45c26',
+                                    color: '#e8a87c',
+                                    letterSpacing: '0.04em',
                                 }}
                             >
                                 {ca.badge}
                             </span>
                         ) : null}
+                        {stale ? <FreshnessBadge level="STALE" compact /> : null}
                     </div>
                     <div
-                        className={s.rowState}
-                        style={{ color: stateTone(item.state) }}
+                        style={{
+                            marginTop: 4,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: stateTone(item.state),
+                        }}
                     >
                         {stateLabel(item.state)}
                         {event ? ` · ${eventLabel(event)}` : ''}
+                        {enrich?.sectorName
+                            ? ` · ${enrich.sectorName}`
+                            : ''}
+                        {enrich?.sectorRank != null
+                            ? ` #${enrich.sectorRank}`
+                            : ''}
                     </div>
                 </div>
-            </div>
-            <div className={s.rowMid}>
-                <div>
-                    <span className={s.rowCap}>強度</span>
-                    <span className={s.rowC}>{Math.round(item.intraday_score)}</span>
-                </div>
-                <div>
-                    <span className={s.rowCap}>熱度</span>
-                    <span className={s.rowH}>{Math.round(item.heat_score)}</span>
-                </div>
-            </div>
-            <div className={`${s.rowPct} ${pctTone(pct)}`}>
-                <div>{fmtPctSigned(pct)}</div>
-                {ca?.has_action_today &&
-                rawPct != null &&
-                pct != null &&
-                Math.abs(rawPct - pct) > 0.05 ? (
-                    <div
-                        style={{
-                            fontSize: 10,
-                            fontWeight: 500,
-                            opacity: 0.75,
-                            marginTop: 2,
-                        }}
-                    >
-                        Raw {fmtPctSigned(rawPct)}
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    {price != null && price > 0 ? (
+                        <div
+                            style={{
+                                fontFamily: vars.font.mono,
+                                fontSize: 16,
+                                fontWeight: 700,
+                            }}
+                        >
+                            {price.toFixed(price >= 100 ? 1 : 2)}
+                        </div>
+                    ) : null}
+                    <div className={`${s.pctBig} ${pctTone(adj)}`} style={{ fontSize: 16 }}>
+                        {fmtPctSigned(adj)}
                     </div>
-                ) : null}
+                    {ca?.has_action_today &&
+                    raw != null &&
+                    adj != null &&
+                    Math.abs(raw - adj) > 0.05 ? (
+                        <div
+                            style={{
+                                fontSize: 10,
+                                color: vars.color.mutedForeground,
+                                marginTop: 2,
+                            }}
+                        >
+                            Adj {fmtPctSigned(adj)} · Raw {fmtPctSigned(raw)}
+                        </div>
+                    ) : null}
+                </div>
             </div>
+
+            <div className={s.cardMetaGrid}>
+                <div className={s.cardMetaCell}>
+                    <div className={s.cardMetaLab}>BP</div>
+                    <div className={s.cardMetaVal} style={{ color: radarColor.heating }}>
+                        {bp != null ? Math.round(bp.buy_pressure_score) : '—'}
+                    </div>
+                </div>
+                <div className={s.cardMetaCell}>
+                    <div className={s.cardMetaLab}>C</div>
+                    <div className={s.cardMetaVal} style={{ color: radarColor.strong }}>
+                        {Math.round(item.intraday_score)}
+                    </div>
+                </div>
+                <div className={s.cardMetaCell}>
+                    <div className={s.cardMetaLab}>Rank</div>
+                    <div className={s.cardMetaVal}>
+                        {item.rank}
+                        {rankChg != null && rankChg !== 0 ? (
+                            <span
+                                style={{
+                                    marginLeft: 4,
+                                    color:
+                                        rankChg < 0
+                                            ? vars.color.up
+                                            : vars.color.down,
+                                    fontSize: 11,
+                                }}
+                            >
+                                {rankChg > 0 ? `↓${rankChg}` : `↑${Math.abs(rankChg)}`}
+                            </span>
+                        ) : null}
+                    </div>
+                </div>
+                <div className={s.cardMetaCell}>
+                    <div className={s.cardMetaLab}>VWAP</div>
+                    <div className={s.cardMetaVal}>
+                        {vwap != null ? fmtPctSigned(vwap) : '—'}
+                    </div>
+                </div>
+                <div className={s.cardMetaCell}>
+                    <div className={s.cardMetaLab}>RVOL</div>
+                    <div className={s.cardMetaVal}>
+                        {rvol != null ? `${rvol.toFixed(1)}x` : '—'}
+                    </div>
+                </div>
+                <div className={s.cardMetaCell}>
+                    <div className={s.cardMetaLab}>Chase</div>
+                    <div className={s.cardMetaVal}>{chaseLabel(chase)}</div>
+                </div>
+            </div>
+
+            {enrich?.sectorState ? (
+                <div
+                    style={{
+                        fontSize: 11,
+                        color: vars.color.mutedForeground,
+                        marginBottom: 8,
+                    }}
+                >
+                    產業{' '}
+                    {SECTOR_STATE_LABEL[enrich.sectorState] ?? enrich.sectorState}
+                </div>
+            ) : null}
+
+            <ConfirmLayersRow layers={layers} size="sm" />
         </button>
     );
 }
 
-export function TopStockCard({
-    item,
-    rank,
-    onOpen,
-}: {
+export function TopStockCard(props: {
     item: IntradayRankItemDto;
     rank: number;
     onOpen: (symbol: string) => void;
+    enrich?: RadarCardEnrichment;
 }) {
     return (
-        <CompactStockRow item={item} rank={rank} onOpen={onOpen} />
+        <CompactStockRow
+            item={props.item}
+            rank={props.rank}
+            onOpen={props.onOpen}
+            enrich={props.enrich}
+        />
     );
 }
 
@@ -122,28 +285,23 @@ export function MiniHeatCard({
     item: IntradayRankItemDto;
     onOpen: (symbol: string) => void;
 }) {
+    const pct = item.adjusted_change_pct ?? item.change_pct;
     return (
         <button
             type="button"
             className={s.chipCard}
             onClick={() => onOpen(item.symbol)}
+            style={{ minHeight: 88 }}
         >
             <div className={s.chipCode}>{item.symbol}</div>
             <div className={s.chipMeta}>
-                強度{Math.round(item.intraday_score)} · 熱度
-                {Math.round(item.heat_score)}
+                C{Math.round(item.intraday_score)}
+                {item.corporate_action?.badge
+                    ? ` · ${item.corporate_action.badge}`
+                    : ''}
             </div>
-            <div
-                style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: stateTone(item.state),
-                }}
-            >
-                {(() => {
-                    const ev = primaryEvent(item);
-                    return ev ? eventLabel(ev) : stateLabel(item.state);
-                })()}
+            <div className={pctTone(pct)} style={{ fontSize: 13, fontWeight: 700 }}>
+                {fmtPctSigned(pct ?? null)}
             </div>
         </button>
     );
@@ -156,37 +314,23 @@ export function MiniPullbackCard({
     item: IntradayRankItemDto;
     onOpen: (symbol: string) => void;
 }) {
-    const pb = (item.metrics?.pullback_state ?? 'pullback').toLowerCase();
-    const pbZh =
-        pb === 'reclaiming'
-            ? '收復中'
-            : pb === 'holding'
-              ? '守穩'
-              : pb === 'failed'
-                ? '失敗'
-                : '回踩';
     return (
         <button
             type="button"
             className={s.chipCard}
             onClick={() => onOpen(item.symbol)}
+            style={{ minHeight: 88 }}
         >
             <div className={s.chipCode}>{item.symbol}</div>
-            <div className={s.chipMeta}>
-                強度{Math.round(item.intraday_score)} · 熱度
-                {Math.round(item.heat_score)}
-            </div>
+            <div className={s.chipMeta}>回踩</div>
             <div
                 style={{
                     fontSize: 11,
                     fontWeight: 700,
-                    color:
-                        pb === 'reclaiming'
-                            ? '#fecaca'
-                            : vars.color.mutedForeground,
+                    color: stateTone(item.state),
                 }}
             >
-                {pbZh}
+                {stateLabel(item.state)}
             </div>
         </button>
     );

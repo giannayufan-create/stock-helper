@@ -8,7 +8,18 @@ import {
     type IntradayRankItemDto,
     type OpenConfirmV2Result,
 } from '../../lib/backend';
+import {
+    fetchBuyPressure,
+    type BuyPressureItemDto,
+} from '../../lib/buy-pressure';
+import { fetchMiOverview } from '../../lib/market-intelligence';
 import type { LiveStatus } from './tokens';
+
+export interface SectorHint {
+    name: string;
+    rank: number | null;
+    heat: number | null;
+}
 
 export interface RadarFeed {
     loading: boolean;
@@ -34,6 +45,8 @@ export interface RadarFeed {
     liveStatus: LiveStatus;
     healthNote: string | null;
     asOf: string | null;
+    bpBySymbol: Record<string, BuyPressureItemDto>;
+    sectorBySymbol: Record<string, SectorHint>;
     refresh: () => void;
 }
 
@@ -65,6 +78,12 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
     const [tpexPct, setTpexPct] = useState<number | null>(null);
     const [liveStatus, setLiveStatus] = useState<LiveStatus>('LIVE');
     const [healthNote, setHealthNote] = useState<string | null>(null);
+    const [bpBySymbol, setBpBySymbol] = useState<
+        Record<string, BuyPressureItemDto>
+    >({});
+    const [sectorBySymbol, setSectorBySymbol] = useState<
+        Record<string, SectorHint>
+    >({});
     const [tick, setTick] = useState(0);
 
     const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -73,13 +92,15 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
         let cancelled = false;
         const load = async () => {
             try {
-                const [rank, ev, health, snaps] = await Promise.all([
+                const [rank, ev, health, snaps, bp, mi] = await Promise.all([
                     fetchIntradayRank({ limit: 40, includeWatch: true }),
                     fetchIntradayEvents(40),
                     fetchHealth().catch(() => null),
                     fetchSnapshots([TSE, OTC]).catch(() => [] as Awaited<
                         ReturnType<typeof fetchSnapshots>
                     >),
+                    fetchBuyPressure({ limit: 80 }).catch(() => null),
+                    fetchMiOverview().catch(() => null),
                 ]);
                 if (cancelled) return;
 
@@ -101,6 +122,24 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     })),
                 );
 
+                const bpMap: Record<string, BuyPressureItemDto> = {};
+                for (const row of bp?.items ?? []) {
+                    bpMap[row.symbol] = row;
+                }
+                setBpBySymbol(bpMap);
+
+                const secMap: Record<string, SectorHint> = {};
+                for (const sec of mi?.top_sectors ?? []) {
+                    for (const lead of sec.leaders ?? []) {
+                        secMap[lead.symbol] = {
+                            name: sec.sector,
+                            rank: sec.rank ?? null,
+                            heat: sec.heat_score,
+                        };
+                    }
+                }
+                setSectorBySymbol(secMap);
+
                 const idx = snaps.find((s) => s.code === '001');
                 const otc = snaps.find((s) => s.code === '101');
                 setTaiexPct(
@@ -121,12 +160,10 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     setHealthNote('伺服器狀態異常，部分即時判斷可能暫停');
                 } else if (stale > Math.max(3, list.length * 0.3)) {
                     setLiveStatus('DATA STALE');
-                    setHealthNote('⚠ 行情資料異常 — 部分即時判斷已暫停');
+                    setHealthNote('行情資料異常 — 部分即時判斷已暫停');
                 } else if (blocked > 0) {
                     setLiveStatus('LIVE');
-                    setHealthNote(
-                        `⚠ ${blocked} 檔資料受阻，相關訊號已降級`,
-                    );
+                    setHealthNote(`${blocked} 檔資料受阻，相關訊號已降級`);
                 } else if (rank.warnings?.length) {
                     setLiveStatus('LIVE');
                     const w = rank.warnings[0] ?? null;
@@ -142,19 +179,18 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     setHealthNote(null);
                 }
 
-                // Read-only B — never POST /open-confirm (would replace A pool)
                 try {
                     const oc = await fetchOpenConfirmLatest();
                     if (!cancelled) setOpenConfirm(oc);
                 } catch {
-                    /* open confirm optional for home */
+                    /* optional */
                 }
 
                 setLoading(false);
             } catch {
                 if (!cancelled) {
                     setLiveStatus('DISCONNECTED');
-                    setHealthNote('⚠ 無法連線資料服務');
+                    setHealthNote('無法連線資料服務');
                     setLoading(false);
                 }
             }
@@ -184,6 +220,8 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             liveStatus,
             healthNote,
             asOf,
+            bpBySymbol,
+            sectorBySymbol,
             refresh,
         }),
         [
@@ -199,6 +237,8 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             liveStatus,
             healthNote,
             asOf,
+            bpBySymbol,
+            sectorBySymbol,
             refresh,
         ],
     );

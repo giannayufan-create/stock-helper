@@ -32,15 +32,17 @@ import {
 } from '../../lib/calendar';
 import { fmtPct, fmtPrice } from '../../lib/utils/format';
 import { vars } from '../../theme.css';
+import { ConfirmLayersRow } from './confirm-layers';
 import { toggleFavorite } from './favorites';
+import { FreshnessBadge } from './freshness-badge';
 import {
-    buildRulesSummary,
     chaseLabel,
     eventLabel,
     fmtNum,
     fmtPctSigned,
     fmtRankMove,
     primaryEvent,
+    regimeMeta,
     stateLabel,
     stateTone,
     volumeLabel,
@@ -48,6 +50,7 @@ import {
 } from './helpers';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
+import { deriveConfirmLayers } from './ui-context';
 
 const AI_STALE_MS = 4 * 60 * 1000;
 
@@ -159,8 +162,87 @@ export function StockDetailPage({
         caCtx.days_to_action >= 0 &&
         caCtx.days_to_action <= 5;
     const event = primaryEvent(item);
-    const summary = useMemo(() => buildRulesSummary(item), [item]);
+    const hasCaToday =
+        Boolean(caCtx?.has_action_today) ||
+        Boolean(item.corporate_action?.has_action_today);
+    const adjPct =
+        item.adjusted_change_pct ??
+        pct;
+    const rawPct = item.raw_change_pct ?? null;
+    const confirmLayers = useMemo(
+        () =>
+            deriveConfirmLayers({
+                state: item.state,
+                taiwanRegime: marketRegime,
+                eventConfirmed: (item.events ?? []).length > 0,
+            }),
+        [item.state, item.events, marketRegime],
+    );
+    const whyStrongReasons = useMemo(() => {
+        const bullets: string[] = [];
+        const seen = new Set<string>();
+        const push = (t: string) => {
+            const key = t.trim();
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            bullets.push(key);
+        };
+        for (const r of item.reasons ?? []) push(r);
+
+        const rv = item.rank_velocity;
+        if (rv != null && rv > 5) {
+            push(`排名加速：${fmtRankMove(item)}（velocity ${fmtNum(rv, 0)}）`);
+        } else if (item.rank_change != null && item.rank_change < 0) {
+            push(`排名上升：${fmtRankMove(item)}`);
+        }
+
+        const volAccel = item.metrics?.volume_acceleration;
+        if (volAccel != null && volAccel > 0) {
+            push(`量能加速：${volumeLabel(item)}`);
+        }
+
+        const tradeAgg = (item as { trade_aggression?: number | null })
+            .trade_aggression;
+        if (tradeAgg != null && Number.isFinite(tradeAgg) && tradeAgg > 0) {
+            push(`成交攻擊性：${fmtNum(tradeAgg, 0)}`);
+        }
+
+        const vwap = item.metrics?.vwap_pos_pct;
+        if (vwap != null && vwap > 0) {
+            push(`站上 VWAP：${vwapLabel(item)}`);
+        } else if (vwap != null && vwap < 0) {
+            push(`偏離 VWAP：${vwapLabel(item)}`);
+        }
+
+        const br = item.metrics?.breakout_type;
+        if (br && br !== 'NONE' && br !== 'none') {
+            push(`突破型態：${br}`);
+        }
+
+        if (item.metrics?.relative_strength_score != null &&
+            item.metrics.relative_strength_score >= 60) {
+            push(
+                `產業相對強弱：${fmtNum(item.metrics.relative_strength_score, 0)}`,
+            );
+        }
+
+        if (!bullets.length) {
+            push('結構訊號尚在累積，等待更多盤中確認');
+        }
+        return bullets.slice(0, 8);
+    }, [item]);
+    const liveFreshness =
+        item.data_blocked ||
+        item.data_health === 'stale' ||
+        item.data_health === 'disconnected'
+            ? 'STALE'
+            : quote?.tick
+              ? 'REALTIME'
+              : item.data_health === 'ok' || item.data_health === 'live'
+                ? 'NEAR_REALTIME'
+                : 'UNKNOWN';
     const aiStale = aiAt != null && now - aiAt > AI_STALE_MS;
+    const regime = regimeMeta(marketRegime);
 
     const runAi = async () => {
         setAiLoading(true);
@@ -264,13 +346,14 @@ export function StockDetailPage({
             </header>
 
             <div className={s.detailBody}>
+                {/* 0. Price hero */}
                 <div
                     className={s.priceHero}
                     style={{
                         color:
-                            (pct ?? 0) > 0
+                            (adjPct ?? 0) > 0
                                 ? vars.color.up
-                                : (pct ?? 0) < 0
+                                : (adjPct ?? 0) < 0
                                   ? vars.color.down
                                   : vars.color.foreground,
                     }}
@@ -280,68 +363,53 @@ export function StockDetailPage({
                 <div
                     style={{
                         fontFamily: vars.font.mono,
-                        fontSize: 18,
+                        fontSize: hasCaToday ? 20 : 18,
                         fontWeight: 700,
-                        marginBottom: 12,
+                        marginBottom: 4,
                         color:
-                            (pct ?? 0) > 0
+                            (adjPct ?? 0) > 0
                                 ? vars.color.up
-                                : (pct ?? 0) < 0
+                                : (adjPct ?? 0) < 0
                                   ? vars.color.down
                                   : vars.color.flat,
                     }}
                 >
-                    {fmtPct(pct ?? undefined)}
+                    {hasCaToday ? (
+                        <>
+                            Adj {fmtPctSigned(adjPct)}
+                            {rawPct != null &&
+                            adjPct != null &&
+                            Math.abs(rawPct - adjPct) > 0.05 ? (
+                                <span
+                                    style={{
+                                        marginLeft: 10,
+                                        fontSize: 13,
+                                        fontWeight: 600,
+                                        color: vars.color.mutedForeground,
+                                    }}
+                                >
+                                    Raw {fmtPctSigned(rawPct)}
+                                </span>
+                            ) : null}
+                        </>
+                    ) : (
+                        fmtPct(adjPct ?? undefined)
+                    )}
                 </div>
-
-                {(caCtx?.has_action_today || showUpcoming) && (
+                {hasCaToday && item.corporate_action?.badge ? (
                     <div
-                        className={s.glass}
                         style={{
-                            padding: '10px 12px',
-                            marginBottom: 12,
-                            fontSize: 13,
-                            lineHeight: 1.45,
+                            fontSize: 11,
+                            fontWeight: 800,
+                            color: '#e8a87c',
+                            letterSpacing: '0.04em',
+                            marginBottom: 8,
                         }}
                     >
-                        {caCtx?.has_action_today ? (
-                            <>
-                                <div style={{ fontWeight: 800, color: '#c45c26' }}>
-                                    今日
-                                    {caCtx.action_type
-                                        ? ACTION_TYPE_LABEL[
-                                              caCtx.action_type as keyof typeof ACTION_TYPE_LABEL
-                                          ] ?? '除權息'
-                                        : '除權息'}
-                                    ｜價格基準已調整
-                                </div>
-                                {caCtx.cash_dividend != null && (
-                                    <div style={{ marginTop: 4 }}>
-                                        現金股利：{caCtx.cash_dividend} 元
-                                    </div>
-                                )}
-                                {caCtx.raw_previous_close != null && (
-                                    <div style={{ marginTop: 2 }}>
-                                        昨日收盤：{caCtx.raw_previous_close}
-                                    </div>
-                                )}
-                                {caCtx.ex_reference_price != null && (
-                                    <div style={{ marginTop: 2 }}>
-                                        除息參考價：{caCtx.ex_reference_price}
-                                    </div>
-                                )}
-                            </>
-                        ) : showUpcoming && upcomingCa ? (
-                            <div style={{ fontWeight: 700 }}>
-                                {upcomingCa.action_date.slice(5).replace('-', '/')}{' '}
-                                {ACTION_TYPE_LABEL[upcomingCa.action_type] ??
-                                    upcomingCa.action_type}
-                                {caCtx?.days_to_action != null
-                                    ? ` · 距離 ${caCtx.days_to_action} 個交易日`
-                                    : ''}
-                            </div>
-                        ) : null}
+                        {item.corporate_action.badge}
                     </div>
+                ) : (
+                    <div style={{ marginBottom: 8 }} />
                 )}
 
                 <div className={s.scoreRow}>
@@ -349,7 +417,7 @@ export function StockDetailPage({
                         <span className={s.scoreCap}>#{item.rank}</span>
                     </div>
                     <div>
-                        <span className={s.scoreCap}>強度</span>
+                        <span className={s.scoreCap}>C</span>
                         <span className={s.scoreBig}>
                             {Math.round(item.intraday_score)}
                         </span>
@@ -370,7 +438,20 @@ export function StockDetailPage({
                     {event ? ` · ${eventLabel(event)}` : ''}
                 </div>
 
-                {/* AI first on mobile — visible above the fold, no scroll needed */}
+                {/* 1. 為什麼現在變強？ */}
+                <div className={s.zoneBlock}>
+                    <div className={s.zoneTitle}>為什麼現在變強？</div>
+                    <ul className={s.reasonList}>
+                        {whyStrongReasons.map((r) => (
+                            <li key={r}>{r}</li>
+                        ))}
+                    </ul>
+                    <div style={{ marginTop: 12 }}>
+                        <ConfirmLayersRow layers={confirmLayers} />
+                    </div>
+                </div>
+
+                {/* AI after zone 1 — 輔助解讀，不影響分數 */}
                 <div className={s.aiCard} style={{ marginBottom: 16 }}>
                     <div
                         style={{
@@ -382,13 +463,13 @@ export function StockDetailPage({
                         <strong
                             style={{ fontSize: 16, color: radarColor.aiSoft }}
                         >
-                            AI 判讀
+                            AI 輔助解讀
                         </strong>
                         <span
                             className={s.tag}
                             style={{ color: radarColor.aiSoft }}
                         >
-                            點選分析
+                            不影響分數
                         </span>
                     </div>
                     <p
@@ -398,7 +479,7 @@ export function StockDetailPage({
                             color: vars.color.mutedForeground,
                         }}
                     >
-                        輔助解讀，不影響正式分數（強度／熱度）
+                        輔助解讀盤中結構，不影響正式分數（C／熱度）
                     </p>
 
                     {!ai && !aiLoading && (
@@ -407,7 +488,7 @@ export function StockDetailPage({
                             className={s.aiBtn}
                             onClick={() => void runAi()}
                         >
-                            按這裡：AI 分析這支股票
+                            按這裡：AI 解讀這支股票
                         </button>
                     )}
 
@@ -532,7 +613,7 @@ export function StockDetailPage({
                                         color: '#fcd34d',
                                     }}
                                 >
-                                    行情已更新，此 AI 判讀可能已過期
+                                    行情已更新，此 AI 解讀可能已過期
                                 </div>
                             )}
                             <button
@@ -541,126 +622,189 @@ export function StockDetailPage({
                                 style={{ marginTop: 12 }}
                                 onClick={() => void runAi()}
                             >
-                                重新分析
+                                重新解讀
                             </button>
                         </div>
                     )}
                 </div>
 
-                <MarketIntelBlock symbol={item.symbol} />
-                <EventContextBlock symbol={item.symbol} />
-                <BrokerChipBlock symbol={item.symbol} />
-
-                <div className={s.glass} style={{ padding: 14, marginBottom: 16 }}>
-                    <div
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            marginBottom: 8,
-                        }}
-                    >
-                        <strong style={{ fontSize: 15 }}>系統判定</strong>
-                        <span className={s.tag}>系統規則判定</span>
+                {/* 2. 個股 */}
+                <div className={s.zoneBlock}>
+                    <div className={s.zoneTitle}>個股</div>
+                    <div className={s.twoCol}>
+                        <Metric
+                            lab="C"
+                            val={String(Math.round(item.intraday_score))}
+                        />
+                        <Metric
+                            lab="熱度"
+                            val={String(Math.round(item.heat_score))}
+                        />
+                        <Metric lab="排名變化" val={fmtRankMove(item)} />
+                        <Metric lab="VWAP" val={vwapLabel(item)} />
+                        <Metric
+                            lab="RVOL"
+                            val={
+                                item.metrics?.rvol_same_time != null
+                                    ? `${fmtNum(item.metrics.rvol_same_time)}x`
+                                    : volumeLabel(item)
+                            }
+                        />
+                        <Metric
+                            lab="Chase"
+                            val={chaseLabel(item.risk?.chase_risk)}
+                        />
+                        <Metric
+                            lab="突破"
+                            val={item.metrics?.breakout_type || '—'}
+                        />
+                        <Metric
+                            lab="回踩"
+                            val={item.metrics?.pullback_state || '—'}
+                        />
                     </div>
-                    <p
-                        style={{
-                            margin: 0,
-                            fontSize: 14,
-                            lineHeight: 1.55,
-                            color: vars.color.mutedForeground,
-                        }}
-                    >
-                        {summary}
-                    </p>
-                    <div
-                        style={{
-                            marginTop: 12,
-                            paddingTop: 12,
-                            borderTop: `1px solid ${radarColor.glassBorder}`,
-                            fontSize: 13,
-                        }}
-                    >
-                        <span style={{ color: vars.color.mutedForeground }}>
-                            系統規則 ·{' '}
-                        </span>
-                        強度 {Math.round(item.intraday_score)} ·{' '}
-                        {stateLabel(item.state)}
-                    </div>
-                </div>
-
-                <div className={s.twoCol} style={{ marginBottom: 16 }}>
-                    <Metric
-                        lab="相對量能"
-                        val={
-                            item.metrics?.rvol_same_time != null
-                                ? `${fmtNum(item.metrics.rvol_same_time)}x`
-                                : volumeLabel(item)
-                        }
-                    />
-                    <Metric lab="均價偏離" val={vwapLabel(item)} />
-                    <Metric
-                        lab="動能"
-                        val={fmtNum(item.metrics?.momentum_acceleration, 0)}
-                    />
-                    <Metric
-                        lab="相對強弱"
-                        val={fmtNum(item.metrics?.relative_strength_score, 0)}
-                    />
-                    <Metric lab="排名變化" val={fmtRankMove(item)} />
-                    <Metric
-                        lab="追高風險"
-                        val={chaseLabel(item.risk?.chase_risk)}
-                    />
-                </div>
-
-                <div className={s.sectionTitle}>今日事件</div>
-                <div className={s.glass} style={{ padding: 14, marginBottom: 16 }}>
-                    {(item.events ?? []).length === 0 ? (
-                        <div className={s.empty} style={{ padding: 8 }}>
-                            尚無正式事件標記
-                        </div>
-                    ) : (
-                        (item.events ?? []).map((ev) => (
-                            <div key={ev} className={s.eventRow}>
-                                <div style={{ fontWeight: 700 }}>
-                                    {eventLabel(ev)}
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-
-                <div className={s.sectionTitle}>風險</div>
-                <div className={s.glass} style={{ padding: 14, marginBottom: 20 }}>
-                    <div className={s.metricGrid}>
-                        <div>
-                            <span className={s.metricLab}>追高風險</span>
-                            {chaseLabel(item.risk?.chase_risk)}
-                        </div>
-                        <div>
-                            <span className={s.metricLab}>失效參考價</span>
-                            {item.risk?.invalid_price != null
-                                ? fmtPrice(item.risk.invalid_price)
-                                : '—'}
-                        </div>
-                        <div>
-                            <span className={s.metricLab}>距均價</span>
-                            {vwapLabel(item)}
-                        </div>
-                    </div>
-                    {(item.risks ?? []).slice(0, 2).map((r) => (
+                    {item.corporate_action?.badge ? (
                         <div
-                            key={r}
                             style={{
-                                marginTop: 8,
-                                fontSize: 13,
-                                color: '#fcd34d',
+                                marginTop: 10,
+                                fontSize: 12,
+                                fontWeight: 800,
+                                color: '#e8a87c',
                             }}
                         >
-                            ⚠ {r}
+                            Corporate {item.corporate_action.badge}
                         </div>
-                    ))}
+                    ) : null}
                 </div>
+
+                {/* 3. 產業 */}
+                <MarketIntelBlock symbol={item.symbol} />
+
+                {/* 4. 市場 */}
+                <div className={s.zoneBlock}>
+                    <div
+                        className={s.zoneTitle}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                        }}
+                    >
+                        <span>市場</span>
+                        <FreshnessBadge level={liveFreshness} compact />
+                    </div>
+                    <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                        <div>
+                            台股 Regime{' '}
+                            <b style={{ color: regime.tone }}>
+                                {regime.label}
+                            </b>
+                        </div>
+                        <div
+                            style={{
+                                marginTop: 6,
+                                fontSize: 13,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            資料健康 {item.data_health}
+                            {item.score_coverage_pct != null
+                                ? ` · 覆蓋 ${Math.round(item.score_coverage_pct)}%`
+                                : ''}
+                            {item.data_blocked ? ' · 已阻擋' : ''}
+                        </div>
+                    </div>
+                </div>
+
+                {/* 5. 事件 */}
+                <EventContextBlock symbol={item.symbol} />
+
+                {/* 6. 法人背景 */}
+                <BrokerChipBlock symbol={item.symbol} />
+
+                {/* 7. Corporate Action */}
+                {(caCtx?.has_action_today || showUpcoming) && (
+                    <div className={s.zoneBlock}>
+                        <div className={s.zoneTitle}>Corporate Action</div>
+                        {caCtx?.has_action_today ? (
+                            <div style={{ fontSize: 13, lineHeight: 1.45 }}>
+                                <div
+                                    style={{
+                                        fontWeight: 800,
+                                        color: '#c45c26',
+                                    }}
+                                >
+                                    今日
+                                    {caCtx.action_type
+                                        ? ACTION_TYPE_LABEL[
+                                              caCtx.action_type as keyof typeof ACTION_TYPE_LABEL
+                                          ] ?? '除權息'
+                                        : '除權息'}
+                                    ｜價格基準已調整
+                                </div>
+                                {caCtx.cash_dividend != null && (
+                                    <div style={{ marginTop: 4 }}>
+                                        現金股利：{caCtx.cash_dividend} 元
+                                    </div>
+                                )}
+                                {caCtx.raw_previous_close != null && (
+                                    <div style={{ marginTop: 2 }}>
+                                        昨日收盤（Raw）：
+                                        {caCtx.raw_previous_close}
+                                    </div>
+                                )}
+                                {caCtx.ex_reference_price != null && (
+                                    <div style={{ marginTop: 2 }}>
+                                        除息參考價：{caCtx.ex_reference_price}
+                                    </div>
+                                )}
+                                {adjPct != null && (
+                                    <div style={{ marginTop: 8 }}>
+                                        Adj 漲跌{' '}
+                                        <b
+                                            style={{
+                                                color:
+                                                    adjPct > 0
+                                                        ? vars.color.up
+                                                        : adjPct < 0
+                                                          ? vars.color.down
+                                                          : vars.color.flat,
+                                            }}
+                                        >
+                                            {fmtPctSigned(adjPct)}
+                                        </b>
+                                        {rawPct != null ? (
+                                            <>
+                                                {' '}
+                                                · Raw{' '}
+                                                <span
+                                                    style={{
+                                                        color: vars.color
+                                                            .mutedForeground,
+                                                    }}
+                                                >
+                                                    {fmtPctSigned(rawPct)}
+                                                </span>
+                                            </>
+                                        ) : null}
+                                    </div>
+                                )}
+                            </div>
+                        ) : showUpcoming && upcomingCa ? (
+                            <div style={{ fontWeight: 700, fontSize: 13 }}>
+                                {upcomingCa.action_date
+                                    .slice(5)
+                                    .replace('-', '/')}{' '}
+                                {ACTION_TYPE_LABEL[upcomingCa.action_type] ??
+                                    upcomingCa.action_type}
+                                {caCtx?.days_to_action != null
+                                    ? ` · 距離 ${caCtx.days_to_action} 個交易日`
+                                    : ''}
+                            </div>
+                        ) : null}
+                    </div>
+                )}
 
                 <button
                     type="button"
@@ -711,9 +855,9 @@ function MarketIntelBlock({ symbol }: { symbol: string }) {
     if (!data) return null;
 
     return (
-        <div className={s.glass} style={{ padding: 14, margin: '12px 0 16px' }}>
-            <strong style={{ fontSize: 15 }}>市場情報</strong>
-            <div style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>
+        <div className={s.zoneBlock}>
+            <div className={s.zoneTitle}>產業</div>
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
                 {data.sector?.name ? (
                     <div>
                         所屬產業 <b>{data.sector.name}</b>
@@ -743,23 +887,6 @@ function MarketIntelBlock({ symbol }: { symbol: string }) {
                             .join(' · ')}
                     </div>
                 )}
-                {data.chips_context.summary && (
-                    <div style={{ marginTop: 4 }}>
-                        法人背景 {data.chips_context.summary}
-                        <span
-                            style={{
-                                color: vars.color.mutedForeground,
-                                fontSize: 11,
-                            }}
-                        >
-                            {' '}
-                            （{data.chips_context.freshness}）
-                        </span>
-                    </div>
-                )}
-                <div style={{ marginTop: 4, color: vars.color.mutedForeground }}>
-                    {data.market_context.summary}
-                </div>
                 {data.news.slice(0, 3).map((n, i) => (
                     <div
                         key={i}
@@ -779,14 +906,14 @@ function MarketIntelBlock({ symbol }: { symbol: string }) {
                         color: vars.color.mutedForeground,
                     }}
                 >
-                    公司事件為部分公開來源；完整重大訊息尚未接入。情報不影響強度／熱度分數。
+                    產業 Context 不影響 C／熱度分數。
                 </div>
             </div>
         </div>
     );
 }
 
-/** Event context — hypothesis + confirmation; never buy advice. */
+/** Event context — hypothesis + confirmation; never trading advice. */
 function EventContextBlock({ symbol }: { symbol: string }) {
     const [rows, setRows] = useState<
         Array<{
@@ -827,16 +954,17 @@ function EventContextBlock({ symbol }: { symbol: string }) {
     if (!rows.length) return null;
 
     return (
-        <div className={s.glass} style={{ padding: 14, margin: '0 0 16px' }}>
-            <strong style={{ fontSize: 15 }}>事件 Context</strong>
+        <div className={s.zoneBlock}>
+            <div className={s.zoneTitle}>事件</div>
             <div
                 style={{
                     fontSize: 11,
                     color: vars.color.mutedForeground,
-                    marginTop: 4,
+                    marginTop: -4,
+                    marginBottom: 4,
                 }}
             >
-                相關度與市場確認分開 · 禁止解讀為建議買進
+                相關度與市場確認分開 · 僅供 Context
             </div>
             {rows.map(({ event, exposure, confirmation }) => {
                 const dirs = exposure.exposures
@@ -938,18 +1066,27 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
 
     if (!data) return null;
 
-    const freshnessLabel =
-        data.freshness === 'INTRADAY'
-            ? '即時分點'
-            : data.freshness === 'EOD' || data.freshness === 'T_PLUS_1'
-              ? '盤後／最近可用交易日分點'
-              : '分點 freshness 未知';
+    const branchIsProxy =
+        data.freshness === 'INTRADAY' ||
+        data.freshness === 'NEAR_REALTIME' ||
+        data.freshness === 'PROXY';
 
     return (
-        <div className={s.glass} style={{ padding: 14, margin: '0 0 16px' }}>
-            <strong style={{ fontSize: 15 }}>籌碼情報</strong>
-            <div style={{ fontSize: 13, marginTop: 10, lineHeight: 1.5 }}>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>法人籌碼</div>
+        <div className={s.zoneBlock}>
+            <div className={s.zoneTitle}>法人背景</div>
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        marginBottom: 6,
+                    }}
+                >
+                    <div style={{ fontWeight: 700 }}>法人籌碼</div>
+                    <FreshnessBadge level="PREVIOUS_DAY" compact />
+                </div>
                 {data.institutional.available ? (
                     <>
                         <div>
@@ -962,14 +1099,13 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                             style={{
                                 fontSize: 11,
                                 color: vars.color.mutedForeground,
+                                marginTop: 4,
                             }}
                         >
-                            PREVIOUS_DAY / EOD ·{' '}
-                            {data.institutional.freshness}
+                            PREVIOUS DAY · 非即時外資動態
                             {data.institutional.as_of
                                 ? ` · ${data.institutional.as_of}`
-                                : ''}{' '}
-                            · 非即時外資動態 · 與券商分點分開
+                                : ''}
                         </div>
                     </>
                 ) : (
@@ -978,9 +1114,49 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                     </div>
                 )}
 
-                <div style={{ fontWeight: 700, margin: '12px 0 4px' }}>
-                    券商分點
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        margin: '12px 0 6px',
+                    }}
+                >
+                    <div style={{ fontWeight: 700 }}>券商分點</div>
+                    <span
+                        title="盤中 Proxy，不代表即時外資實際買賣"
+                        style={{ display: 'inline-flex' }}
+                    >
+                        <FreshnessBadge
+                            level={
+                                branchIsProxy
+                                    ? 'NEAR_REALTIME'
+                                    : 'PREVIOUS_DAY'
+                            }
+                            compact
+                        />
+                    </span>
                 </div>
+                {branchIsProxy && (
+                    <div
+                        style={{
+                            fontSize: 11,
+                            color: vars.color.mutedForeground,
+                            marginBottom: 6,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            flexWrap: 'wrap',
+                        }}
+                        title="盤中 Proxy，不代表即時外資實際買賣"
+                    >
+                        <span style={{ fontWeight: 700 }}>
+                            Institutional Risk Proxy
+                        </span>
+                        <span>ⓘ 盤中 Proxy，不代表即時外資實際買賣</span>
+                    </div>
+                )}
                 {!data.branch_available ? (
                     <div style={{ color: radarColor.healthWarn, fontSize: 13 }}>
                         目前尚未接入券商分點資料來源
@@ -1003,8 +1179,7 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                                 marginBottom: 6,
                             }}
                         >
-                            {freshnessLabel}
-                            {data.trade_date ? ` · ${data.trade_date}` : ''}
+                            {data.trade_date ? `交易日 ${data.trade_date}` : ''}
                         </div>
                         <div>
                             Top3 集中度{' '}
@@ -1013,8 +1188,7 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                                 : '—'}
                         </div>
                         <div>
-                            主力集中度推估{' '}
-                            <b>{data.main_force.label}</b>
+                            主力集中度推估 <b>{data.main_force.label}</b>
                             {data.main_force.score != null
                                 ? ` ${Math.round(data.main_force.score)}`
                                 : ''}

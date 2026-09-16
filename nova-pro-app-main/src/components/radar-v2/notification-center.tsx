@@ -17,6 +17,7 @@ import { ensureStream, onBuyPressureNotification } from '../../lib/stream';
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
+import { notificationPriority, type NotifPriority } from './ui-context';
 
 type FilterTab =
     | 'ALL'
@@ -26,6 +27,18 @@ type FilterTab =
     | 'ASK_EATING'
     | 'VOLUME_BREAKOUT'
     | 'OVERHEATED_STRONG';
+
+const PRIORITY_TONE: Record<NotifPriority, string> = {
+    HIGH: radarColor.strong,
+    MEDIUM: radarColor.heating,
+    INFO: vars.color.mutedForeground,
+};
+
+function toastMs(p: NotifPriority): number {
+    if (p === 'HIGH') return 8000;
+    if (p === 'MEDIUM') return 6500;
+    return 5000;
+}
 
 export function NotificationCenter({
     open,
@@ -300,15 +313,23 @@ function PrefsPanel({
     );
 }
 
+export type ToastContextFn = (symbol: string) => {
+    sector?: string | null;
+    market?: string | null;
+} | null;
+
 export function useNotificationToasts(
     enabled: boolean,
     onOpenSymbol: (symbol: string) => void,
     onUnreadBump?: (n: number) => void,
+    contextFor?: ToastContextFn,
 ) {
     const [toasts, setToasts] = useState<WebNotificationDto[]>([]);
     const [soundOn, setSoundOn] = useState(false);
     const [toastEnabled, setToastEnabled] = useState(true);
     const seenRef = useRef(new Set<string>());
+    const contextRef = useRef(contextFor);
+    contextRef.current = contextFor;
 
     const playBeep = () => {
         try {
@@ -387,9 +408,11 @@ export function useNotificationToasts(
 
     useEffect(() => {
         if (!toasts.length) return;
+        const head = toasts[0]!;
+        const p = notificationPriority(head.event_type);
         const t = setTimeout(() => {
-            setToasts((prev) => prev.slice(0, -1));
-        }, 6500);
+            setToasts((prev) => prev.slice(1));
+        }, toastMs(p));
         return () => clearTimeout(t);
     }, [toasts]);
 
@@ -397,10 +420,9 @@ export function useNotificationToasts(
         <div
             style={{
                 position: 'fixed',
-                top: 'max(12px, env(safe-area-inset-top))',
+                top: 'max(56px, calc(44px + env(safe-area-inset-top)))',
                 right: 12,
                 left: 12,
-                // Keep clear of bottom navigation (~56px + safe area)
                 bottom: 'auto',
                 zIndex: 90,
                 display: 'flex',
@@ -413,63 +435,105 @@ export function useNotificationToasts(
             }}
             data-toast-layer="buy-pressure"
         >
-            {toasts.map((n) => (
-                <button
-                    key={n.notification_id}
-                    type="button"
-                    className={s.glass}
-                    style={{
-                        pointerEvents: 'auto',
-                        textAlign: 'left',
-                        padding: 14,
-                        borderRadius: 16,
-                        minHeight: 44,
-                        border: `1px solid ${radarColor.glassBorder}`,
-                        background: 'rgba(8,12,20,0.94)',
-                        color: vars.color.foreground,
-                    }}
-                    onClick={() => {
-                        onOpenSymbol(n.symbol);
-                        setToasts((prev) =>
-                            prev.filter(
-                                (x) => x.notification_id !== n.notification_id,
-                            ),
-                        );
-                    }}
-                >
-                    <div style={{ fontWeight: 800 }}>
-                        {EVENT_LABEL[n.event_type] ?? n.event_type}
-                    </div>
-                    <div style={{ marginTop: 4, fontWeight: 700 }}>
-                        {n.symbol} {n.name}
-                        {n.price != null ? ` · ${n.price.toFixed(2)}` : ''}
-                        {n.change_pct != null
-                            ? ` ${n.change_pct > 0 ? '+' : ''}${n.change_pct.toFixed(1)}%`
-                            : ''}
-                    </div>
-                    <ul
+            {toasts.map((n) => {
+                const p = notificationPriority(n.event_type);
+                const rankDelta =
+                    n.rank != null && n.rank_prev != null
+                        ? n.rank_prev - n.rank
+                        : null;
+                const ctx = contextRef.current?.(n.symbol);
+                return (
+                    <button
+                        key={n.notification_id}
+                        type="button"
+                        className={s.glass}
                         style={{
-                            margin: '8px 0 0',
-                            paddingLeft: 18,
-                            fontSize: 13,
-                            color: vars.color.mutedForeground,
+                            pointerEvents: 'auto',
+                            textAlign: 'left',
+                            padding: 14,
+                            borderRadius: 16,
+                            minHeight: 44,
+                            border: `1px solid ${PRIORITY_TONE[p]}55`,
+                            background: 'rgba(8,12,20,0.94)',
+                            color: vars.color.foreground,
+                        }}
+                        onClick={() => {
+                            onOpenSymbol(n.symbol);
+                            setToasts((prev) =>
+                                prev.filter(
+                                    (x) =>
+                                        x.notification_id !== n.notification_id,
+                                ),
+                            );
                         }}
                     >
-                        {n.reasons.slice(0, 4).map((r) => (
-                            <li key={r}>{r}</li>
-                        ))}
-                    </ul>
-                    <div
-                        style={{
-                            marginTop: 8,
-                            fontSize: 13,
-                            color: radarColor.aiSoft,
-                        }}
-                    >
-                        查看 ›
-                    </div>
-                </button>
-            ))}
+                        <div
+                            style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: 8,
+                            }}
+                        >
+                            <div style={{ fontWeight: 800 }}>
+                                {EVENT_LABEL[n.event_type] ?? n.event_type}
+                            </div>
+                            <span
+                                style={{
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    letterSpacing: '0.06em',
+                                    color: PRIORITY_TONE[p],
+                                }}
+                            >
+                                {p}
+                            </span>
+                        </div>
+                        <div style={{ marginTop: 4, fontWeight: 700 }}>
+                            {n.symbol} {n.name}
+                            {n.change_pct != null
+                                ? ` · ${n.change_pct > 0 ? '+' : ''}${n.change_pct.toFixed(1)}%`
+                                : ''}
+                        </div>
+                        <div
+                            style={{
+                                marginTop: 6,
+                                fontSize: 12,
+                                color: vars.color.mutedForeground,
+                                fontFamily: vars.font.mono,
+                            }}
+                        >
+                            BP {n.buy_pressure_score != null ? Math.round(n.buy_pressure_score) : '—'}
+                            {' · '}C {n.c_score != null ? Math.round(n.c_score) : '—'}
+                            {rankDelta != null
+                                ? ` · Rank ${rankDelta > 0 ? `↑${rankDelta}` : rankDelta < 0 ? `↓${Math.abs(rankDelta)}` : '—'}`
+                                : ''}
+                            {n.chase_risk ? ` · Chase ${n.chase_risk}` : ''}
+                        </div>
+                        <div
+                            style={{
+                                marginTop: 4,
+                                fontSize: 11,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            Sector {ctx?.sector || '—'}
+                            {' · '}Market {ctx?.market || '—'}
+                        </div>
+                        <ul
+                            style={{
+                                margin: '8px 0 0',
+                                paddingLeft: 18,
+                                fontSize: 13,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            {n.reasons.slice(0, 3).map((r) => (
+                                <li key={r}>{r}</li>
+                            ))}
+                        </ul>
+                    </button>
+                );
+            })}
         </div>
     );
 }
