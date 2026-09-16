@@ -43,6 +43,7 @@ export class MarketContextRuntime {
     private lastEvaluateAt: string | null = null;
     private marketTurnoverHistory: number[] = [];
     private sectorsLastFull: SectorRotationRow[] = [];
+    private lastQuotes: TwDayQuote[] = [];
     private globalMarket = new GlobalMarketService();
 
     constructor(
@@ -111,8 +112,6 @@ export class MarketContextRuntime {
     getSectors(): SectorRotationRow[] {
         return this.sectorsLastFull;
     }
-
-    private sectorsLastFull: SectorRotationRow[] = [];
 
     getSector(name: string): SectorRotationRow | null {
         const key = name.trim();

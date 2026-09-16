@@ -15,6 +15,16 @@ import {
     fmtLotsShares,
     type BrokerSummaryDto,
 } from '../../lib/broker-intelligence';
+import {
+    CONFIRM_LABEL,
+    EVENT_TYPE_LABEL,
+    fetchActiveEvents,
+    fetchCompanyExposures,
+    fetchEventDetail,
+    type CompanyExposureDto,
+    type EventConfirmationDto,
+    type MarketEventDto,
+} from '../../lib/events';
 import { fmtPct, fmtPrice } from '../../lib/utils/format';
 import { vars } from '../../theme.css';
 import { toggleFavorite } from './favorites';
@@ -457,6 +467,7 @@ export function StockDetailPage({
                 </div>
 
                 <MarketIntelBlock symbol={item.symbol} />
+                <EventContextBlock symbol={item.symbol} />
                 <BrokerChipBlock symbol={item.symbol} />
 
                 <div className={s.glass} style={{ padding: 14, marginBottom: 16 }}>
@@ -694,6 +705,142 @@ function MarketIntelBlock({ symbol }: { symbol: string }) {
     );
 }
 
+/** Event context — hypothesis + confirmation; never buy advice. */
+function EventContextBlock({ symbol }: { symbol: string }) {
+    const [rows, setRows] = useState<
+        Array<{
+            event: MarketEventDto;
+            exposure: CompanyExposureDto;
+            confirmation: EventConfirmationDto | null;
+        }>
+    >([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const active = await fetchActiveEvents();
+                const top = (active.items ?? []).slice(0, 3);
+                const out: typeof rows = [];
+                for (const ev of top) {
+                    const [exposure, detail] = await Promise.all([
+                        fetchCompanyExposures(symbol, ev.event_type),
+                        fetchEventDetail(ev.event_id).catch(() => null),
+                    ]);
+                    out.push({
+                        event: ev,
+                        exposure,
+                        confirmation: detail?.confirmation ?? null,
+                    });
+                }
+                if (!cancelled) setRows(out);
+            } catch {
+                if (!cancelled) setRows([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [symbol]);
+
+    if (!rows.length) return null;
+
+    return (
+        <div className={s.glass} style={{ padding: 14, margin: '0 0 16px' }}>
+            <strong style={{ fontSize: 15 }}>事件 Context</strong>
+            <div
+                style={{
+                    fontSize: 11,
+                    color: vars.color.mutedForeground,
+                    marginTop: 4,
+                }}
+            >
+                相關度與市場確認分開 · 禁止解讀為建議買進
+            </div>
+            {rows.map(({ event, exposure, confirmation }) => {
+                const dirs = exposure.exposures
+                    .map((e) => e.direction)
+                    .filter(Boolean);
+                const mixed =
+                    dirs.includes('MIXED') ||
+                    (dirs.includes('POSITIVE') && dirs.includes('NEGATIVE'));
+                const reasons = exposure.exposures
+                    .slice(0, 3)
+                    .map(
+                        (e) =>
+                            `${e.direction === 'POSITIVE' ? '+' : e.direction === 'NEGATIVE' ? '-' : '·'} ${e.channel}（${e.evidence_source}）`,
+                    );
+                let summary = '事件相關度與曝險待觀察';
+                if (
+                    exposure.overall_confidence === 'HIGH' &&
+                    confirmation?.status === 'EVENT_MARKET_CONFIRMED'
+                ) {
+                    summary = '事件相關度高，市場已有反應';
+                } else if (exposure.overall_confidence === 'LOW') {
+                    summary = '曝險證據不足（產業標籤≠受惠）';
+                } else if (confirmation?.status === 'EVENT_UNCONFIRMED') {
+                    summary = '事件相關，但市場尚未確認反應';
+                }
+                return (
+                    <div
+                        key={event.event_id}
+                        style={{
+                            marginTop: 12,
+                            paddingTop: 10,
+                            borderTop: `1px solid ${vars.color.border}`,
+                        }}
+                    >
+                        <div style={{ fontWeight: 700 }}>
+                            {EVENT_TYPE_LABEL[event.event_type] ??
+                                event.event_type}
+                        </div>
+                        <div style={{ fontSize: 13, marginTop: 2 }}>
+                            {event.title}
+                        </div>
+                        <div
+                            style={{
+                                marginTop: 6,
+                                fontSize: 12,
+                                fontFamily: vars.font.mono,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            Company Exposure {exposure.overall_confidence}
+                            {' · '}Direction{' '}
+                            {mixed ? 'MIXED' : dirs[0] ?? 'UNKNOWN'}
+                            {' · '}revenue_exposure_available=false
+                        </div>
+                        {reasons.length > 0 && (
+                            <div style={{ marginTop: 6, fontSize: 12 }}>
+                                {reasons.map((r) => (
+                                    <div key={r}>{r}</div>
+                                ))}
+                            </div>
+                        )}
+                        {confirmation && (
+                            <div style={{ marginTop: 6, fontSize: 12 }}>
+                                {CONFIRM_LABEL[confirmation.status]}
+                                {' · '}Conf{' '}
+                                {confirmation.market_confirmation_score}
+                                {' / '}Rel {confirmation.event_relevance}
+                            </div>
+                        )}
+                        <div
+                            style={{
+                                marginTop: 6,
+                                fontSize: 12,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            {summary}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
 function BrokerChipBlock({ symbol }: { symbol: string }) {
     const [data, setData] = useState<BrokerSummaryDto | null>(null);
     useEffect(() => {
@@ -736,11 +883,12 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                                 color: vars.color.mutedForeground,
                             }}
                         >
+                            PREVIOUS_DAY / EOD ·{' '}
                             {data.institutional.freshness}
                             {data.institutional.as_of
                                 ? ` · ${data.institutional.as_of}`
                                 : ''}{' '}
-                            · 與券商分點分開
+                            · 非即時外資動態 · 與券商分點分開
                         </div>
                     </>
                 ) : (

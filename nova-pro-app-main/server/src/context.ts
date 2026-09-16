@@ -7,6 +7,7 @@ import type { BrokerIntelligenceService } from './lib/broker-intelligence/index.
 import type { BuyPressureService } from './lib/buy-pressure/index.ts';
 import type { WebNotificationService } from './lib/web-notifications/index.ts';
 import type { MarketContextRuntime } from './lib/market-context/index.ts';
+import type { EventIntelligenceService } from './lib/event-intelligence/index.ts';
 import type { MarketRuntime } from './lib/market-runtime/index.ts';
 import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import type { MarketManager } from './providers/manager.ts';
@@ -42,6 +43,8 @@ export interface AppContext {
     webNotifications: WebNotificationService | null;
     /** Market context — broad universe / regime / sector rotation; no strategy mutation. */
     marketContext: MarketContextRuntime | null;
+    /** Event intelligence — detection / impact hypothesis / confirmation; no strategy mutation. */
+    eventIntelligence: EventIntelligenceService | null;
     startedAt: number;
 }
 

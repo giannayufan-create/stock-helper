@@ -19,6 +19,7 @@ import { registerBrokerIntelligenceRoutes } from './routes/broker-intelligence.t
 import { registerBuyPressureRoutes } from './routes/buy-pressure.ts';
 import { registerNotificationRoutes } from './routes/notifications.ts';
 import { registerMarketContextRoutes } from './routes/market-context.ts';
+import { registerEventRoutes } from './routes/events.ts';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const app = Fastify({ logger: { level: 'warn' } });
@@ -47,6 +48,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerBuyPressureRoutes(app, ctx);
     registerNotificationRoutes(app, ctx);
     registerMarketContextRoutes(app, ctx);
+    registerEventRoutes(app, ctx);
 
     // provider events → SSE fan-out
     ctx.market.onTick((channel, tick) => ctx.hub.broadcast(channel, tick));

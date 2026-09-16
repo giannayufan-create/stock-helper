@@ -10,6 +10,15 @@ import {
     TW_REGIME_LABEL,
     type MarketContextOverviewDto,
 } from '../../lib/market-context';
+import {
+    CONFIRM_LABEL,
+    EVENT_TYPE_LABEL,
+    fetchActiveEvents,
+    fetchEventDetail,
+    type EventConfirmationDto,
+    type EventImpactDto,
+    type MarketEventDto,
+} from '../../lib/events';
 import { vars } from '../../theme.css';
 import {
     fmtPctSigned,
@@ -57,6 +66,13 @@ export function TodayPage({
 
     const [mi, setMi] = useState<MiOverview | null>(null);
     const [mc, setMc] = useState<MarketContextOverviewDto | null>(null);
+    const [events, setEvents] = useState<MarketEventDto[]>([]);
+    const [eventExtra, setEventExtra] = useState<
+        Record<
+            string,
+            { confirmation: EventConfirmationDto | null; impact: EventImpactDto | null }
+        >
+    >({});
     useEffect(() => {
         let cancelled = false;
         const load = () =>
@@ -83,6 +99,44 @@ export function TodayPage({
                 .catch(() => undefined);
         load();
         const t = setInterval(load, 60_000);
+        return () => {
+            cancelled = true;
+            clearInterval(t);
+        };
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const res = await fetchActiveEvents();
+                if (cancelled) return;
+                const top = (res.items ?? []).slice(0, 4);
+                setEvents(top);
+                const extras: typeof eventExtra = {};
+                await Promise.all(
+                    top.map(async (ev) => {
+                        try {
+                            const d = await fetchEventDetail(ev.event_id);
+                            extras[ev.event_id] = {
+                                confirmation: d.confirmation,
+                                impact: d.impact,
+                            };
+                        } catch {
+                            extras[ev.event_id] = {
+                                confirmation: null,
+                                impact: null,
+                            };
+                        }
+                    }),
+                );
+                if (!cancelled) setEventExtra(extras);
+            } catch {
+                // soft-fail
+            }
+        };
+        void load();
+        const t = setInterval(() => void load(), 90_000);
         return () => {
             cancelled = true;
             clearInterval(t);
@@ -309,6 +363,129 @@ export function TodayPage({
                                         }}
                                     >
                                         HIGH_CONCENTRATION · 非整體產業轉強
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </section>
+            )}
+
+            {events.length > 0 && (
+                <section className={s.section}>
+                    <div className={s.sectionRow}>
+                        <div className={s.sectionTitle} style={{ marginBottom: 0 }}>
+                            重大事件
+                        </div>
+                        <span
+                            style={{
+                                fontSize: 11,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            假設＋市場確認 · 非法買訊號
+                        </span>
+                    </div>
+                    {events.map((ev) => {
+                        const extra = eventExtra[ev.event_id];
+                        const conf = extra?.confirmation;
+                        const hyps = (extra?.impact?.sector_hypotheses ?? []).slice(
+                            0,
+                            3,
+                        );
+                        const typeLabel =
+                            EVENT_TYPE_LABEL[ev.event_type] ?? ev.event_type;
+                        return (
+                            <div
+                                key={ev.event_id}
+                                className={s.glass}
+                                style={{
+                                    padding: '12px 14px',
+                                    marginBottom: 8,
+                                }}
+                            >
+                                <div style={{ fontWeight: 800, fontSize: 14 }}>
+                                    {typeLabel}
+                                </div>
+                                <div style={{ marginTop: 4, fontSize: 14 }}>
+                                    {ev.title}
+                                </div>
+                                <div
+                                    style={{
+                                        marginTop: 6,
+                                        fontSize: 12,
+                                        color: vars.color.mutedForeground,
+                                        fontFamily: vars.font.mono,
+                                    }}
+                                >
+                                    來源 {ev.sources_count} · 可信度{' '}
+                                    {ev.confidence} · Freshness {ev.freshness}
+                                    {' · '}Relevance {ev.event_relevance}
+                                </div>
+                                {hyps.length > 0 && (
+                                    <div style={{ marginTop: 8, fontSize: 13 }}>
+                                        <div
+                                            style={{
+                                                fontSize: 11,
+                                                color: vars.color.mutedForeground,
+                                                marginBottom: 4,
+                                            }}
+                                        >
+                                            可能影響（hypothesis）
+                                        </div>
+                                        {hyps.map((h) => (
+                                            <div key={h.sector_or_theme}>
+                                                {h.sector_or_theme} · Relevance{' '}
+                                                {h.relevance} · {h.direction}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {conf && (
+                                    <div style={{ marginTop: 8, fontSize: 13 }}>
+                                        <div style={{ fontWeight: 700 }}>
+                                            市場確認{' '}
+                                            {CONFIRM_LABEL[conf.status] ??
+                                                conf.status}
+                                        </div>
+                                        <div
+                                            style={{
+                                                marginTop: 4,
+                                                fontSize: 12,
+                                                fontFamily: vars.font.mono,
+                                                color: vars.color.mutedForeground,
+                                            }}
+                                        >
+                                            Confirmation{' '}
+                                            {conf.market_confirmation_score}
+                                            {conf.sector_rank_prev != null &&
+                                            conf.sector_rank != null
+                                                ? ` · Rank #${conf.sector_rank_prev} → #${conf.sector_rank}`
+                                                : ''}
+                                            {conf.turnover_share != null
+                                                ? ` · Share ${(
+                                                      (conf.turnover_share_prev ??
+                                                          0) * 100
+                                                  ).toFixed(1)} → ${(
+                                                      conf.turnover_share * 100
+                                                  ).toFixed(1)}%`
+                                                : ''}
+                                            {conf.breadth != null
+                                                ? ` · Breadth ${(
+                                                      conf.breadth * 100
+                                                  ).toFixed(0)}%`
+                                                : ''}
+                                        </div>
+                                        <div
+                                            style={{
+                                                marginTop: 4,
+                                                fontSize: 11,
+                                                color: vars.color.mutedForeground,
+                                            }}
+                                        >
+                                            Event Relevance 與 Market Confirmation
+                                            分開顯示 · 法人籌碼為 PREVIOUS_DAY
+                                        </div>
                                     </div>
                                 )}
                             </div>

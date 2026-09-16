@@ -11,10 +11,16 @@ import {
     fetchMiThemes,
     type MiOverview,
 } from '../../lib/market-intelligence';
+import {
+    CONFIRM_LABEL,
+    EVENT_TYPE_LABEL,
+    fetchActiveEvents,
+    fetchEventDetail,
+} from '../../lib/events';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 
-type IntelTab = 'market' | 'sector' | 'theme' | 'news';
+type IntelTab = 'market' | 'sector' | 'theme' | 'news' | 'events';
 
 export function IntelPage({ onBack }: { onBack?: () => void }) {
     const [tab, setTab] = useState<IntelTab>('market');
@@ -23,6 +29,13 @@ export function IntelPage({ onBack }: { onBack?: () => void }) {
     const [themes, setThemes] = useState<MiOverview['top_themes']>([]);
     const [news, setNews] = useState<NonNullable<MiOverview['top_news']>>([]);
     const [global, setGlobal] = useState<MiOverview['global_markets']>([]);
+    const [events, setEvents] = useState<
+        Array<{
+            event: import('../../lib/events').MarketEventDto;
+            confirmation: import('../../lib/events').EventConfirmationDto | null;
+            impact: import('../../lib/events').EventImpactDto | null;
+        }>
+    >([]);
     const [err, setErr] = useState<string | null>(null);
 
     useEffect(() => {
@@ -76,6 +89,34 @@ export function IntelPage({ onBack }: { onBack?: () => void }) {
             void fetchMiGlobal()
                 .then((r) => setGlobal(r.assets ?? []))
                 .catch(() => undefined);
+        } else if (tab === 'events') {
+            void (async () => {
+                try {
+                    const res = await fetchActiveEvents();
+                    const top = (res.items ?? []).slice(0, 8);
+                    const rows = await Promise.all(
+                        top.map(async (ev) => {
+                            try {
+                                const d = await fetchEventDetail(ev.event_id);
+                                return {
+                                    event: ev,
+                                    confirmation: d.confirmation,
+                                    impact: d.impact,
+                                };
+                            } catch {
+                                return {
+                                    event: ev,
+                                    confirmation: null,
+                                    impact: null,
+                                };
+                            }
+                        }),
+                    );
+                    setEvents(rows);
+                } catch {
+                    setEvents([]);
+                }
+            })();
         }
     }, [tab]);
 
@@ -108,6 +149,7 @@ export function IntelPage({ onBack }: { onBack?: () => void }) {
                         ['sector', '產業'],
                         ['theme', '題材'],
                         ['news', '新聞'],
+                        ['events', '重大事件'],
                     ] as const
                 ).map(([id, label]) => (
                     <button
@@ -265,6 +307,71 @@ export function IntelPage({ onBack }: { onBack?: () => void }) {
                         {!news?.length && (
                             <div style={{ color: vars.color.mutedForeground, fontSize: 13 }}>
                                 新聞層暫不可用或尚在背景更新
+                            </div>
+                        )}
+                    </div>
+                </>
+            )}
+
+            {tab === 'events' && (
+                <>
+                    <div className={s.sectionTitle}>重大事件</div>
+                    <div
+                        style={{
+                            fontSize: 11,
+                            color: vars.color.mutedForeground,
+                            marginBottom: 8,
+                        }}
+                    >
+                        Event Relevance 與 Market Confirmation 分開 · 假設非法買訊號
+                    </div>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                        {events.map(({ event, confirmation, impact }) => (
+                            <div
+                                key={event.event_id}
+                                className={s.glass}
+                                style={{ padding: 12 }}
+                            >
+                                <div style={{ fontWeight: 800 }}>
+                                    {EVENT_TYPE_LABEL[event.event_type] ??
+                                        event.event_type}
+                                </div>
+                                <div style={{ marginTop: 4, fontSize: 14 }}>
+                                    {event.title}
+                                </div>
+                                <div
+                                    style={{
+                                        marginTop: 6,
+                                        fontSize: 12,
+                                        fontFamily: vars.font.mono,
+                                        color: vars.color.mutedForeground,
+                                    }}
+                                >
+                                    來源 {event.sources_count} · {event.confidence} ·{' '}
+                                    {event.freshness} · Rel {event.event_relevance}
+                                </div>
+                                {(impact?.sector_hypotheses ?? [])
+                                    .slice(0, 3)
+                                    .map((h) => (
+                                        <div
+                                            key={h.sector_or_theme}
+                                            style={{ fontSize: 12, marginTop: 4 }}
+                                        >
+                                            {h.sector_or_theme} Relevance {h.relevance}{' '}
+                                            · {h.direction}
+                                        </div>
+                                    ))}
+                                {confirmation && (
+                                    <div style={{ marginTop: 8, fontSize: 13 }}>
+                                        {CONFIRM_LABEL[confirmation.status]} · Conf{' '}
+                                        {confirmation.market_confirmation_score}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                        {!events.length && (
+                            <div style={{ color: vars.color.mutedForeground, fontSize: 13 }}>
+                                尚無 active event cluster（或來源暫不可用）
                             </div>
                         )}
                     </div>

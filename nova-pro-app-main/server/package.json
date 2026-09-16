@@ -15,6 +15,8 @@
         "test:shadow": "tsx src/lib/shadow/shadow.test.ts",
         "test:mi": "tsx src/lib/market-intelligence/mi.test.ts",
         "test:bi": "tsx src/lib/broker-intelligence/bi.test.ts",
+        "test:mc": "tsx src/lib/market-context/mc.test.ts",
+        "test:ei": "tsx src/lib/event-intelligence/ei.test.ts",
         "acceptance:gate": "tsx src/acceptance-gate.ts",
         "replay": "tsx src/replay-cli.ts",
         "outcome:summary": "tsx src/outcome-summary-cli.ts",

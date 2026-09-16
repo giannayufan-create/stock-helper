@@ -24,6 +24,7 @@ import { BrokerIntelligenceService } from './lib/broker-intelligence/index.ts';
 import { BuyPressureService } from './lib/buy-pressure/index.ts';
 import { WebNotificationService } from './lib/web-notifications/index.ts';
 import { MarketContextRuntime } from './lib/market-context/index.ts';
+import { EventIntelligenceService } from './lib/event-intelligence/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -192,6 +193,18 @@ async function main(): Promise<void> {
         `market-context: ${marketContext.getHealth().status} interval=${marketContext.cfg.evaluate_interval_sec}s`,
     );
 
+    const eventIntelligence = new EventIntelligenceService(
+        marketContext,
+        intradayRank,
+        buyPressure,
+        marketRuntime,
+        join(dataDir, 'events.json'),
+    );
+    eventIntelligence.start();
+    console.log(
+        `event-intelligence: ${eventIntelligence.getHealth().status} interval=${eventIntelligence.cfg.evaluate_interval_sec}s`,
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -208,6 +221,7 @@ async function main(): Promise<void> {
         buyPressure,
         webNotifications,
         marketContext,
+        eventIntelligence,
         startedAt: Date.now(),
     };
 
