@@ -718,6 +718,8 @@ export default function App() {
         [workspace.blocks],
     );
 
+    // Legacy trading grid only waits on watchlist. Radar must open even if
+    // quote subscribe / contract resolve is slow after a cold deploy.
     const booting = loading && items.length === 0;
     const isMobile = useMediaQuery('screen and (max-width: 1024px)');
     const useLegacy =
@@ -752,29 +754,22 @@ export default function App() {
                     onClose={() => setPaletteOpen(false)}
                     onJump={jumpToCode}
                 />
-                {booting ? (
-                    <div className={styles.loading}>
-                        <span>Nova Pro</span>
-                        <span style={{ fontSize: '0.7rem' }}>AI 當沖雷達載入中…</span>
-                    </div>
-                ) : (
-                    <MobileShell
-                        contract={selected}
-                        snapshot={selectedSnapshot}
-                        trades={dockProps.trades}
-                        onOrdersChanged={refreshTrading}
-                        onRefreshTrading={refreshTrading}
-                        watchlistSeed={watchlistSeed}
-                        onSelectCode={selectByCode}
-                        onAddPrediction={addPrediction}
-                        onAutoScanPredictions={addAutoScanPredictions}
-                        predictions={predictions}
-                        onClearPredictions={clearPredictions}
-                        onVerifyPredictions={runVerifyPredictions}
-                        verifyingPredictions={verifyingPredictions}
-                        onOpenSearch={() => setPaletteOpen(true)}
-                    />
-                )}
+                <MobileShell
+                    contract={selected}
+                    snapshot={selectedSnapshot}
+                    trades={dockProps.trades}
+                    onOrdersChanged={refreshTrading}
+                    onRefreshTrading={refreshTrading}
+                    watchlistSeed={watchlistSeed}
+                    onSelectCode={selectByCode}
+                    onAddPrediction={addPrediction}
+                    onAutoScanPredictions={addAutoScanPredictions}
+                    predictions={predictions}
+                    onClearPredictions={clearPredictions}
+                    onVerifyPredictions={runVerifyPredictions}
+                    verifyingPredictions={verifyingPredictions}
+                    onOpenSearch={() => setPaletteOpen(true)}
+                />
             </div>
         );
     }

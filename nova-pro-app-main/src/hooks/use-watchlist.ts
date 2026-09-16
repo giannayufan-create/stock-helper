@@ -26,23 +26,46 @@ const DEFAULT_SYMBOLS: { code: string; type: SecurityType }[] = [
     { code: '2454', type: 'STK' },
     { code: '2603', type: 'STK' },
     { code: '0050', type: 'STK' },
-    { code: 'TXFR1', type: 'FUT' },
 ];
 
 const STORAGE_KEY = 'sj-pro-watchlist';
 const SERVER_LIST_NAME = 'nova-pro-v1';
+const INIT_BUDGET_MS = 8_000;
 
 function loadSaved(): { code: string; type: SecurityType }[] {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
             const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                // Drop futures/warrants leftovers that can hang Shioaji subscribe.
+                const stocks = parsed.filter(
+                    (s: { code?: string; type?: SecurityType }) =>
+                        s?.type === 'STK' && typeof s.code === 'string',
+                );
+                if (stocks.length > 0) return stocks;
+            }
         }
     } catch {
         // fall through to defaults
     }
     return DEFAULT_SYMBOLS;
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('timeout')), ms);
+        p.then(
+            (v) => {
+                clearTimeout(t);
+                resolve(v);
+            },
+            (e) => {
+                clearTimeout(t);
+                reject(e);
+            },
+        );
+    });
 }
 
 export function useWatchlist() {
@@ -68,7 +91,8 @@ export function useWatchlist() {
             );
             if (!subscribed.current.has(contract.code)) {
                 subscribed.current.add(contract.code);
-                await Promise.allSettled([
+                // Never block UI on stream subscribe (cold Shioaji can 502/hang).
+                void Promise.allSettled([
                     subscribeQuote(contract, 'Tick'),
                     subscribeQuote(contract, 'BidAsk'),
                 ]);
@@ -134,26 +158,30 @@ export function useWatchlist() {
             // otherwise (server 1.5.2 watchlist update routes are broken, so
             // the cloud copy can be stale)
             try {
-                const lists = await fetchWatchlists();
+                const lists = await withTimeout(fetchWatchlists(), 3_000);
                 const mine = lists.find((l) => l.name === SERVER_LIST_NAME);
                 if (mine) {
                     serverListId.current = mine.id;
                     const hasLocal = !!localStorage.getItem(STORAGE_KEY);
                     if (!hasLocal && mine.contracts.length > 0) {
-                        saved = mine.contracts.map((c) => ({
-                            code: c.code,
-                            type: c.security_type,
-                        }));
+                        saved = mine.contracts
+                            .filter((c) => c.security_type === 'STK')
+                            .map((c) => ({
+                                code: c.code,
+                                type: c.security_type,
+                            }));
                     }
                 }
             } catch {
                 // offline from server watchlists — local copy is fine
             }
+            const deadline = Date.now() + INIT_BUDGET_MS;
             for (const s of saved) {
+                if (Date.now() > deadline) break;
                 try {
-                    await addSymbol(s.code, s.type);
+                    await withTimeout(addSymbol(s.code, s.type), 4_000);
                 } catch {
-                    // unknown code — skip
+                    // unknown code / slow contract — skip
                 }
             }
             initDone.current = true;
