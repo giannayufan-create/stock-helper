@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+    fetchRadarInterpretationScore,
+    requestRadarInterpretation,
+    type RadarAIInterpretationDto,
+} from '../../lib/ai-interpretation';
+import { vars } from '../../theme.css';
 import { sortHeating, sortPullback, sortStrong, eventLabel } from './helpers';
 import * as s from './radar.css';
 import { CompactStockRow } from './stock-cards';
@@ -24,6 +30,14 @@ export function RadarPage({
     const [filterOpen, setFilterOpen] = useState(false);
     const [minC, setMinC] = useState(0);
     const [minHeat, setMinHeat] = useState(0);
+    const [radarAi, setRadarAi] = useState<RadarAIInterpretationDto | null>(
+        null,
+    );
+    const [radarNarrative, setRadarNarrative] = useState<string | null>(null);
+    const [radarAiLoading, setRadarAiLoading] = useState(false);
+    const [radarAiError, setRadarAiError] = useState<string | null>(null);
+    const [radarAiAt, setRadarAiAt] = useState<number | null>(null);
+    const [radarSheetOpen, setRadarSheetOpen] = useState(false);
 
     useEffect(() => {
         if (
@@ -52,6 +66,59 @@ export function RadarPage({
         }
         return [];
     }, [tab, filtered]);
+
+    const filterPayload = useMemo(
+        () => ({
+            tab,
+            min_c: minC,
+            min_heat: minHeat,
+        }),
+        [tab, minC, minHeat],
+    );
+
+    useEffect(() => {
+        let cancelled = false;
+        const symbols = list.map((i) => i.symbol);
+        void fetchRadarInterpretationScore({
+            filter: filterPayload,
+            symbols,
+        }).then((d) => {
+            if (!cancelled && d) {
+                setRadarAi(d);
+                setRadarNarrative(null);
+                setRadarAiError(null);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [list, filterPayload]);
+
+    const runRadarAi = async () => {
+        setRadarAiLoading(true);
+        setRadarAiError(null);
+        try {
+            const result = await requestRadarInterpretation({
+                filter: filterPayload,
+                symbols: list.map((i) => i.symbol),
+                snapshot_id: radarAi?.snapshot_id,
+                with_llm: true,
+            });
+            if (!result) {
+                setRadarAiError('AI 文字解讀暫時無法使用');
+                return;
+            }
+            setRadarAi(result);
+            setRadarNarrative(result.narrative ?? null);
+            if (result.llm_error) setRadarAiError(result.llm_error);
+            setRadarAiAt(Date.now());
+            setRadarSheetOpen(true);
+        } catch {
+            setRadarAiError('AI 文字解讀暫時無法使用');
+        } finally {
+            setRadarAiLoading(false);
+        }
+    };
 
     return (
         <>
@@ -108,6 +175,128 @@ export function RadarPage({
                     </button>
                 ))}
             </div>
+
+            {tab !== 'events' && (
+                <div className={s.aiCard} style={{ margin: '8px 16px 12px' }}>
+                    <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            flexWrap: 'wrap',
+                            marginBottom: 6,
+                        }}
+                    >
+                        <strong style={{ color: radarColor.aiSoft }}>
+                            ✨ AI 雷達綜合解讀
+                        </strong>
+                        <span
+                            className={s.tag}
+                            style={{ color: radarColor.aiSoft }}
+                        >
+                            不影響正式分數
+                        </span>
+                    </div>
+                    {radarAi ? (
+                        <>
+                            <div
+                                style={{
+                                    fontSize: 32,
+                                    fontWeight: 800,
+                                    color: radarColor.aiSoft,
+                                    lineHeight: 1.1,
+                                }}
+                            >
+                                {radarAi.score.toFixed(1)}{' '}
+                                <span style={{ fontSize: 16 }}>/ 10</span>
+                            </div>
+                            <div
+                                style={{
+                                    marginTop: 6,
+                                    fontSize: 13,
+                                    color: vars.color.mutedForeground,
+                                }}
+                            >
+                                Confidence：{radarAi.confidence} · 符合{' '}
+                                {radarAi.matched_count} 檔
+                            </div>
+                            <div
+                                style={{
+                                    marginTop: 8,
+                                    fontSize: 14,
+                                    lineHeight: 1.5,
+                                }}
+                            >
+                                {radarAi.headline}
+                            </div>
+                            {radarAi.aggregate?.status_distribution && (
+                                <div
+                                    style={{
+                                        marginTop: 10,
+                                        fontSize: 12,
+                                        color: vars.color.mutedForeground,
+                                        display: 'grid',
+                                        gridTemplateColumns: '1fr 1fr',
+                                        gap: 4,
+                                    }}
+                                >
+                                    <span>
+                                        Confirmed{' '}
+                                        {radarAi.aggregate.status_distribution
+                                            .CONFIRMED_STRENGTH ?? 0}
+                                    </span>
+                                    <span>
+                                        Watch{' '}
+                                        {radarAi.aggregate.status_distribution
+                                            .WATCH ?? 0}
+                                    </span>
+                                    <span>
+                                        Extended{' '}
+                                        {radarAi.aggregate.status_distribution
+                                            .EXTENDED ?? 0}
+                                    </span>
+                                    <span>
+                                        Not Ready{' '}
+                                        {radarAi.aggregate.status_distribution
+                                            .NOT_READY ?? 0}
+                                    </span>
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <div
+                            style={{
+                                fontSize: 13,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            雷達解讀分數計算中…
+                        </div>
+                    )}
+                    {radarAiError && (
+                        <div
+                            style={{
+                                marginTop: 8,
+                                fontSize: 13,
+                                color: '#fca5a5',
+                            }}
+                        >
+                            {radarAiError}
+                        </div>
+                    )}
+                    <button
+                        type="button"
+                        className={s.aiBtn}
+                        style={{ marginTop: 12 }}
+                        disabled={radarAiLoading || list.length === 0}
+                        onClick={() => void runRadarAi()}
+                    >
+                        {radarAiLoading
+                            ? '解讀中…'
+                            : '✨ AI 解讀目前雷達'}
+                    </button>
+                </div>
+            )}
 
             {tab === 'events' ? (
                 <EventsList feed={feed} onOpenSymbol={onOpenSymbol} />
@@ -212,6 +401,126 @@ export function RadarPage({
                                 套用
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {radarSheetOpen && radarAi && (
+                <div
+                    className={s.sheetMask}
+                    role="presentation"
+                    onClick={() => setRadarSheetOpen(false)}
+                >
+                    <div
+                        className={s.sheet}
+                        role="dialog"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            maxHeight: '85vh',
+                            overflowY: 'auto',
+                            paddingBottom: 'max(24px, env(safe-area-inset-bottom))',
+                        }}
+                    >
+                        <div className={s.sheetTitle}>AI 雷達解讀</div>
+                        <div
+                            style={{
+                                fontSize: 28,
+                                fontWeight: 800,
+                                color: radarColor.aiSoft,
+                            }}
+                        >
+                            {radarAi.score.toFixed(1)} / 10
+                        </div>
+                        <div
+                            style={{
+                                marginTop: 6,
+                                fontSize: 13,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            Confidence {radarAi.confidence} · 符合{' '}
+                            {radarAi.matched_count} 檔
+                            {radarAiAt
+                                ? ` · ${new Date(radarAiAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`
+                                : ''}
+                        </div>
+                        <p style={{ marginTop: 10, lineHeight: 1.55 }}>
+                            {radarAi.headline}
+                        </p>
+                        <div style={{ marginTop: 12, fontSize: 13 }}>
+                            <strong>篩選</strong>
+                            <div>{radarAi.filter_summary}</div>
+                        </div>
+                        <div style={{ marginTop: 12, fontSize: 13 }}>
+                            <strong>結構</strong>
+                            <div>{radarAi.group_structure}</div>
+                        </div>
+                        <div style={{ marginTop: 12, fontSize: 13 }}>
+                            <strong>共同優勢</strong>
+                            <ul className={s.reasonList}>
+                                {radarAi.common_strengths.map((x) => (
+                                    <li key={x}>✓ {x}</li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div style={{ marginTop: 12, fontSize: 13 }}>
+                            <strong>尚缺確認</strong>
+                            <ul className={s.reasonList}>
+                                {radarAi.missing_confirmations.map((x) => (
+                                    <li key={x}>△ {x}</li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div style={{ marginTop: 12, fontSize: 13 }}>
+                            <strong>產業</strong>
+                            <div>{radarAi.sector_summary}</div>
+                        </div>
+                        <div style={{ marginTop: 12, fontSize: 13 }}>
+                            <strong>市場</strong>
+                            <div>{radarAi.market_summary}</div>
+                        </div>
+                        <div style={{ marginTop: 12, fontSize: 13 }}>
+                            <strong>背離</strong>
+                            <ul className={s.reasonList}>
+                                {radarAi.divergence_flags.map((x) => (
+                                    <li key={x}>⚠ {x}</li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div style={{ marginTop: 12, fontSize: 13 }}>
+                            <strong>資料</strong>
+                            <div>{radarAi.data_quality_summary}</div>
+                        </div>
+                        {radarNarrative && (
+                            <div
+                                style={{
+                                    marginTop: 14,
+                                    fontSize: 14,
+                                    lineHeight: 1.55,
+                                    whiteSpace: 'pre-wrap',
+                                }}
+                            >
+                                <strong>AI 解讀</strong>
+                                <br />
+                                {radarNarrative}
+                            </div>
+                        )}
+                        <button
+                            type="button"
+                            className={s.aiBtn}
+                            style={{ marginTop: 16 }}
+                            onClick={() => void runRadarAi()}
+                        >
+                            重新解讀
+                        </button>
+                        <button
+                            type="button"
+                            className={s.btnGhost}
+                            style={{ marginTop: 8, width: '100%', minHeight: 44 }}
+                            onClick={() => setRadarSheetOpen(false)}
+                        >
+                            關閉
+                        </button>
                     </div>
                 </div>
             )}

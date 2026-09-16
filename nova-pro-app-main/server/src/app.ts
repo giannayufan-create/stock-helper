@@ -25,6 +25,7 @@ import { registerCalendarRoutes } from './routes/calendar.ts';
 import { registerLiveAcceptanceRoutes } from './routes/live-acceptance.ts';
 import { registerDecisionSummaryRoutes } from './routes/decision-summary.ts';
 import { registerSessionAutonomyRoutes } from './routes/session-autonomy.ts';
+import { registerAiInterpretationRoutes } from './routes/ai-interpretation.ts';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const app = Fastify({ logger: { level: 'warn' } });
@@ -59,6 +60,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerLiveAcceptanceRoutes(app, ctx);
     registerDecisionSummaryRoutes(app, ctx);
     registerSessionAutonomyRoutes(app, ctx);
+    registerAiInterpretationRoutes(app, ctx);
 
     // provider events → SSE fan-out
     ctx.market.onTick((channel, tick) => ctx.hub.broadcast(channel, tick));

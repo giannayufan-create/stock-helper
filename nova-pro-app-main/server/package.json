@@ -26,6 +26,7 @@
         "test:mcal": "tsx src/lib/market-calendar/mcal.test.ts",
         "test:la": "tsx src/lib/live-acceptance/la.test.ts",
         "test:ds": "tsx src/lib/decision-summary/ds.test.ts",
+        "test:ai-interp": "tsx src/lib/ai-interpretation/ai-interpretation.test.ts",
         "acceptance:live": "tsx src/scripts/live-acceptance-report.ts",
         "migrate:research-firestore": "tsx src/scripts/migrate-research-to-firestore.ts",
         "cutover:preflight": "tsx src/scripts/cutover-preflight.ts",

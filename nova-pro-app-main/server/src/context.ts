@@ -15,6 +15,7 @@ import type { MarketCalendarService } from './lib/market-calendar/index.ts';
 import type { LiveAcceptanceService } from './lib/live-acceptance/index.ts';
 import type { DecisionSummaryService } from './lib/decision-summary/index.ts';
 import type { SessionAutonomyService } from './lib/session-autonomy/index.ts';
+import type { AiInterpretationService } from './lib/ai-interpretation/index.ts';
 import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import type { MarketManager } from './providers/manager.ts';
 import type { TradingProvider } from './providers/trading.ts';
@@ -63,6 +64,8 @@ export interface AppContext {
     decisionSummary: DecisionSummaryService | null;
     /** Headless session FSM + overnight snapshots — never requires UI. */
     sessionAutonomy: SessionAutonomyService | null;
+    /** AI Interpretation — explanation layer only; never mutates scores/rank. */
+    aiInterpretation: AiInterpretationService | null;
     startedAt: number;
 }
 

@@ -35,6 +35,7 @@ import {
 } from './lib/live-acceptance/index.ts';
 import { DecisionSummaryService } from './lib/decision-summary/index.ts';
 import { SessionAutonomyService } from './lib/session-autonomy/index.ts';
+import { AiInterpretationService } from './lib/ai-interpretation/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -300,6 +301,18 @@ async function main(): Promise<void> {
         `session-autonomy: ${sessionAutonomy.getState()} (headless FSM, no UI_VIEW)`,
     );
 
+    const aiInterpretation = new AiInterpretationService(
+        intradayRank,
+        buyPressure,
+        decisionSummary,
+        marketContext,
+        eventIntelligence,
+        config.geminiApiKey,
+    );
+    console.log(
+        `ai-interpretation: ${aiInterpretation.getHealth().version} gemini=${aiInterpretation.getHealth().gemini ? 'on' : 'off'} (explanation only)`,
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -323,6 +336,7 @@ async function main(): Promise<void> {
         liveAcceptance: null,
         decisionSummary,
         sessionAutonomy,
+        aiInterpretation,
         startedAt: Date.now(),
     };
     const liveAcceptance = new LiveAcceptanceService(ctx, dataDir);

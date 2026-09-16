@@ -3,9 +3,10 @@ import type { IntradayRankItemDto } from '../../lib/backend';
 import { fetchSnapshots } from '../../lib/backend';
 import { useQuote } from '../../hooks/use-stream';
 import {
-    analyzeSymbolWithServer,
-    type SymbolAnalyzeResult,
-} from '../../lib/radar-ai';
+    fetchStockInterpretationScore,
+    requestStockInterpretation,
+    type StockAIInterpretationDto,
+} from '../../lib/ai-interpretation';
 import {
     fetchMiSymbol,
     type SymbolIntelligenceDto,
@@ -81,7 +82,8 @@ export function StockDetailPage({
     const quote = useQuote(item.symbol);
     const [snapPrice, setSnapPrice] = useState<number | null>(null);
     const [snapPct, setSnapPct] = useState<number | null>(null);
-    const [ai, setAi] = useState<SymbolAnalyzeResult | null>(null);
+    const [interp, setInterp] = useState<StockAIInterpretationDto | null>(null);
+    const [aiNarrative, setAiNarrative] = useState<string | null>(null);
     const [aiLoading, setAiLoading] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
     const [aiAt, setAiAt] = useState<number | null>(null);
@@ -109,11 +111,16 @@ export function StockDetailPage({
 
     useEffect(() => {
         setAi(null);
+        setInterp(null);
+        setAiNarrative(null);
         setAiError(null);
         setAiAt(null);
         setSnapPrice(null);
         setSnapPct(null);
         let cancelled = false;
+        void fetchStockInterpretationScore(item.symbol).then((d) => {
+            if (!cancelled && d) setInterp(d);
+        });
         void (async () => {
             try {
                 const rows = await fetchSnapshots([
@@ -257,68 +264,30 @@ export function StockDetailPage({
         setAiError(null);
         void onSelectCode(item.symbol);
         try {
-            // After-hours / thin coverage: still run AI on rule features;
-            // only hard-stop when stream is fully disconnected with no scores.
-            if (
-                item.data_health === 'disconnected' &&
-                (item.score_coverage_pct == null ||
-                    item.score_coverage_pct < 20)
-            ) {
-                setAi({
-                    verdict: '資料不足',
-                    confidence: 20,
-                    summary:
-                        '目前行情連線中斷且分數覆蓋過低，暫不提供 AI 判讀。',
-                    reasons: [],
-                    risks: ['資料健康度不足'],
-                    watch_for: ['等待資料恢復'],
-                    analyzed_at: new Date().toISOString(),
-                });
-                setAiAt(Date.now());
+            const result = await requestStockInterpretation({
+                symbol: item.symbol,
+                snapshot_id: interp?.snapshot_id,
+                with_llm: true,
+            });
+            if (!result) {
+                setAiError('AI 文字解讀暫時無法使用');
+                // Keep deterministic score if we have it
+                const scoreOnly = await fetchStockInterpretationScore(
+                    item.symbol,
+                );
+                if (scoreOnly) setInterp(scoreOnly);
                 return;
             }
-            const feature_hash = [
-                item.symbol,
-                item.intraday_score,
-                item.heat_score,
-                item.rank,
-                item.risk?.chase_risk,
-                item.state,
-                (item.events ?? []).join(','),
-            ].join('|');
-            const result = await analyzeSymbolWithServer({
-                symbol: item.symbol,
-                name: item.name,
-                c_score: item.intraday_score,
-                heat: item.heat_score,
-                rank: item.rank,
-                rank_velocity: item.rank_velocity,
-                rvol: item.metrics?.rvol_same_time,
-                vwap_pos_pct: item.metrics?.vwap_pos_pct,
-                momentum: item.metrics?.momentum_acceleration,
-                relative_strength: item.metrics?.relative_strength_score,
-                breakout_type: item.metrics?.breakout_type,
-                pullback_state: item.metrics?.pullback_state,
-                chase_risk: item.risk?.chase_risk,
-                invalid_reference: item.risk?.invalid_price,
-                market_regime: marketRegime,
-                recent_events: item.events,
-                reasons: item.reasons,
-                risks: item.risks,
-                data_health: item.data_health,
-                score_coverage_pct: item.score_coverage_pct,
-                b_open_score: item.open_score,
-                b_status: item.open_gate_status,
-                feature_hash,
-            });
-            setAi(result);
+            setInterp(result);
+            setAiNarrative(result.narrative ?? null);
+            if (result.llm_error) {
+                setAiError(result.llm_error);
+            }
             setAiAt(Date.now());
-        } catch (err) {
-            setAiError(
-                err instanceof Error
-                    ? err.message
-                    : 'AI 暫時無法分析，系統即時分數仍正常',
-            );
+        } catch {
+            setAiError('AI 文字解讀暫時無法使用');
+            const scoreOnly = await fetchStockInterpretationScore(item.symbol);
+            if (scoreOnly) setInterp(scoreOnly);
         } finally {
             setAiLoading(false);
         }
@@ -541,13 +510,15 @@ export function StockDetailPage({
                     </div>
                 </div>
 
-                {/* AI after zone 1 — 輔助解讀，不影響分數 */}
+                {/* AI Interpretation v1 — 輔助解讀，不影響正式分數 */}
                 <div className={s.aiCard} style={{ marginBottom: 16 }}>
                     <div
                         style={{
                             display: 'flex',
                             justifyContent: 'space-between',
                             marginBottom: 6,
+                            gap: 8,
+                            flexWrap: 'wrap',
                         }}
                     >
                         <strong
@@ -559,7 +530,7 @@ export function StockDetailPage({
                             className={s.tag}
                             style={{ color: radarColor.aiSoft }}
                         >
-                            不影響分數
+                            不影響正式分數
                         </span>
                     </div>
                     <p
@@ -569,17 +540,127 @@ export function StockDetailPage({
                             color: vars.color.mutedForeground,
                         }}
                     >
-                        輔助解讀盤中結構，不影響正式分數（C／熱度）
+                        AI 輔助解讀，不影響正式分數
                     </p>
 
-                    {!ai && !aiLoading && (
-                        <button
-                            type="button"
-                            className={s.aiBtn}
-                            onClick={() => void runAi()}
+                    {interp ? (
+                        <>
+                            <div
+                                style={{
+                                    fontSize: 13,
+                                    color: vars.color.mutedForeground,
+                                    marginBottom: 4,
+                                }}
+                            >
+                                AI 綜合解讀分數
+                            </div>
+                            <div
+                                style={{
+                                    fontSize: 36,
+                                    fontWeight: 800,
+                                    color: radarColor.aiSoft,
+                                    letterSpacing: '-0.02em',
+                                    lineHeight: 1.1,
+                                }}
+                            >
+                                {interp.score.toFixed(1)}{' '}
+                                <span style={{ fontSize: 18 }}>/ 10</span>
+                            </div>
+                            <div
+                                style={{
+                                    marginTop: 8,
+                                    fontSize: 15,
+                                    fontWeight: 700,
+                                    color:
+                                        interp.status === 'CONFIRMED_STRENGTH'
+                                            ? radarColor.strong
+                                            : interp.status === 'EXTENDED'
+                                              ? '#a78bfa'
+                                              : interp.status === 'WATCH'
+                                                ? '#f59e0b'
+                                                : vars.color.mutedForeground,
+                                }}
+                            >
+                                {DECISION_STATUS_EMOJI[interp.status]}{' '}
+                                {DECISION_STATUS_LABEL[interp.status]}
+                            </div>
+                            <div
+                                style={{
+                                    marginTop: 4,
+                                    fontSize: 13,
+                                    color: vars.color.mutedForeground,
+                                }}
+                            >
+                                Confidence：{interp.confidence}
+                                {interp.cash_session_closed
+                                    ? ' · CASH SESSION CLOSED'
+                                    : ''}
+                            </div>
+                            <div
+                                style={{
+                                    marginTop: 10,
+                                    fontSize: 14,
+                                    lineHeight: 1.55,
+                                }}
+                            >
+                                {interp.headline}
+                            </div>
+                            {interp.positive_factors.length > 0 && (
+                                <div style={{ marginTop: 12 }}>
+                                    <div className={s.zoneTitle}>已確認</div>
+                                    <ul className={s.reasonList}>
+                                        {interp.positive_factors.map((r) => (
+                                            <li key={r}>✓ {r}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            {(interp.limiting_factors.length > 0 ||
+                                interp.missing_confirmations.length > 0) && (
+                                <div style={{ marginTop: 12 }}>
+                                    <div className={s.zoneTitle}>
+                                        限制 / 仍注意
+                                    </div>
+                                    <ul className={s.reasonList}>
+                                        {[
+                                            ...interp.limiting_factors,
+                                            ...interp.missing_confirmations,
+                                        ].map((r) => (
+                                            <li key={r}>△ {r}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            {interp.risk_flags.length > 0 && (
+                                <div style={{ marginTop: 12 }}>
+                                    <div className={s.zoneTitle}>風險</div>
+                                    <ul className={s.reasonList}>
+                                        {interp.risk_flags.map((r) => (
+                                            <li key={r}>⚠ {r}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            <div
+                                style={{
+                                    marginTop: 10,
+                                    fontSize: 12,
+                                    color: vars.color.mutedForeground,
+                                }}
+                            >
+                                {interp.data_quality_summary}
+                            </div>
+                        </>
+                    ) : (
+                        <div
+                            style={{
+                                fontSize: 13,
+                                color: vars.color.mutedForeground,
+                                marginBottom: 8,
+                            }}
                         >
-                            按這裡：AI 解讀這支股票
-                        </button>
+                            解讀分數載入中或標的尚未進入雷達批次…
+                        </div>
                     )}
 
                     {aiLoading && (
@@ -595,127 +676,75 @@ export function StockDetailPage({
                     )}
 
                     {aiError && (
-                        <div style={{ fontSize: 13, color: '#fca5a5' }}>
+                        <div
+                            style={{
+                                fontSize: 13,
+                                color: '#fca5a5',
+                                marginTop: 8,
+                            }}
+                        >
                             {aiError}
                             <br />
-                            系統即時分數仍正常
-                            <button
-                                type="button"
-                                className={s.aiBtn}
-                                style={{ marginTop: 10 }}
-                                onClick={() => void runAi()}
-                            >
-                                重試
-                            </button>
+                            系統即時分數與 AI 綜合解讀分數仍可顯示
                         </div>
                     )}
 
-                    {ai && !aiLoading && (
-                        <div>
-                            <div
-                                style={{
-                                    fontSize: 28,
-                                    fontWeight: 800,
-                                    color: radarColor.aiSoft,
-                                    letterSpacing: '-0.02em',
-                                }}
-                            >
-                                {ai.verdict}
-                            </div>
-                            <div
-                                style={{
-                                    fontSize: 13,
-                                    color: vars.color.mutedForeground,
-                                    marginBottom: 12,
-                                }}
-                            >
-                                信心 {ai.confidence} / 100
-                            </div>
-                            <div style={{ fontSize: 14, lineHeight: 1.55 }}>
-                                <strong>結論</strong>
-                                <br />
-                                {ai.summary}
-                            </div>
-                            {ai.reasons.length > 0 && (
-                                <div style={{ marginTop: 12 }}>
-                                    <strong style={{ fontSize: 13 }}>
-                                        支持理由
-                                    </strong>
-                                    <ul className={s.reasonList}>
-                                        {ai.reasons.map((r) => (
-                                            <li key={r}>✓ {r}</li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-                            {ai.risks.length > 0 && (
-                                <div style={{ marginTop: 12 }}>
-                                    <strong style={{ fontSize: 13 }}>
-                                        風險
-                                    </strong>
-                                    <ul className={s.reasonList}>
-                                        {ai.risks.map((r) => (
-                                            <li key={r}>⚠ {r}</li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-                            {ai.watch_for.length > 0 && (
-                                <div style={{ marginTop: 12 }}>
-                                    <strong style={{ fontSize: 13 }}>
-                                        接著看
-                                    </strong>
-                                    <ul className={s.reasonList}>
-                                        {ai.watch_for.map((r) => (
-                                            <li key={r}>→ {r}</li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-                            {aiAt != null && (
-                                <div
-                                    style={{
-                                        marginTop: 10,
-                                        fontSize: 12,
-                                        color: vars.color.mutedForeground,
-                                    }}
-                                >
-                                    分析時間{' '}
-                                    {new Date(ai.analyzed_at).toLocaleTimeString(
-                                        'zh-TW',
-                                        {
-                                            hour: '2-digit',
-                                            minute: '2-digit',
-                                            second: '2-digit',
-                                            hour12: false,
-                                        },
-                                    )}
-                                </div>
-                            )}
-                            {aiStale && (
-                                <div
-                                    style={{
-                                        marginTop: 10,
-                                        padding: 10,
-                                        borderRadius: 12,
-                                        background: 'rgba(245,165,36,0.12)',
-                                        fontSize: 13,
-                                        color: '#fcd34d',
-                                    }}
-                                >
-                                    行情已更新，此 AI 解讀可能已過期
-                                </div>
-                            )}
-                            <button
-                                type="button"
-                                className={s.aiBtn}
-                                style={{ marginTop: 12 }}
-                                onClick={() => void runAi()}
-                            >
-                                重新解讀
-                            </button>
+                    {aiNarrative && !aiLoading && (
+                        <div
+                            style={{
+                                marginTop: 12,
+                                fontSize: 14,
+                                lineHeight: 1.55,
+                                whiteSpace: 'pre-wrap',
+                            }}
+                        >
+                            <strong>AI 解讀</strong>
+                            <br />
+                            {aiNarrative}
                         </div>
                     )}
+
+                    {aiAt != null && (
+                        <div
+                            style={{
+                                marginTop: 10,
+                                fontSize: 12,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            解讀時間{' '}
+                            {new Date(aiAt).toLocaleTimeString('zh-TW', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                hour12: false,
+                            })}
+                        </div>
+                    )}
+                    {aiStale && (
+                        <div
+                            style={{
+                                marginTop: 10,
+                                padding: 10,
+                                borderRadius: 12,
+                                background: 'rgba(245,165,36,0.12)',
+                                fontSize: 13,
+                                color: '#fcd34d',
+                            }}
+                        >
+                            行情已更新，此 AI 解讀可能已過期
+                        </div>
+                    )}
+
+                    <button
+                        type="button"
+                        className={s.aiBtn}
+                        style={{ marginTop: 12 }}
+                        onClick={() => void runAi()}
+                        disabled={aiLoading}
+                    >
+                        {aiNarrative ? '重新解讀' : 'AI 解讀這支股票'}
+                    </button>
                 </div>
 
                 {/* 2. 個股 */}

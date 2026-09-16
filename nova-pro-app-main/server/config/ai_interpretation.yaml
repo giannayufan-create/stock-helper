@@ -1,0 +1,14 @@
+# AI Interpretation System v1 — weights for explanation score only.
+# NEVER write back into C / BP / Rank / Strategy.
+version: AI_INTERPRETATION_V1
+weights:
+  core_strength: 0.35
+  buy_volume: 0.25
+  sector_context: 0.15
+  market_context: 0.10
+  structure_rank: 0.10
+  data_confidence: 0.05
+bp_confirmed_min: 70
+c_strong_min: 80
+stale_score_cap: 5.0
+severe_missing_score_cap: 4.0
