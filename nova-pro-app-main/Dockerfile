@@ -9,24 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Frontend deps (root is pnpm; prefer lockfile when present, else npm install)
+# Frontend deps (root is pnpm)
 COPY package.json package-lock.json* pnpm-lock.yaml* ./
-RUN if [ -f package-lock.json ]; then npm ci; \
-    elif [ -f pnpm-lock.yaml ]; then npm install -g pnpm@9.15.9 && pnpm install --frozen-lockfile; \
+RUN if [ -f pnpm-lock.yaml ]; then \
+      npm install -g pnpm@9.15.9 && pnpm install --frozen-lockfile; \
+    elif [ -f package-lock.json ]; then npm ci; \
     else npm install; fi
-
-# Server deps — NEVER reuse a broken lock that points at ../node_modules/.pnpm
-# (local pnpm hoist lockfiles break Docker npm ci and leave fastify missing at runtime)
-COPY server/package.json ./server/
-WORKDIR /app/server
-# Install ALL declared deps (include tsx). Do not rely on broken package-lock
-# that linked to host pnpm paths — that left fastify missing at runtime.
-RUN npm install \
-    && test -d node_modules/fastify \
-    && test -f node_modules/tsx/package.json \
-    && node -e "require('fastify'); require('tsx/package.json'); console.log('server deps ok')"
-
-WORKDIR /app
 
 # Shioaji bridge deps — fail the image build if import breaks
 COPY shioaji-bridge/requirements.txt ./shioaji-bridge/
@@ -34,10 +22,26 @@ RUN pip3 install --break-system-packages --upgrade pip \
     && pip3 install --break-system-packages -r shioaji-bridge/requirements.txt \
     && python3 -c "import shioaji, fastapi, uvicorn; print('shioaji', shioaji.__version__)"
 
-# Source (node_modules excluded via .dockerignore)
+# Full source (server/node_modules is dockerignored)
 COPY . .
 
-# Build SPA (relative /api — same origin when Fastify serves dist)
+# Guard: image must never ship a start script that calls npx tsx
+RUN grep -n "npx tsx" /app/start-cloud.sh && \
+      (echo "FATAL: start-cloud.sh still contains npx tsx" && exit 1) || \
+      echo "start-cloud.sh ok (no npx tsx)"
+RUN grep -q "start-cloud.sh v2" /app/start-cloud.sh \
+    && echo "start-cloud marker ok"
+
+# Install server deps AFTER COPY so nothing can wipe/replace them later
+WORKDIR /app/server
+RUN rm -rf node_modules \
+    && npm install \
+    && test -d node_modules/fastify \
+    && test -f node_modules/tsx/package.json \
+    && test -x node_modules/.bin/tsx -o -f node_modules/tsx/dist/cli.mjs \
+    && node -e "require('fastify'); require('tsx/package.json'); console.log('server deps ok')"
+
+WORKDIR /app
 ENV VITE_API_BASE=
 RUN npm run build
 
@@ -49,7 +53,9 @@ ENV PORT=8080
 ENV SHIOAJI_BRIDGE_PORT=18080
 ENV SHIOAJI_BRIDGE_URL=http://127.0.0.1:18080
 ENV SHIOAJI_PRODUCTION=true
+ENV START_CLOUD_MARKER=v2-no-npx
 EXPOSE 8080
 
 WORKDIR /app/server
-CMD ["/app/start-cloud.sh"]
+# Absolute script path — do not rely on dashboard "Docker Command" defaults
+CMD ["/bin/sh", "/app/start-cloud.sh"]

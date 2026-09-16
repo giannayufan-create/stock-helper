@@ -2,8 +2,10 @@
 # Start Shioaji Python bridge (internal) + Node API (public).
 set -e
 
-echo "=== start-cloud.sh v2 (no npx) ==="
+echo "=== start-cloud.sh v2 (no npx) marker=${START_CLOUD_MARKER:-unset} ==="
 echo "cwd=$(pwd) node=$(node -v 2>/dev/null || echo missing)"
+# If you still see npm warn exec ... tsx in Render logs, the service is NOT
+# running this script (Docker Command override). Fix Dashboard → Docker Command.
 
 BRIDGE_PORT="${SHIOAJI_BRIDGE_PORT:-18080}"
 export SHIOAJI_BRIDGE_URL="${SHIOAJI_BRIDGE_URL:-http://127.0.0.1:${BRIDGE_PORT}}"

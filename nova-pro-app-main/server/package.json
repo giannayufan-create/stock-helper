@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
         "dev": "tsx watch src/index.ts",
-        "start": "tsx src/index.ts",
+        "start": "node ./node_modules/tsx/dist/cli.mjs src/index.ts",
         "typecheck": "tsc --noEmit",
         "test:subscription-manager": "tsx src/lib/market-runtime/subscription-manager.test.ts",
         "test:replay": "tsx src/lib/historical-replay/replay.test.ts",

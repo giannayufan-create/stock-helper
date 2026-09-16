@@ -9,7 +9,8 @@ services:
     plan: starter
     region: singapore
     dockerfilePath: ./Dockerfile
-    dockerCommand: /app/start-cloud.sh
+    # Force this exact command. Clear any Dashboard override that says "npx tsx".
+    dockerCommand: /bin/sh /app/start-cloud.sh
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
