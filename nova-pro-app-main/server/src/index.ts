@@ -23,6 +23,7 @@ import { MarketIntelligenceService } from './lib/market-intelligence/index.ts';
 import { BrokerIntelligenceService } from './lib/broker-intelligence/index.ts';
 import { BuyPressureService } from './lib/buy-pressure/index.ts';
 import { WebNotificationService } from './lib/web-notifications/index.ts';
+import { MarketContextRuntime } from './lib/market-context/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -181,6 +182,16 @@ async function main(): Promise<void> {
     );
     console.log(`web-notifications: enabled max=${webNotifications.cfg.max_stored}`);
 
+    const marketContext = new MarketContextRuntime(
+        marketRuntime,
+        intradayRank,
+        buyPressure,
+    );
+    marketContext.start();
+    console.log(
+        `market-context: ${marketContext.getHealth().status} interval=${marketContext.cfg.evaluate_interval_sec}s`,
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -196,6 +207,7 @@ async function main(): Promise<void> {
         brokerIntelligence,
         buyPressure,
         webNotifications,
+        marketContext,
         startedAt: Date.now(),
     };
 

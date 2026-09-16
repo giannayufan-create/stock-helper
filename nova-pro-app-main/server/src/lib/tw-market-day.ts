@@ -245,8 +245,12 @@ async function loadTpexDay(): Promise<TwDayQuote[]> {
 }
 
 /** Full listed + OTC common equities for the latest published session. */
-export async function fetchTwMarketDayAll(): Promise<TwDayQuote[]> {
-    if (cache && Date.now() - cache.at < CACHE_MS) return cache.rows;
+export async function fetchTwMarketDayAll(opts?: {
+    /** Override default 30m cache (e.g. market-context near-realtime refresh). */
+    maxAgeMs?: number;
+}): Promise<TwDayQuote[]> {
+    const maxAge = opts?.maxAgeMs ?? CACHE_MS;
+    if (cache && Date.now() - cache.at < maxAge) return cache.rows;
     if (inflight) return inflight;
     inflight = (async () => {
         const [twse, tpex] = await Promise.all([loadTwseDay(), loadTpexDay()]);

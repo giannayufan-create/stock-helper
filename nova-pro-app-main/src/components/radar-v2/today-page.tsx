@@ -4,6 +4,12 @@ import {
     fetchMiOverview,
     type MiOverview,
 } from '../../lib/market-intelligence';
+import {
+    fetchMarketContextOverview,
+    ROTATION_LABEL,
+    TW_REGIME_LABEL,
+    type MarketContextOverviewDto,
+} from '../../lib/market-context';
 import { vars } from '../../theme.css';
 import {
     fmtPctSigned,
@@ -16,6 +22,9 @@ import * as s from './radar.css';
 import { CompactStockRow, MiniHeatCard, MiniPullbackCard } from './stock-cards';
 import { radarColor } from './tokens';
 import type { RadarFeed } from './use-radar-feed';
+
+const toneWeak = '#6b8cae';
+const toneStrong = radarColor.strong;
 
 export function TodayPage({
     feed,
@@ -47,6 +56,7 @@ export function TodayPage({
     const pullbacks = sortPullback(feed.items).slice(0, 6);
 
     const [mi, setMi] = useState<MiOverview | null>(null);
+    const [mc, setMc] = useState<MarketContextOverviewDto | null>(null);
     useEffect(() => {
         let cancelled = false;
         const load = () =>
@@ -63,6 +73,22 @@ export function TodayPage({
         };
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        const load = () =>
+            void fetchMarketContextOverview()
+                .then((ov) => {
+                    if (!cancelled) setMc(ov);
+                })
+                .catch(() => undefined);
+        load();
+        const t = setInterval(load, 60_000);
+        return () => {
+            cancelled = true;
+            clearInterval(t);
+        };
+    }, []);
+
     const sectors = (mi?.top_sectors ?? [])
         .filter((x) => x.eligible_for_ranking !== false)
         .slice(0, 5);
@@ -71,6 +97,10 @@ export function TodayPage({
         .slice(0, 5);
     const sox = mi?.global_markets?.find((a) => a.id === 'sox');
     const nasdaq = mi?.global_markets?.find((a) => a.id === 'nasdaq');
+
+    const tw = mc?.taiwan_regime;
+    const dirArrow = (d: string | undefined) =>
+        d === 'UP' ? '↑' : d === 'DOWN' ? '↓' : d === 'FLAT' ? '→' : '·';
 
     return (
         <>
@@ -111,11 +141,181 @@ export function TodayPage({
                     className={s.iconBtn}
                     aria-label="重新整理"
                     onClick={() => feed.refresh()}
-                    style={{ width: 40, height: 40 }}
                 >
                     ↻
                 </button>
             </div>
+
+            {mc && tw && (
+                <div className={s.glass} style={{ padding: 14, marginBottom: 12 }}>
+                    <div className={s.sectionRow}>
+                        <strong style={{ fontSize: 15 }}>市場風向</strong>
+                        <span
+                            style={{
+                                fontSize: 11,
+                                color: vars.color.mutedForeground,
+                                fontFamily: vars.font.mono,
+                            }}
+                        >
+                            {tw.meta.realtime_level} · 覆蓋{' '}
+                            {mc.breadth.coverage_pct.toFixed(0)}%
+                        </span>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5 }}>
+                        台股風向：
+                        <b style={{ marginLeft: 6 }}>
+                            {TW_REGIME_LABEL[tw.state] ?? tw.state}
+                        </b>
+                        <span
+                            style={{
+                                marginLeft: 8,
+                                fontSize: 12,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            GLOBAL {mc.global_regime.state}
+                        </span>
+                    </div>
+                    <div
+                        style={{
+                            marginTop: 6,
+                            fontSize: 13,
+                            fontFamily: vars.font.mono,
+                            color: vars.color.mutedForeground,
+                        }}
+                    >
+                        加權 {dirArrow(tw.taiex_direction)}
+                        {tw.taiex_change_pct != null
+                            ? ` ${tw.taiex_change_pct >= 0 ? '+' : ''}${tw.taiex_change_pct.toFixed(2)}%`
+                            : ''}
+                        {' · '}櫃買 {dirArrow(tw.tpex_direction)}
+                        {tw.tpex_change_pct != null
+                            ? ` ${tw.tpex_change_pct >= 0 ? '+' : ''}${tw.tpex_change_pct.toFixed(2)}%`
+                            : ''}
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 13 }}>
+                        上漲家數占比：
+                        <b>
+                            {tw.market_breadth_advance_pct != null
+                                ? `${tw.market_breadth_advance_pct.toFixed(0)}%`
+                                : '—'}
+                        </b>
+                        {' · '}成交動能：
+                        <b>{tw.turnover_acceleration}</b>
+                    </div>
+                    <div
+                        style={{
+                            marginTop: 8,
+                            fontSize: 11,
+                            color: vars.color.mutedForeground,
+                        }}
+                    >
+                        廣域樣本 {mc.broad_universe.broad_universe_size} 檔（非
+                        BP active 80）· 法人籌碼{' '}
+                        {mc.institutional_eod.realtime_level}（Previous Day）
+                    </div>
+                </div>
+            )}
+
+            {mc && mc.top_rotating.length > 0 && (
+                <section className={s.section}>
+                    <div className={s.sectionRow}>
+                        <div className={s.sectionTitle} style={{ marginBottom: 0 }}>
+                            產業輪動 · 資金關注度
+                        </div>
+                    </div>
+                    <div
+                        style={{
+                            fontSize: 11,
+                            color: vars.color.mutedForeground,
+                            marginBottom: 8,
+                        }}
+                    >
+                        成交額占比移動（非淨流入）
+                    </div>
+                    {mc.top_rotating.slice(0, 5).map((sec, idx) => {
+                        const sharePct = (sec.turnover_share * 100).toFixed(1);
+                        const prevPct =
+                            sec.turnover_share_prev != null
+                                ? (sec.turnover_share_prev * 100).toFixed(1)
+                                : null;
+                        const rankLine =
+                            sec.sector_rank_prev != null && sec.sector_rank != null
+                                ? `Rank #${sec.sector_rank_prev} → #${sec.sector_rank}`
+                                : sec.sector_rank != null
+                                  ? `Rank #${sec.sector_rank}`
+                                  : '';
+                        return (
+                            <div
+                                key={sec.sector}
+                                className={s.glass}
+                                style={{
+                                    padding: '10px 12px',
+                                    marginBottom: 6,
+                                    minHeight: 44,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        gap: 8,
+                                    }}
+                                >
+                                    <span style={{ fontWeight: 800 }}>
+                                        {idx + 1} {sec.sector}
+                                    </span>
+                                    <span
+                                        style={{
+                                            fontWeight: 700,
+                                            color:
+                                                sec.state === 'ROTATING_IN' ||
+                                                sec.state === 'HOT'
+                                                    ? toneStrong
+                                                    : sec.state === 'ROTATING_OUT' ||
+                                                        sec.state === 'COLD'
+                                                      ? toneWeak
+                                                      : vars.color.foreground,
+                                        }}
+                                    >
+                                        {sec.state === 'ROTATING_IN' ? '🔥 ' : ''}
+                                        {ROTATION_LABEL[sec.state] ?? sec.state}
+                                    </span>
+                                </div>
+                                <div
+                                    style={{
+                                        marginTop: 4,
+                                        fontSize: 12,
+                                        color: vars.color.mutedForeground,
+                                        fontFamily: vars.font.mono,
+                                    }}
+                                >
+                                    {rankLine}
+                                    {rankLine ? ' · ' : ''}
+                                    Share{' '}
+                                    {prevPct != null
+                                        ? `${prevPct} → ${sharePct}%`
+                                        : `${sharePct}%`}
+                                    {sec.breadth != null
+                                        ? ` · Breadth ${(sec.breadth * 100).toFixed(0)}%`
+                                        : ''}
+                                </div>
+                                {sec.high_concentration && (
+                                    <div
+                                        style={{
+                                            marginTop: 4,
+                                            fontSize: 11,
+                                            color: toneWeak,
+                                        }}
+                                    >
+                                        HIGH_CONCENTRATION · 非整體產業轉強
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </section>
+            )}
 
             {mi?.market_context && (
                 <div className={s.glass} style={{ padding: 14, marginBottom: 12 }}>
