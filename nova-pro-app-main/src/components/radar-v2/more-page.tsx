@@ -1,4 +1,11 @@
+import { useEffect, useState } from 'react';
 import { vars } from '../../theme.css';
+import {
+    fetchLiveAcceptanceToday,
+    finalizeLiveAcceptance,
+    liveAcceptanceDownloadUrl,
+    type LiveAcceptanceTodayDto,
+} from '../../lib/live-acceptance';
 import { liveStatusLabel } from './helpers';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
@@ -36,13 +43,55 @@ export function MorePage({
               )
             : null;
 
+    const [la, setLa] = useState<LiveAcceptanceTodayDto | null>(null);
+    const [laBusy, setLaBusy] = useState(false);
+    const [laMsg, setLaMsg] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        const load = () =>
+            void fetchLiveAcceptanceToday()
+                .then((d) => {
+                    if (!cancelled) setLa(d);
+                })
+                .catch(() => undefined);
+        load();
+        const t = setInterval(load, 60_000);
+        return () => {
+            cancelled = true;
+            clearInterval(t);
+        };
+    }, []);
+
+    const onFinalize = async () => {
+        setLaBusy(true);
+        setLaMsg(null);
+        try {
+            const r = await finalizeLiveAcceptance();
+            setLaMsg(`已產生 ${r.trading_day} 報告 · Overall ${r.overall}`);
+            const d = await fetchLiveAcceptanceToday();
+            setLa(d);
+        } catch (e) {
+            setLaMsg(e instanceof Error ? e.message : '產生失敗');
+        } finally {
+            setLaBusy(false);
+        }
+    };
+
+    const overallTone =
+        la?.overall === 'PASS'
+            ? radarColor.live
+            : la?.overall === 'FAIL'
+              ? '#f87171'
+              : '#fcd34d';
+
     return (
         <>
             <div className={s.sectionTitle}>更多</div>
 
             <div className={s.glass} style={{ padding: 16, marginBottom: 14 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>
-                    行情狀態
+                    行情狀態 / Data Health
                 </div>
                 <HealthRow
                     label="連線狀態"
@@ -86,6 +135,158 @@ export function MorePage({
                         {feed.healthNote}
                     </p>
                 )}
+            </div>
+
+            <div className={s.glass} style={{ padding: 16, marginBottom: 14 }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                        marginBottom: 10,
+                    }}
+                >
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>
+                        今日實盤驗收
+                    </div>
+                    <span
+                        style={{
+                            fontSize: 12,
+                            fontWeight: 800,
+                            letterSpacing: '0.04em',
+                            color: overallTone,
+                        }}
+                    >
+                        {la?.overall ?? '—'}
+                    </span>
+                </div>
+                <HealthRow
+                    label="Market Coverage"
+                    value={
+                        la?.market_coverage_pct != null
+                            ? `${Math.round(la.market_coverage_pct)}%`
+                            : '—'
+                    }
+                    ok={
+                        la?.market_coverage_pct == null ||
+                        la.market_coverage_pct >= 50
+                    }
+                />
+                <HealthRow
+                    label="Runtime"
+                    value={
+                        la
+                            ? `RSS ${la.runtime.rss_mb_peak}MB · CPU≈${la.runtime.cpu_pct_peak}%`
+                            : '—'
+                    }
+                    ok
+                />
+                <HealthRow
+                    label="Firestore"
+                    value={
+                        la?.firestore
+                            ? `${la.firestore.effective_mode ?? '—'} · sig ${la.firestore.strategy_signal_count} · out ${la.firestore.outcome_count}`
+                            : '—'
+                    }
+                    ok={(la?.firestore?.write_failure_count ?? 0) === 0}
+                />
+                <HealthRow
+                    label="Signals"
+                    value={
+                        la?.signals
+                            ? Object.entries(la.signals)
+                                  .filter(([, n]) => n > 0)
+                                  .slice(0, 4)
+                                  .map(([k, n]) => `${k}:${n}`)
+                                  .join(' · ') || '0'
+                            : '—'
+                    }
+                    ok
+                />
+                <HealthRow
+                    label="Notifications"
+                    value={
+                        la
+                            ? `${la.notifications.notification_count} · dup ${la.notifications.duplicate_count}`
+                            : '—'
+                    }
+                    ok={(la?.notifications.duplicate_count ?? 0) === 0}
+                />
+                <div
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                        marginTop: 14,
+                    }}
+                >
+                    <button
+                        type="button"
+                        className={s.aiBtn}
+                        disabled={laBusy}
+                        onClick={() => void onFinalize()}
+                        style={{ minHeight: 44 }}
+                    >
+                        {laBusy ? '產生中…' : '產生今日驗收報告'}
+                    </button>
+                    <a
+                        href={liveAcceptanceDownloadUrl('md')}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minHeight: 44,
+                            borderRadius: 12,
+                            border: `1px solid ${radarColor.glassBorder}`,
+                            color: vars.color.foreground,
+                            textDecoration: 'none',
+                            fontSize: 14,
+                            fontWeight: 600,
+                        }}
+                    >
+                        下載完整報告
+                    </a>
+                    <a
+                        href={liveAcceptanceDownloadUrl('csv')}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minHeight: 44,
+                            borderRadius: 12,
+                            border: `1px solid ${radarColor.glassBorder}`,
+                            color: vars.color.foreground,
+                            textDecoration: 'none',
+                            fontSize: 14,
+                            fontWeight: 600,
+                        }}
+                    >
+                        下載訊號樣本
+                    </a>
+                </div>
+                {laMsg && (
+                    <p
+                        style={{
+                            marginTop: 10,
+                            fontSize: 12,
+                            color: vars.color.mutedForeground,
+                        }}
+                    >
+                        {laMsg}
+                    </p>
+                )}
+                <p
+                    style={{
+                        marginTop: 8,
+                        fontSize: 11,
+                        color: vars.color.mutedForeground,
+                        lineHeight: 1.4,
+                    }}
+                >
+                    僅評估 Data / Runtime / Architecture 品質，不評價策略好壞。不修改
+                    A/B/C／BP／門檻。
+                </p>
             </div>
 
             <button
@@ -198,16 +399,20 @@ function HealthRow({
                 display: 'flex',
                 justifyContent: 'space-between',
                 padding: '8px 0',
-                borderBottom: `1px solid ${radarColor.glassBorder}`,
-                fontSize: 14,
+                gap: 12,
+                minHeight: 44,
+                alignItems: 'center',
             }}
         >
-            <span style={{ color: vars.color.mutedForeground }}>{label}</span>
+            <span style={{ fontSize: 13, color: vars.color.mutedForeground }}>
+                {label}
+            </span>
             <span
                 style={{
-                    fontFamily: vars.font.mono,
+                    fontSize: 13,
                     fontWeight: 700,
-                    color: ok ? radarColor.health : radarColor.healthBad,
+                    textAlign: 'right',
+                    color: ok ? vars.color.foreground : '#fcd34d',
                 }}
             >
                 {value}

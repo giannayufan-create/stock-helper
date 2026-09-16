@@ -61,3 +61,8 @@ export class JsonlSink {
 export function liveAcceptanceDataDir(dataDir: string): string {
     return join(dataDir, 'live-acceptance');
 }
+
+/** Daily report artifacts: reports/live/ next to dataDir (e.g. server/reports/live). */
+export function liveReportsDir(dataDir: string): string {
+    return join(dataDir, '..', 'reports', 'live');
+}

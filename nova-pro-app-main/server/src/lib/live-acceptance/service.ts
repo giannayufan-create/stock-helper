@@ -1,11 +1,17 @@
 // LiveAcceptanceService — periodic sampling; observe-only.
 
 import { join } from 'node:path';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import type { AppContext } from '../../context.ts';
 import { EvalTimingRegistry } from './eval-timing.ts';
 import { ReadinessTracker } from './readiness.ts';
 import { runOfflineGates } from './assertions.ts';
-import { JsonlSink, liveAcceptanceDataDir, sessionWindowAt, taipeiHm } from './sink.ts';
+import {
+    JsonlSink,
+    liveAcceptanceDataDir,
+    sessionWindowAt,
+    taipeiHm,
+} from './sink.ts';
 import type {
     CoverageSample,
     LiveAcceptanceReport,
@@ -14,6 +20,22 @@ import type {
 } from './types.ts';
 import { LA_VERSION } from './types.ts';
 import { buildReport } from './report.ts';
+import { assembleDailyReport } from './daily-finalize.ts';
+import {
+    buildContextSummary,
+    buildFirestoreSummary,
+    buildMarketSummary,
+    buildNotificationSummary,
+    buildSystemSummary,
+    collectBpEventRows,
+    collectIntegrityFindings,
+    collectStrategyRows,
+    reportPaths,
+    todayYmd,
+} from './daily-collect.ts';
+import type { DailyLiveAcceptanceReport } from './daily-types.ts';
+import type { StrategySignal } from '../strategy-signal/types.ts';
+import { countSignalTypes } from './daily-sampler.ts';
 
 export class LiveAcceptanceService {
     private timer: ReturnType<typeof setInterval> | null = null;
@@ -35,6 +57,8 @@ export class LiveAcceptanceService {
         cooldown_suppressed_count: 0,
         false_repeat_count: 0,
     };
+    private notifyPriority = { HIGH: 0, MEDIUM: 0, INFO: 0 };
+    private lastDailyReport: DailyLiveAcceptanceReport | null = null;
     private restartProbe: { started_at: string | null; seconds: number | null } =
         { started_at: null, seconds: null };
 
@@ -91,8 +115,12 @@ export class LiveAcceptanceService {
         emitted: boolean;
         suppressed_cooldown?: boolean;
         duplicate?: boolean;
+        priority?: 'HIGH' | 'MEDIUM' | 'INFO';
     }): void {
-        if (opts.emitted) this.notifyStats.notification_count += 1;
+        if (opts.emitted) {
+            this.notifyStats.notification_count += 1;
+            if (opts.priority) this.notifyPriority[opts.priority] += 1;
+        }
         if (opts.suppressed_cooldown)
             this.notifyStats.cooldown_suppressed_count += 1;
         if (opts.duplicate) {
@@ -258,6 +286,24 @@ export class LiveAcceptanceService {
             this.coverageSamples.splice(0, this.coverageSamples.length - 500);
         }
         this.sink?.append({ kind: 'coverage', ...broad });
+        // Soft BP event snapshot for daily samples (no ticks / bidask)
+        try {
+            const bpRows = collectBpEventRows(this.ctx);
+            if (bpRows.length) {
+                this.sink?.append({
+                    kind: 'bp_events_snapshot',
+                    at: broad.at,
+                    count: bpRows.length,
+                    // Cap payload — summary only
+                    types: bpRows.reduce<Record<string, number>>((acc, r) => {
+                        acc[r.signal_type] = (acc[r.signal_type] ?? 0) + 1;
+                        return acc;
+                    }, {}),
+                });
+            }
+        } catch {
+            /* soft */
+        }
         return broad;
     }
 
@@ -281,7 +327,13 @@ export class LiveAcceptanceService {
     getStatus(): {
         instrumentation_ready: true;
         readiness: ReturnType<typeof ReadinessTracker.snapshot>;
-        notify: typeof this.notifyStats;
+        notify: {
+            notification_count: number;
+            duplicate_count: number;
+            cooldown_suppressed_count: number;
+            false_repeat_count: number;
+        };
+        notify_priority: { HIGH: number; MEDIUM: number; INFO: number };
         peaks: {
             rss_mb: number;
             cpu_pct: number;
@@ -295,6 +347,7 @@ export class LiveAcceptanceService {
             instrumentation_ready: true,
             readiness: ReadinessTracker.snapshot(),
             notify: { ...this.notifyStats },
+            notify_priority: { ...this.notifyPriority },
             peaks: {
                 rss_mb: this.peakRssMb,
                 cpu_pct: this.peakCpuPct,
@@ -456,5 +509,160 @@ export class LiveAcceptanceService {
         });
 
         return gates;
+    }
+
+    /** Today summary for UI / GET .../today — no strategy mutation. */
+    getTodaySummary(): {
+        trading_day: string;
+        overall: 'PASS' | 'WARNING' | 'FAIL' | 'PENDING';
+        market_coverage_pct: number | null;
+        runtime: { rss_mb_peak: number; cpu_pct_peak: number };
+        firestore: DailyLiveAcceptanceReport['firestore'] | null;
+        signals: DailyLiveAcceptanceReport['signals'] | null;
+        notifications: DailyLiveAcceptanceReport['notifications'];
+        finalized: boolean;
+        mutates_strategy: false;
+    } {
+        const ymd = todayYmd();
+        const last = this.lastDailyReport;
+        const cov = this.coverageSamples.at(-1) ?? null;
+        const firestore = buildFirestoreSummary(this.ctx, ymd, {
+            firestore_queue: this.peakFsQueue,
+        });
+        const allRows = [
+            ...collectStrategyRows(this.ctx, ymd),
+            ...collectBpEventRows(this.ctx),
+        ];
+        const signals = last?.signals ?? countSignalTypes(allRows);
+
+        return {
+            trading_day: ymd,
+            overall: last?.overall ?? 'PENDING',
+            market_coverage_pct: cov?.market_coverage_pct ?? null,
+            runtime: {
+                rss_mb_peak: this.peakRssMb,
+                cpu_pct_peak: this.peakCpuPct,
+            },
+            firestore,
+            signals,
+            notifications: buildNotificationSummary({
+                notify: this.notifyStats,
+                priority: this.notifyPriority,
+            }),
+            finalized: Boolean(last && last.trading_day === ymd),
+            mutates_strategy: false,
+        };
+    }
+
+    getDailySamples(): {
+        trading_day: string;
+        samples: DailyLiveAcceptanceReport['signal_samples'];
+        anomalies: DailyLiveAcceptanceReport['anomalies'];
+        mutates_strategy: false;
+    } {
+        const ymd = todayYmd();
+        if (this.lastDailyReport && this.lastDailyReport.trading_day === ymd) {
+            return {
+                trading_day: ymd,
+                samples: this.lastDailyReport.signal_samples,
+                anomalies: this.lastDailyReport.anomalies,
+                mutates_strategy: false,
+            };
+        }
+        const assembled = this.buildDailyArtifacts(null);
+        return {
+            trading_day: ymd,
+            samples: assembled.report.signal_samples,
+            anomalies: assembled.report.anomalies,
+            mutates_strategy: false,
+        };
+    }
+
+    /**
+     * Finalize: write MD/JSON/CSV under reports/live/.
+     * Does NOT change strategy / thresholds / weights.
+     */
+    finalizeDailyReport(commitHash: string | null): DailyLiveAcceptanceReport {
+        const assembled = this.buildDailyArtifacts(commitHash);
+        const { report, md, csv } = assembled;
+        mkdirSync(reportPaths(this.dataDir, report.trading_day).dir, {
+            recursive: true,
+        });
+        writeFileSync(report.paths.json, JSON.stringify(report, null, 2), 'utf8');
+        writeFileSync(report.paths.md, md, 'utf8');
+        writeFileSync(report.paths.csv, csv, 'utf8');
+        // Also keep legacy live-acceptance report json
+        try {
+            this.sink?.writeJson(this.reportPath, {
+                daily: report,
+                legacy: this.buildAcceptanceReport(commitHash),
+            });
+        } catch {
+            /* soft */
+        }
+        this.lastDailyReport = report;
+        this.sink?.append({
+            kind: 'finalize',
+            at: report.generated_at,
+            overall: report.overall,
+            paths: report.paths,
+        });
+        return report;
+    }
+
+    private buildDailyArtifacts(commitHash: string | null) {
+        const ymd = todayYmd();
+        const paths = reportPaths(this.dataDir, ymd);
+        const offline = runOfflineGates();
+        const liveGates = this.deriveLiveGates();
+        // merge offline into live list for quality dims
+        const byId = new Map<string, LiveGateResult>();
+        for (const g of offline) byId.set(g.id, g);
+        for (const g of liveGates) byId.set(g.id, g);
+        const gates = [...byId.values()];
+
+        const cov = this.coverageSamples.at(-1) ?? null;
+        const system = buildSystemSummary({
+            ctx: this.ctx,
+            peaks: {
+                rss_mb: this.peakRssMb,
+                cpu_pct: this.peakCpuPct,
+                firestore_queue: this.peakFsQueue,
+            },
+            runtimeSamples: this.runtimeSamples,
+        });
+        const market = buildMarketSummary(this.ctx, cov);
+        const notifications = buildNotificationSummary({
+            notify: this.notifyStats,
+            priority: this.notifyPriority,
+        });
+        const firestore = buildFirestoreSummary(this.ctx, ymd, {
+            firestore_queue: this.peakFsQueue,
+        });
+        let signals: StrategySignal[] = [];
+        try {
+            signals = this.ctx.researchRepos?.signals.listByDate(ymd) ?? [];
+        } catch {
+            signals = [];
+        }
+        const context = buildContextSummary(signals);
+        const integrity = collectIntegrityFindings(signals, market, cov);
+        const allRows = [
+            ...collectStrategyRows(this.ctx, ymd),
+            ...collectBpEventRows(this.ctx),
+        ];
+        return assembleDailyReport({
+            tradingDay: ymd,
+            system,
+            market,
+            notifications,
+            firestore,
+            context,
+            allRows,
+            integrity,
+            liveGates: gates,
+            paths: { md: paths.md, json: paths.json, csv: paths.csv },
+            commitHash,
+        });
     }
 }

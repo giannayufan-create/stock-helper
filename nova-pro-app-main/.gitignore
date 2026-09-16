@@ -25,3 +25,5 @@ src-tauri/gen/schemas/
 # Server
 server/vendor/*.tgz
 server/data/
+server/reports/live/*
+!server/reports/live/.gitkeep

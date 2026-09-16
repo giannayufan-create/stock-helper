@@ -287,6 +287,9 @@ async function main(): Promise<void> {
     const liveAcceptance = new LiveAcceptanceService(ctx, dataDir);
     ctx.liveAcceptance = liveAcceptance;
     liveAcceptance.start();
+    webNotifications.setAcceptanceObserver((opts) => {
+        liveAcceptance.noteNotification(opts);
+    });
 
     const app = await buildApp(ctx);
     await app.listen({ port: config.port, host: config.host });

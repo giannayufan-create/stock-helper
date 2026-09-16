@@ -55,6 +55,14 @@ export class WebNotificationService {
     private repo: NotificationRepository;
     private lastEmit = new Map<string, { type: NotificationEventType; at: number }>();
     private lastTier = new Map<string, number>();
+    private onStats:
+        | ((opts: {
+              emitted: boolean;
+              suppressed_cooldown?: boolean;
+              duplicate?: boolean;
+              priority?: 'HIGH' | 'MEDIUM' | 'INFO';
+          }) => void)
+        | null = null;
 
     constructor(
         filePath: string,
@@ -63,6 +71,18 @@ export class WebNotificationService {
     ) {
         this.cfg = cfg ?? loadWebNotificationConfig();
         this.repo = new NotificationRepository(filePath);
+    }
+
+    /** Observe-only hook for Live Acceptance counters. */
+    setAcceptanceObserver(
+        fn: (opts: {
+            emitted: boolean;
+            suppressed_cooldown?: boolean;
+            duplicate?: boolean;
+            priority?: 'HIGH' | 'MEDIUM' | 'INFO';
+        }) => void,
+    ): void {
+        this.onStats = fn;
     }
 
     getPreferences(): NotificationPreferences {
@@ -197,6 +217,11 @@ export class WebNotificationService {
             const lowerOrEqualCooling =
                 !upgrade && now - last.at < lastCooldown;
             if (sameTypeCooling || lowerOrEqualCooling) {
+                this.onStats?.({
+                    emitted: false,
+                    suppressed_cooldown: true,
+                    duplicate: sameTypeCooling,
+                });
                 return null;
             }
         }
@@ -229,6 +254,14 @@ export class WebNotificationService {
         this.lastEmit.set(key, { type, at: now });
         this.lastTier.set(key, Math.max(this.lastTier.get(key) ?? 0, tier));
         this.hub?.broadcast('buy_pressure_notification', n);
+        const rawPri = EVENT_PRIORITY[type] ?? 'MEDIUM';
+        const pri =
+            rawPri === 'HIGH'
+                ? 'HIGH'
+                : rawPri === 'MEDIUM'
+                  ? 'MEDIUM'
+                  : 'INFO';
+        this.onStats?.({ emitted: true, priority: pri });
         return n;
     }
 
