@@ -5,9 +5,12 @@ import { JsonlSignalOutcomeRepository } from '../signal-outcome/repository.ts';
 import type { StrategySignalRepository } from '../strategy-signal/repository.ts';
 import type { SignalOutcomeRepository } from '../signal-outcome/repository.ts';
 import {
+    hasPrimaryFirebaseCredentials,
     loadResearchPersistenceConfig,
+    missingFirebaseCredentialNames,
     type ResearchPersistenceConfig,
 } from './config.ts';
+import { getFirebaseProjectIdSafe, isFirebaseAdminReady } from './admin.ts';
 import { FirestoreStrategySignalRepository } from './firestore-signal-repository.ts';
 import { FirestoreSignalOutcomeRepository } from './firestore-outcome-repository.ts';
 import {
@@ -17,37 +20,90 @@ import {
 import type { ResearchPersistenceHealth } from './types.ts';
 
 export interface ResearchRepositories {
+    configured_mode: ResearchPersistenceConfig['configured_mode'];
     mode: ResearchPersistenceConfig['mode'];
     signals: StrategySignalRepository;
     outcomes: SignalOutcomeRepository;
+    cfg: ResearchPersistenceConfig;
     getHealth(): ResearchPersistenceHealth;
     hydrate(): Promise<void>;
     flush(): Promise<void>;
 }
 
+function emptyLatency() {
+    return {
+        sample_count: 0,
+        avg_ms: null,
+        p95_ms: null,
+        max_ms: null,
+        max_queue_depth: 0,
+    };
+}
+
 export function createResearchRepositories(
     cfg: ResearchPersistenceConfig = loadResearchPersistenceConfig(),
 ): ResearchRepositories {
-    if (cfg.mode === 'jsonl') {
+    console.log(
+        `[research-persistence] configured_mode=${cfg.configured_mode} effective_repository_mode=${cfg.mode}` +
+            (cfg.used_legacy_alias ? ' (legacy RESEARCH_REPOSITORY_MODE)' : '') +
+            (cfg.env_conflict ? ' ENV_CONFLICT_FAILSAFE' : ''),
+    );
+
+    // dual/firestore without credentials → fail-safe jsonl (no silent pretend)
+    let effectiveCfg = cfg;
+    if (
+        (cfg.mode === 'dual' || cfg.mode === 'firestore') &&
+        !hasPrimaryFirebaseCredentials() &&
+        !isFirebaseAdminReady()
+    ) {
+        const missing = missingFirebaseCredentialNames();
+        console.warn(
+            `[research-persistence] Firestore credentials missing (${missing.join(', ')}); fail-safe effective_mode=jsonl — set Render env before dual/firestore cutover`,
+        );
+        effectiveCfg = {
+            ...cfg,
+            mode: 'jsonl',
+        };
+    }
+
+    if (effectiveCfg.mode === 'jsonl') {
         const signals = new JsonlStrategySignalRepository();
         const outcomes = new JsonlSignalOutcomeRepository();
         return {
+            configured_mode: cfg.configured_mode,
             mode: 'jsonl',
             signals,
             outcomes,
+            cfg: effectiveCfg,
             getHealth: () => ({
                 provider: 'JSONL',
                 mode: 'jsonl',
+                configured_mode: cfg.configured_mode,
+                effective_mode: 'jsonl',
+                firestore_initialized: isFirebaseAdminReady(),
+                firestore_connected: false,
                 connected: true,
                 durable: true,
                 queue_depth: 0,
                 queue_pressure: 'NORMAL',
+                max_queue_depth: 0,
+                write_latency: emptyLatency(),
                 last_signal_write_at: null,
                 last_outcome_write_at: null,
                 write_success_count: 0,
                 write_failure_count: 0,
                 conflict_count: 0,
-                last_error: null,
+                last_error: cfg.env_conflict
+                    ? cfg.env_conflict_message
+                    : missingFirebaseCredentialNames().length &&
+                        cfg.configured_mode !== 'jsonl'
+                      ? `missing credentials: ${missingFirebaseCredentialNames().join(', ')}`
+                      : null,
+                env_conflict: cfg.env_conflict,
+                status:
+                    cfg.env_conflict || cfg.configured_mode !== 'jsonl'
+                        ? 'DEGRADED'
+                        : 'HEALTHY',
                 mutates_strategy: false,
                 creates_upstream_subscription: false,
             }),
@@ -58,16 +114,30 @@ export function createResearchRepositories(
         };
     }
 
-    if (cfg.mode === 'firestore') {
-        const signals = new FirestoreStrategySignalRepository(undefined, cfg);
-        const outcomes = new FirestoreSignalOutcomeRepository(undefined, cfg);
+    if (effectiveCfg.mode === 'firestore') {
+        const signals = new FirestoreStrategySignalRepository(
+            undefined,
+            effectiveCfg,
+        );
+        const outcomes = new FirestoreSignalOutcomeRepository(
+            undefined,
+            effectiveCfg,
+        );
+        const project = getFirebaseProjectIdSafe();
+        if (project) {
+            console.log(
+                `[research-persistence] Firestore project_id=${project} (value not a secret)`,
+            );
+        }
         return {
+            configured_mode: cfg.configured_mode,
             mode: 'firestore',
             signals,
             outcomes,
+            cfg: effectiveCfg,
             getHealth: () => signals.getHealth(),
             hydrate: async () => {
-                await signals.hydrateAsync(cfg.hydrate_lookback_days);
+                await signals.hydrateAsync(effectiveCfg.hydrate_lookback_days);
             },
             flush: async () => {
                 await signals.flush();
@@ -79,18 +149,41 @@ export function createResearchRepositories(
     // dual
     const jsonlSignals = new JsonlStrategySignalRepository();
     const jsonlOutcomes = new JsonlSignalOutcomeRepository();
-    const fsSignals = new FirestoreStrategySignalRepository(undefined, cfg);
-    const fsOutcomes = new FirestoreSignalOutcomeRepository(undefined, cfg);
+    const fsSignals = new FirestoreStrategySignalRepository(
+        undefined,
+        effectiveCfg,
+    );
+    const fsOutcomes = new FirestoreSignalOutcomeRepository(
+        undefined,
+        effectiveCfg,
+    );
     const signals = new DualStrategySignalRepository(jsonlSignals, fsSignals);
     const outcomes = new DualSignalOutcomeRepository(jsonlOutcomes, fsOutcomes);
+    const project = getFirebaseProjectIdSafe();
+    if (project) {
+        console.log(
+            `[research-persistence] dual mode Firestore project_id=${project}`,
+        );
+    }
     return {
+        configured_mode: cfg.configured_mode,
         mode: 'dual',
         signals,
         outcomes,
-        getHealth: () => signals.getHealth(),
+        cfg: effectiveCfg,
+        getHealth: () => {
+            const fh = signals.getHealth();
+            return {
+                ...fh,
+                provider: 'DUAL',
+                configured_mode: cfg.configured_mode,
+                effective_mode: 'dual',
+                mode: 'dual',
+            };
+        },
         hydrate: async () => {
             signals.hydrateKnownIds();
-            await fsSignals.hydrateAsync(cfg.hydrate_lookback_days);
+            await fsSignals.hydrateAsync(effectiveCfg.hydrate_lookback_days);
         },
         flush: async () => {
             await signals.flush();

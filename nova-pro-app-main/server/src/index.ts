@@ -139,7 +139,7 @@ async function main(): Promise<void> {
 
     const researchRepos = createResearchRepositories();
     console.log(
-        `research-persistence: mode=${researchRepos.mode}`,
+        `research-persistence: configured=${researchRepos.configured_mode} effective_repository_mode=${researchRepos.mode}`,
     );
     void researchRepos.hydrate().catch((err) => {
         console.warn(

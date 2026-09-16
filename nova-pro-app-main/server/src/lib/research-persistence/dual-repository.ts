@@ -84,6 +84,7 @@ export class DualStrategySignalRepository implements StrategySignalRepository {
             ...fh,
             provider: 'DUAL',
             mode: 'dual',
+            effective_mode: 'dual',
             durable: fh.durable,
         };
     }

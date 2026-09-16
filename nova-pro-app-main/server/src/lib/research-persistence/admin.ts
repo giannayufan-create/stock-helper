@@ -11,6 +11,8 @@ let app: App | null = null;
 let db: Firestore | null = null;
 let initError: string | null = null;
 let tried = false;
+let resolvedProjectId: string | null = null;
+let initPath: 'cert_env' | 'adc' | 'existing_app' | null = null;
 
 export function getAdminInitError(): string | null {
     return initError;
@@ -20,14 +22,20 @@ export function isFirebaseAdminReady(): boolean {
     return db != null;
 }
 
+/** Project id only — never secrets. */
+export function getFirebaseProjectIdSafe(): string | null {
+    return resolvedProjectId;
+}
+
+export function getFirebaseInitPath(): typeof initPath {
+    return initPath;
+}
+
 /**
  * Lazy-init Admin SDK once.
- * Credentials from env only — never from committed files.
- * Env names (values never logged):
- *   FIREBASE_PROJECT_ID
- *   FIREBASE_CLIENT_EMAIL
- *   FIREBASE_PRIVATE_KEY
- *   GOOGLE_APPLICATION_CREDENTIALS
+ * Primary: FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY
+ * Fallback: GOOGLE_APPLICATION_CREDENTIALS / ADC
+ * Never logs credential values.
  */
 export function getResearchFirestore(): Firestore | null {
     if (db) return db;
@@ -38,6 +46,11 @@ export function getResearchFirestore(): Firestore | null {
         if (admin.apps.length > 0) {
             app = admin.apps[0]!;
             db = admin.firestore();
+            initPath = 'existing_app';
+            resolvedProjectId =
+                process.env.FIREBASE_PROJECT_ID ??
+                process.env.GCLOUD_PROJECT ??
+                null;
             return db;
         }
 
@@ -51,6 +64,7 @@ export function getResearchFirestore(): Firestore | null {
             ? privateKeyRaw.replace(/\\n/g, '\n')
             : undefined;
 
+        // Prefer explicit Render env credentials
         if (clientEmail && privateKey && projectId) {
             app = admin.initializeApp({
                 credential: admin.credential.cert({
@@ -60,14 +74,21 @@ export function getResearchFirestore(): Firestore | null {
                 }),
                 projectId,
             });
-        } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || projectId) {
+            initPath = 'cert_env';
+            resolvedProjectId = projectId;
+        } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
             app = admin.initializeApp({
                 credential: admin.credential.applicationDefault(),
                 projectId: projectId || undefined,
             });
+            initPath = 'adc';
+            resolvedProjectId = projectId ?? null;
+            console.warn(
+                '[research-persistence] using GOOGLE_APPLICATION_CREDENTIALS fallback — prefer FIREBASE_* env for Render',
+            );
         } else {
             initError =
-                'Firebase Admin credentials unavailable (FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY or GOOGLE_APPLICATION_CREDENTIALS)';
+                'Firebase Admin credentials unavailable — set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY';
             return null;
         }
         db = admin.firestore();
@@ -88,4 +109,6 @@ export function __resetAdminForTests(): void {
     db = null;
     initError = null;
     tried = false;
+    resolvedProjectId = null;
+    initPath = null;
 }

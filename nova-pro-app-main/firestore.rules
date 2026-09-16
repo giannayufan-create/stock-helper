@@ -13,6 +13,9 @@ service cloud.firestore {
     match /signal_outcomes/{signalId} {
       allow read, write: if false;
     }
+    match /research_diagnostics/{docId} {
+      allow read, write: if false;
+    }
     match /notification_preferences/{docId} {
       allow read, write: if false;
     }

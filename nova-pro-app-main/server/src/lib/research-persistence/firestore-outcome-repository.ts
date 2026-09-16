@@ -36,13 +36,16 @@ export class FirestoreSignalOutcomeRepository
     readonly health = new PersistenceHealthTracker();
     readonly queue: ResearchPersistenceQueue;
     private db: Firestore | null;
+    private cfg: ResearchPersistenceConfig;
 
     constructor(
         db?: Firestore | null,
         cfg: ResearchPersistenceConfig = loadResearchPersistenceConfig(),
     ) {
+        this.cfg = cfg;
         this.db = db === undefined ? getResearchFirestore() : db;
         this.health.connected = this.db != null;
+        this.health.initialized = this.db != null;
         if (!this.db) {
             this.health.last_error =
                 getAdminInitError() ?? 'Firestore unavailable';
@@ -57,10 +60,15 @@ export class FirestoreSignalOutcomeRepository
     getHealth(): ResearchPersistenceHealth {
         return this.health.snapshot({
             provider: 'FIRESTORE',
-            mode: 'firestore',
-            durable: this.db != null,
+            configured_mode: this.cfg.configured_mode,
+            effective_mode: 'firestore',
+            durable: this.db != null && this.health.connected,
             queue_depth: this.queue.depth,
             queue_pressure: this.queue.pressure(),
+            max_queue_depth: this.queue.maxQueueDepth,
+            write_latency: this.queue.latencyStats(),
+            env_conflict: this.cfg.env_conflict,
+            firestore_initialized: this.health.initialized,
         });
     }
 

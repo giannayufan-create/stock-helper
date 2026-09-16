@@ -40,7 +40,10 @@ async function main(): Promise<void> {
         outcomes_total: 0,
         outcomes_migrated: 0,
         outcomes_skipped: 0,
+        outcomes_conflict: 0,
         outcomes_failed: 0,
+        pit_sample_checked: 0,
+        pit_sample_mismatch: 0,
     };
 
     const ymds = existsSync(signalsRoot)
@@ -98,9 +101,21 @@ async function main(): Promise<void> {
         for (const outcome of materialized) {
             stats.outcomes_total += 1;
             try {
+                await fsOutcomes.materializeRangeAsync(ymd, ymd, 500);
                 const existing = fsOutcomes.findBySignalId(outcome.signal_id);
                 if (existing) {
-                    stats.outcomes_skipped += 1;
+                    const { outcomeIdentityHash } = await import(
+                        '../lib/research-persistence/hash.ts'
+                    );
+                    if (
+                        outcomeIdentityHash(existing) ===
+                        outcomeIdentityHash(outcome)
+                    ) {
+                        stats.outcomes_skipped += 1;
+                    } else {
+                        stats.outcomes_conflict += 1;
+                        console.error('OUTCOME CONFLICT', outcome.signal_id);
+                    }
                     continue;
                 }
                 fsOutcomes.appendUpdate(outcome);
@@ -114,6 +129,18 @@ async function main(): Promise<void> {
                     err instanceof Error ? err.message : err,
                 );
             }
+        }
+    }
+
+    // PIT sample: re-read up to 20 migrated signals and compare snapshots
+    const sample = jsonlSignals.listRange('1970-01-01', '9999-12-31').slice(0, 20);
+    for (const s of sample) {
+        const remote = await fsSignals.findByIdAsync(s.signal_id);
+        if (!remote) continue;
+        stats.pit_sample_checked += 1;
+        if (!signalsContentEqual(s, remote)) {
+            stats.pit_sample_mismatch += 1;
+            console.error('PIT mismatch', s.signal_id);
         }
     }
 
