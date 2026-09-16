@@ -16,13 +16,18 @@ export class SignalOutcomeService {
     updateFromBars(
         signal: StrategySignal,
         futureBars: PriceBar[],
-        opts?: { closeBar?: PriceBar | null; nowMs?: number },
+        opts?: {
+            closeBar?: PriceBar | null;
+            nowMs?: number;
+            corporateActionCrossed?: boolean;
+        },
     ): SignalOutcome {
         const outcome = calculateOutcome({
             signal,
             futureBars,
             closeBar: opts?.closeBar,
             nowMs: opts?.nowMs,
+            corporateActionCrossed: opts?.corporateActionCrossed,
         });
         this.repo.appendUpdate(outcome);
         return outcome;

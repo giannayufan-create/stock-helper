@@ -51,6 +51,11 @@ export function calculateOutcome(opts: {
     /** Optional same-day close bar. */
     closeBar?: PriceBar | null;
     nowMs?: number;
+    /**
+     * When forward path crosses an ex-div/ex-right date without reliable
+     * price adjustment — flag and exclude from learning; do not invent returns.
+     */
+    corporateActionCrossed?: boolean;
 }): SignalOutcome {
     const { signal, futureBars, closeBar } = opts;
     const ref = signal.reference_price;
@@ -68,6 +73,10 @@ export function calculateOutcome(opts: {
         data_resolution: signal.data_resolution,
         calculated_at: new Date(nowMs).toISOString(),
         event_kind: 'PARTIAL',
+        corporate_action_crossed: Boolean(opts.corporateActionCrossed),
+        learning_exclude_reason: opts.corporateActionCrossed
+            ? 'corporate_action_crossed_unadjusted'
+            : null,
     };
 
     if (!(ref > 0)) {

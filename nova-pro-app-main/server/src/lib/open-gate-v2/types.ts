@@ -104,6 +104,11 @@ export interface ScoreComponents {
 
 export interface OpenConfirmMetrics {
     gap_pct: number;
+    /** Unadjusted open vs raw previous close (ex-div day). */
+    raw_gap_pct?: number | null;
+    /** Open vs official/derived ex-reference (strategy path). */
+    adjusted_gap_pct?: number | null;
+    gap_adjustment_reason?: 'CORPORATE_ACTION' | 'NONE' | null;
     rvol_same_time: number | null;
     vwap: number | null;
     vwap_pos_pct: number | null;

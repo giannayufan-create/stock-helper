@@ -58,6 +58,13 @@ export interface SignalOutcome {
 
     outcome_sequence?: OutcomeSequence | string;
 
+    /**
+     * True when forward path crosses an ex-right/ex-div date and returns
+     * were not reliably adjusted — exclude from learning stats.
+     */
+    corporate_action_crossed?: boolean;
+    learning_exclude_reason?: string | null;
+
     source_mode: 'live' | 'replay';
     data_resolution: 'tick' | '1m';
 

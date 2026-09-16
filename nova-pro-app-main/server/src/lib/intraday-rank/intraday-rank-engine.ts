@@ -135,6 +135,26 @@ export function scoreIntradaySymbol(opts: {
         trade_aggression?: boolean;
         bid_ask?: boolean;
     };
+    /**
+     * Corporate-action reference normalization (optional).
+     * Weights unchanged — only day change / breakout availability.
+     */
+    gapNorm?: {
+        strategy_change_pct: number | null;
+        raw_change_pct: number | null;
+        adjusted_change_pct: number | null;
+        gap_adjustment_reason: 'CORPORATE_ACTION' | 'NONE';
+    } | null;
+    caContext?: {
+        has_action_today: boolean;
+        action_type: string | null;
+        cash_dividend: number | null;
+        ex_reference_price: number | null;
+    } | null;
+    breakoutGuard?: {
+        available: boolean;
+        scale_factor: number | null;
+    } | null;
 }): IntradayRankItem {
     const {
         cfg,
@@ -161,7 +181,24 @@ export function scoreIntradaySymbol(opts: {
         vwapAvailable,
     );
     const rs = computeRelativeStrength(mom.return_3m, marketRetHint);
-    const br = computeBreakout(state);
+    let br = computeBreakout(state);
+    if (opts.breakoutGuard && opts.breakoutGuard.available === false) {
+        br = {
+            score: null,
+            type: 'none',
+            available: false,
+        };
+    } else if (
+        opts.breakoutGuard?.available &&
+        opts.breakoutGuard.scale_factor != null &&
+        state &&
+        opts.caContext?.has_action_today
+    ) {
+        // Scale prior structure via adjusted state high/base is complex;
+        // same-session breakout vs day high remains valid. Prior-day refs
+        // already gated when available=false above.
+        br = computeBreakout(state);
+    }
     const pb = computePullback(
         state,
         vwapAvailable ? opts.vwap.vwap : null,
@@ -172,10 +209,14 @@ export function scoreIntradaySymbol(opts: {
     }
     const liq = computeLiquidityScore(state);
 
-    const dayChg =
+    const rawDayChg =
         state && state.prev_close > 0 && state.last_price > 0
             ? ((state.last_price - state.prev_close) / state.prev_close) * 100
             : discovery.change_pct ?? 0;
+    const dayChg =
+        opts.gapNorm?.strategy_change_pct != null
+            ? opts.gapNorm.strategy_change_pct
+            : rawDayChg;
     const pullPct =
         state && state.high > 0
             ? ((state.high - state.last_price) / state.high) * 100
@@ -362,6 +403,22 @@ export function scoreIntradaySymbol(opts: {
         signal_id = newId('csig', discovery.symbol, now);
     }
 
+    if (opts.gapNorm?.gap_adjustment_reason === 'CORPORATE_ACTION') {
+        reasons.push('除權息基準已調整');
+    }
+    if (opts.breakoutGuard && opts.breakoutGuard.available === false) {
+        risks.push('除權息日突破參考價未調整（暫不可用）');
+    }
+
+    const caBadge =
+        opts.caContext?.has_action_today && opts.caContext.action_type
+            ? opts.caContext.action_type === 'EX_RIGHT'
+                ? ('EX-RIGHT' as const)
+                : opts.caContext.action_type === 'EX_RIGHT_DIVIDEND'
+                  ? ('EX-RIGHT-DIV' as const)
+                  : ('EX-DIV' as const)
+            : null;
+
     const last_price =
         state && state.last_price > 0
             ? state.last_price
@@ -385,6 +442,20 @@ export function scoreIntradaySymbol(opts: {
         rank_velocity: null,
         last_price,
         change_pct: dayChg,
+        raw_change_pct:
+            opts.gapNorm?.raw_change_pct ?? rawDayChg,
+        adjusted_change_pct:
+            opts.gapNorm?.adjusted_change_pct ?? dayChg,
+        gap_adjustment_reason: opts.gapNorm?.gap_adjustment_reason ?? 'NONE',
+        corporate_action: opts.caContext
+            ? {
+                  has_action_today: opts.caContext.has_action_today,
+                  action_type: opts.caContext.action_type,
+                  badge: caBadge,
+                  cash_dividend: opts.caContext.cash_dividend,
+                  ex_reference_price: opts.caContext.ex_reference_price,
+              }
+            : null,
         intraday_score,
         raw_intraday_score: Math.round(raw),
         heat_score: heat,

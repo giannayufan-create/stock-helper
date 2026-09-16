@@ -26,7 +26,13 @@ export function CompactStockRow({
     selected?: boolean;
     onOpen: (symbol: string) => void;
 }) {
-    const pct = item.change_pct ?? item.metrics?.return_3m ?? null;
+    const pct =
+        item.adjusted_change_pct ??
+        item.change_pct ??
+        item.metrics?.return_3m ??
+        null;
+    const rawPct = item.raw_change_pct;
+    const ca = item.corporate_action;
     const event = primaryEvent(item);
     return (
         <button
@@ -40,6 +46,19 @@ export function CompactStockRow({
                     <div className={s.rowSym}>
                         {item.symbol}
                         <span className={s.rowName}>{item.name}</span>
+                        {ca?.has_action_today && ca.badge ? (
+                            <span
+                                style={{
+                                    marginLeft: 6,
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    letterSpacing: 0.3,
+                                    color: '#c45c26',
+                                }}
+                            >
+                                {ca.badge}
+                            </span>
+                        ) : null}
                     </div>
                     <div
                         className={s.rowState}
@@ -61,7 +80,22 @@ export function CompactStockRow({
                 </div>
             </div>
             <div className={`${s.rowPct} ${pctTone(pct)}`}>
-                {fmtPctSigned(pct)}
+                <div>{fmtPctSigned(pct)}</div>
+                {ca?.has_action_today &&
+                rawPct != null &&
+                pct != null &&
+                Math.abs(rawPct - pct) > 0.05 ? (
+                    <div
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 500,
+                            opacity: 0.75,
+                            marginTop: 2,
+                        }}
+                    >
+                        Raw {fmtPctSigned(rawPct)}
+                    </div>
+                ) : null}
             </div>
         </button>
     );

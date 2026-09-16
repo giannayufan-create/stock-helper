@@ -25,6 +25,11 @@ import {
     type EventConfirmationDto,
     type MarketEventDto,
 } from '../../lib/events';
+import {
+    ACTION_TYPE_LABEL,
+    fetchCorporateActionSymbol,
+    type CorporateActionSymbolDto,
+} from '../../lib/calendar';
 import { fmtPct, fmtPrice } from '../../lib/utils/format';
 import { vars } from '../../theme.css';
 import { toggleFavorite } from './favorites';
@@ -72,11 +77,25 @@ export function StockDetailPage({
     const [aiAt, setAiAt] = useState<number | null>(null);
     const [now, setNow] = useState(Date.now());
     const [advancedOpen, setAdvancedOpen] = useState(false);
+    const [caInfo, setCaInfo] = useState<CorporateActionSymbolDto | null>(null);
 
     useEffect(() => {
         const t = setInterval(() => setNow(Date.now()), 30_000);
         return () => clearInterval(t);
     }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        setCaInfo(null);
+        void fetchCorporateActionSymbol(item.symbol)
+            .then((d) => {
+                if (!cancelled) setCaInfo(d);
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [item.symbol]);
 
     useEffect(() => {
         setAi(null);
@@ -124,9 +143,21 @@ export function StockDetailPage({
           (item.last_price != null && item.last_price > 0
               ? item.last_price
               : null);
-    const pct = quote?.tick?.pct_chg
-        ? Number(quote.tick.pct_chg)
-        : snapPct ?? item.change_pct ?? item.metrics?.return_3m ?? null;
+    const pct =
+        item.adjusted_change_pct ??
+        (quote?.tick?.pct_chg ? Number(quote.tick.pct_chg) : null) ??
+        snapPct ??
+        item.change_pct ??
+        item.metrics?.return_3m ??
+        null;
+    const caCtx = caInfo?.corporate_action_context;
+    const upcomingCa = caInfo?.upcoming?.[0];
+    const showUpcoming =
+        upcomingCa &&
+        !caCtx?.has_action_today &&
+        caCtx?.days_to_action != null &&
+        caCtx.days_to_action >= 0 &&
+        caCtx.days_to_action <= 5;
     const event = primaryEvent(item);
     const summary = useMemo(() => buildRulesSummary(item), [item]);
     const aiStale = aiAt != null && now - aiAt > AI_STALE_MS;
@@ -262,6 +293,56 @@ export function StockDetailPage({
                 >
                     {fmtPct(pct ?? undefined)}
                 </div>
+
+                {(caCtx?.has_action_today || showUpcoming) && (
+                    <div
+                        className={s.glass}
+                        style={{
+                            padding: '10px 12px',
+                            marginBottom: 12,
+                            fontSize: 13,
+                            lineHeight: 1.45,
+                        }}
+                    >
+                        {caCtx?.has_action_today ? (
+                            <>
+                                <div style={{ fontWeight: 800, color: '#c45c26' }}>
+                                    今日
+                                    {caCtx.action_type
+                                        ? ACTION_TYPE_LABEL[
+                                              caCtx.action_type as keyof typeof ACTION_TYPE_LABEL
+                                          ] ?? '除權息'
+                                        : '除權息'}
+                                    ｜價格基準已調整
+                                </div>
+                                {caCtx.cash_dividend != null && (
+                                    <div style={{ marginTop: 4 }}>
+                                        現金股利：{caCtx.cash_dividend} 元
+                                    </div>
+                                )}
+                                {caCtx.raw_previous_close != null && (
+                                    <div style={{ marginTop: 2 }}>
+                                        昨日收盤：{caCtx.raw_previous_close}
+                                    </div>
+                                )}
+                                {caCtx.ex_reference_price != null && (
+                                    <div style={{ marginTop: 2 }}>
+                                        除息參考價：{caCtx.ex_reference_price}
+                                    </div>
+                                )}
+                            </>
+                        ) : showUpcoming && upcomingCa ? (
+                            <div style={{ fontWeight: 700 }}>
+                                {upcomingCa.action_date.slice(5).replace('-', '/')}{' '}
+                                {ACTION_TYPE_LABEL[upcomingCa.action_type] ??
+                                    upcomingCa.action_type}
+                                {caCtx?.days_to_action != null
+                                    ? ` · 距離 ${caCtx.days_to_action} 個交易日`
+                                    : ''}
+                            </div>
+                        ) : null}
+                    </div>
+                )}
 
                 <div className={s.scoreRow}>
                     <div>

@@ -128,6 +128,13 @@ export function applyFilters(
             if (!s.learning_eligible) return false;
             if (s.score_confidence === 'low') return false;
             if (o.status === 'invalid_data') return false;
+            if (o.corporate_action_crossed) return false;
+        }
+        // Default learning paths: exclude CA-crossed unadjusted outcomes
+        if (o.corporate_action_crossed && f.learning_eligible !== false) {
+            if (f.high_confidence_only || f.learning_eligible === true) {
+                return false;
+            }
         }
         // Default: do not mix live tick with replay 1m unless both unset
         return true;

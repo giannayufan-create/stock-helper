@@ -418,6 +418,19 @@ export function evaluateOpenGate(opts: {
     health: DataHealthReport;
     previous?: OpenConfirmResult | null;
     now?: Date;
+    /**
+     * Optional corporate-action gap normalization (reference semantics only).
+     * When present, strategy gap/day_chg use adjusted values — weights unchanged.
+     */
+    gapNorm?: {
+        strategy_gap_pct: number | null;
+        strategy_change_pct: number | null;
+        raw_gap_pct: number | null;
+        adjusted_gap_pct: number | null;
+        gap_adjustment_reason: 'CORPORATE_ACTION' | 'NONE';
+        reference_price_used: number | null;
+        available: boolean;
+    } | null;
 }): OpenConfirmResult {
     const now = opts.now ?? new Date();
     const { cfg, candidate, state, regime, health } = opts;
@@ -435,10 +448,22 @@ export function evaluateOpenGate(opts: {
               ? candidate.prev_close
               : open || last;
 
+    const gn = opts.gapNorm;
     const gap_pct =
-        prevPx > 0 && open > 0 ? ((open - prevPx) / prevPx) * 100 : 0;
+        gn?.strategy_gap_pct != null
+            ? gn.strategy_gap_pct
+            : prevPx > 0 && open > 0
+              ? ((open - prevPx) / prevPx) * 100
+              : 0;
     const day_chg_pct =
-        prevPx > 0 && last > 0 ? ((last - prevPx) / prevPx) * 100 : 0;
+        gn?.strategy_change_pct != null
+            ? gn.strategy_change_pct
+            : prevPx > 0 && last > 0
+              ? ((last - prevPx) / prevPx) * 100
+              : 0;
+    if (gn?.gap_adjustment_reason === 'CORPORATE_ACTION') {
+        reasons.push('除權息參考價已調整（非市場跳空）');
+    }
 
     const vwap = opts.vwapInfo.vwap;
     const vwap_available =
@@ -628,6 +653,15 @@ export function evaluateOpenGate(opts: {
 
     const liveMetrics = {
         gap_pct: Math.round(gap_pct * 100) / 100,
+        raw_gap_pct:
+            gn?.raw_gap_pct != null
+                ? Math.round(gn.raw_gap_pct * 100) / 100
+                : Math.round(gap_pct * 100) / 100,
+        adjusted_gap_pct:
+            gn?.adjusted_gap_pct != null
+                ? Math.round(gn.adjusted_gap_pct * 100) / 100
+                : Math.round(gap_pct * 100) / 100,
+        gap_adjustment_reason: gn?.gap_adjustment_reason ?? 'NONE',
         rvol_same_time: opts.rvolSameTime,
         vwap: vwap_valid ? vwap : vwap,
         vwap_pos_pct:

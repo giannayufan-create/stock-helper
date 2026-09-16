@@ -19,6 +19,7 @@ import {
     resolvePhase,
 } from './open-gate-evaluator.ts';
 import type { ACandidate, OpenConfirmResult } from './types.ts';
+import type { MarketCalendarService } from '../market-calendar/index.ts';
 
 export interface OpenConfirmBatchResult {
     phase: ReturnType<typeof resolvePhase>['phase'];
@@ -56,6 +57,8 @@ export class OpenGateV2Service {
     private started = false;
     /** Soft shadow A/B — never affects production return / bridge. */
     private shadow: ShadowEvaluationService | null = null;
+    /** Read-only calendar for ex-div gap reference — never mutates weights. */
+    private calendar: MarketCalendarService | null = null;
 
     constructor(
         private market: MarketManager,
@@ -65,6 +68,10 @@ export class OpenGateV2Service {
         this.cfg = loadOpenGateConfig();
         this.repo = new OpenConfirmRepository();
         this.candidates = new ACandidateRepository();
+    }
+
+    setMarketCalendar(calendar: MarketCalendarService | null): void {
+        this.calendar = calendar;
     }
 
     private getShadow(): ShadowEvaluationService | null {
@@ -200,6 +207,18 @@ export class OpenGateV2Service {
                 const prev = this.lastResults.get(candidate.symbol) ?? null;
                 const vwapInfo = this.runtime.vwap(candidate.symbol);
 
+                const gapNorm = this.calendar
+                    ? this.calendar.getGapNormalization({
+                          symbol: candidate.symbol,
+                          todayPrice: state?.last_price ?? 0,
+                          openPrice: state?.open ?? null,
+                          vendorPrevClose:
+                              state?.prev_close && state.prev_close > 0
+                                  ? state.prev_close
+                                  : candidate.prev_close,
+                      })
+                    : null;
+
                 const result = evaluateOpenGate({
                     cfg: this.cfg,
                     candidate,
@@ -210,6 +229,7 @@ export class OpenGateV2Service {
                     health,
                     previous: prev,
                     now,
+                    gapNorm,
                 });
 
                 if (!result.data_blocked) {

@@ -414,6 +414,16 @@ export interface IntradayRankItemDto {
     heat_score: number;
     state: string;
     change_pct?: number | null;
+    raw_change_pct?: number | null;
+    adjusted_change_pct?: number | null;
+    gap_adjustment_reason?: string | null;
+    corporate_action?: {
+        has_action_today: boolean;
+        action_type: string | null;
+        badge: 'EX-DIV' | 'EX-RIGHT' | 'EX-RIGHT-DIV' | null;
+        cash_dividend: number | null;
+        ex_reference_price: number | null;
+    } | null;
     last_price?: number | null;
     open_score?: number | null;
     open_gate_status?: string | null;

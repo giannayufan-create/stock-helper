@@ -19,6 +19,12 @@ import {
     type EventImpactDto,
     type MarketEventDto,
 } from '../../lib/events';
+import {
+    ACTION_TYPE_LABEL,
+    EXPIRY_PHASE_LABEL,
+    fetchCalendarToday,
+    type CalendarTodayDto,
+} from '../../lib/calendar';
 import { vars } from '../../theme.css';
 import {
     fmtPctSigned,
@@ -66,6 +72,8 @@ export function TodayPage({
 
     const [mi, setMi] = useState<MiOverview | null>(null);
     const [mc, setMc] = useState<MarketContextOverviewDto | null>(null);
+    const [cal, setCal] = useState<CalendarTodayDto | null>(null);
+    const [calOpen, setCalOpen] = useState(false);
     const [events, setEvents] = useState<MarketEventDto[]>([]);
     const [eventExtra, setEventExtra] = useState<
         Record<
@@ -99,6 +107,22 @@ export function TodayPage({
                 .catch(() => undefined);
         load();
         const t = setInterval(load, 60_000);
+        return () => {
+            cancelled = true;
+            clearInterval(t);
+        };
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        const load = () =>
+            void fetchCalendarToday()
+                .then((ov) => {
+                    if (!cancelled) setCal(ov);
+                })
+                .catch(() => undefined);
+        load();
+        const t = setInterval(load, 5 * 60_000);
         return () => {
             cancelled = true;
             clearInterval(t);
@@ -199,6 +223,151 @@ export function TodayPage({
                     ↻
                 </button>
             </div>
+
+            {cal && (
+                <button
+                    type="button"
+                    className={s.glass}
+                    style={{
+                        padding: 14,
+                        marginBottom: 12,
+                        width: '100%',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        border: 'none',
+                    }}
+                    onClick={() => setCalOpen((v) => !v)}
+                >
+                    <div className={s.sectionRow}>
+                        <strong style={{ fontSize: 15 }}>今日重要日曆</strong>
+                        <span
+                            style={{
+                                fontSize: 11,
+                                color: vars.color.mutedForeground,
+                                fontFamily: vars.font.mono,
+                            }}
+                        >
+                            {cal.date.slice(5).replace('-', '/')}
+                        </span>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.55 }}>
+                        {cal.monthly_expiry.is_monthly_expiry_day ? (
+                            <div>
+                                <span style={{ color: '#c45c26', fontWeight: 700 }}>
+                                    台指期月結算
+                                </span>
+                                <span
+                                    style={{
+                                        marginLeft: 8,
+                                        fontSize: 12,
+                                        color: vars.color.mutedForeground,
+                                    }}
+                                >
+                                    {EXPIRY_PHASE_LABEL[cal.monthly_expiry.expiry_phase]}
+                                    {cal.monthly_expiry.institutional_roll_sensitive
+                                        ? ' · 法人轉倉敏感期'
+                                        : ''}
+                                </span>
+                            </div>
+                        ) : (
+                            <div>
+                                台指期距月結算{' '}
+                                <b>{cal.monthly_expiry.days_to_monthly_expiry}</b> 日
+                                <span
+                                    style={{
+                                        marginLeft: 8,
+                                        fontSize: 12,
+                                        color: vars.color.mutedForeground,
+                                    }}
+                                >
+                                    {EXPIRY_PHASE_LABEL[cal.monthly_expiry.expiry_phase]}
+                                    {cal.monthly_expiry.institutional_roll_sensitive
+                                        ? ' · 法人轉倉敏感期'
+                                        : ''}
+                                </span>
+                            </div>
+                        )}
+                        <div style={{ marginTop: 4, fontSize: 13 }}>
+                            除權息：{cal.corporate_action_count} 檔
+                            {' · '}重大事件：{cal.major_event_count}
+                        </div>
+                    </div>
+
+                    {calOpen && (
+                        <div
+                            style={{
+                                marginTop: 12,
+                                paddingTop: 10,
+                                borderTop: `1px solid ${vars.color.border}`,
+                                fontSize: 13,
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                                Derivatives Calendar
+                            </div>
+                            <div
+                                style={{
+                                    fontFamily: vars.font.mono,
+                                    fontSize: 12,
+                                    color: vars.color.mutedForeground,
+                                    marginBottom: 10,
+                                }}
+                            >
+                                台指期 MONTHLY · 距結算{' '}
+                                {cal.monthly_expiry.days_to_monthly_expiry} 天 ·{' '}
+                                {cal.monthly_expiry.expiry_phase}
+                                <div style={{ marginTop: 4 }}>
+                                    （非多空結論）
+                                </div>
+                            </div>
+                            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                                今日除權息
+                            </div>
+                            {cal.corporate_actions_today.length === 0 ? (
+                                <div style={{ color: vars.color.mutedForeground }}>
+                                    無
+                                </div>
+                            ) : (
+                                cal.corporate_actions_today.slice(0, 12).map((a) => (
+                                    <div
+                                        key={`${a.symbol}-${a.action_date}`}
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            gap: 8,
+                                            padding: '4px 0',
+                                        }}
+                                    >
+                                        <button
+                                            type="button"
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                padding: 0,
+                                                cursor: 'pointer',
+                                                color: 'inherit',
+                                                font: 'inherit',
+                                                textAlign: 'left',
+                                            }}
+                                            onClick={() => onOpenSymbol(a.symbol)}
+                                        >
+                                            {a.symbol} {a.name}
+                                        </button>
+                                        <span style={{ color: vars.color.mutedForeground }}>
+                                            {ACTION_TYPE_LABEL[a.action_type] ??
+                                                a.action_type}
+                                            {a.cash_dividend != null
+                                                ? ` ${a.cash_dividend}`
+                                                : ''}
+                                        </span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </button>
+            )}
 
             {mc && tw && (
                 <div className={s.glass} style={{ padding: 14, marginBottom: 12 }}>

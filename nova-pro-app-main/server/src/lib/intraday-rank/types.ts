@@ -117,7 +117,19 @@ export interface IntradayRankItem {
     rank_velocity: number | null;
     /** Last trade / reference for UI — may be 0 after hours. */
     last_price: number | null;
+    /** Strategy / display primary change — adjusted on ex-div day. */
     change_pct: number | null;
+    /** Unadjusted vs raw previous close (ex-div day). */
+    raw_change_pct?: number | null;
+    adjusted_change_pct?: number | null;
+    gap_adjustment_reason?: 'CORPORATE_ACTION' | 'NONE' | null;
+    corporate_action?: {
+        has_action_today: boolean;
+        action_type: string | null;
+        badge: 'EX-DIV' | 'EX-RIGHT' | 'EX-RIGHT-DIV' | null;
+        cash_dividend: number | null;
+        ex_reference_price: number | null;
+    } | null;
     intraday_score: number;
     raw_intraday_score: number;
     heat_score: number;

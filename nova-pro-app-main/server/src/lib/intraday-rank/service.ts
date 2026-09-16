@@ -27,6 +27,7 @@ import type {
     IntradayRankBatch,
     IntradayRankItem,
 } from './types.ts';
+import type { MarketCalendarService } from '../market-calendar/index.ts';
 
 /**
  * INTRADAY RANK v1 — C layer.
@@ -58,6 +59,7 @@ export class IntradayRankService {
         | 'fixed_universe_only' = 'live_scanner';
     /** Soft shadow A/B — never affects production return / bridge. */
     private shadow: ShadowEvaluationService | null = null;
+    private calendar: MarketCalendarService | null = null;
 
     constructor(
         private market: MarketManager,
@@ -69,6 +71,10 @@ export class IntradayRankService {
         this.discovery = new DiscoveryEngine(market, openGate, this.cfg);
         this.events = new EventEngine(this.cfg, this.runtime.clock);
         this.repo = new IntradayRankRepository();
+    }
+
+    setMarketCalendar(calendar: MarketCalendarService | null): void {
+        this.calendar = calendar;
     }
 
     private getShadow(): ShadowEvaluationService | null {
@@ -286,6 +292,23 @@ export class IntradayRankService {
                     sessionMin,
                 );
                 const prev = this.lastResults.get(disc.symbol) ?? null;
+                const gapNorm = this.calendar
+                    ? this.calendar.getGapNormalization({
+                          symbol: disc.symbol,
+                          todayPrice: state?.last_price ?? 0,
+                          openPrice: state?.open ?? null,
+                          vendorPrevClose:
+                              state?.prev_close && state.prev_close > 0
+                                  ? state.prev_close
+                                  : null,
+                      })
+                    : null;
+                const caCtx = this.calendar
+                    ? this.calendar.getCorporateActionContext(disc.symbol)
+                    : null;
+                const brGuard = this.calendar
+                    ? this.calendar.getBreakoutGuard(disc.symbol)
+                    : null;
                 const item = scoreIntradaySymbol({
                     cfg: this.cfg,
                     discovery: disc,
@@ -304,6 +327,16 @@ export class IntradayRankService {
                     featureFlags: replay
                         ? { trade_aggression: false, bid_ask: false }
                         : undefined,
+                    gapNorm,
+                    caContext: caCtx
+                        ? {
+                              has_action_today: caCtx.has_action_today,
+                              action_type: caCtx.action_type,
+                              cash_dividend: caCtx.cash_dividend,
+                              ex_reference_price: caCtx.ex_reference_price,
+                          }
+                        : null,
+                    breakoutGuard: brGuard,
                 });
                 scored.push(item);
             }

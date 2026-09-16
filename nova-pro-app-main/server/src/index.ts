@@ -27,6 +27,7 @@ import { MarketContextRuntime } from './lib/market-context/index.ts';
 import { EventIntelligenceService } from './lib/event-intelligence/index.ts';
 import { ContextResearchService } from './lib/context-research/index.ts';
 import { createResearchRepositories } from './lib/research-persistence/index.ts';
+import { MarketCalendarService } from './lib/market-calendar/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -170,6 +171,11 @@ async function main(): Promise<void> {
     );
     intradayRank.start();
 
+    const marketCalendar = new MarketCalendarService();
+    marketCalendar.start();
+    openGateV2.setMarketCalendar(marketCalendar);
+    intradayRank.setMarketCalendar(marketCalendar);
+
     const marketIntelligence = new MarketIntelligenceService(
         intradayRank,
         openGateV2,
@@ -255,6 +261,7 @@ async function main(): Promise<void> {
         eventIntelligence,
         contextResearch,
         researchRepos,
+        marketCalendar,
         startedAt: Date.now(),
     };
 
