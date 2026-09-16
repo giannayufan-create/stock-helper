@@ -48,15 +48,23 @@ function snap(
         ask_executed_delta: number;
     },
 ): BidAskSnap {
+    const ask = partial.best_ask ?? 69;
+    const bid = partial.best_bid ?? 68.9;
+    const askVol = partial.ask_volume;
+    const bidVol = partial.bid_volume ?? 100;
     return {
         t: partial.t ?? Date.now(),
-        best_ask: partial.best_ask ?? 69,
-        ask_volume: partial.ask_volume,
-        best_bid: partial.best_bid ?? 68.9,
-        bid_volume: partial.bid_volume ?? 100,
+        best_ask: ask,
+        ask_volume: askVol,
+        best_bid: bid,
+        bid_volume: bidVol,
         last_price: partial.last_price ?? 69,
         total_volume: partial.total_volume ?? 1000,
         ask_executed_delta: partial.ask_executed_delta,
+        bid_levels: [bid],
+        ask_levels: [ask],
+        bid_qty: [bidVol],
+        ask_qty: [askVol],
     };
 }
 
@@ -303,6 +311,7 @@ function stubItem(
         radar_rank_score: partial.radar_rank_score ?? partial.buy_pressure_score,
         primary_state: partial.primary_state ?? 'BUY_SURGE',
         states: partial.states ?? ['BUY_SURGE'],
+        tags: partial.tags ?? (partial.overheated ? ['OVERHEATED'] : []),
         c_score: partial.c_score ?? 80,
         heat_score: partial.heat_score ?? 70,
         rank: partial.rank ?? 5,
@@ -319,7 +328,7 @@ function stubItem(
         chase_risk: partial.chase_risk ?? 'LOW',
         overheated: partial.overheated ?? false,
         overheated_note: partial.overheated
-            ? '買盤強，但短線延伸較大'
+            ? '買盤強，短線延伸較大'
             : null,
         ask_eating_note: null,
         large_bid_note: null,
@@ -327,10 +336,20 @@ function stubItem(
         data_health: 'healthy',
         updated_at: new Date().toISOString(),
         last_updated: new Date().toISOString(),
+        evaluated_at: new Date().toISOString(),
+        last_tick_at: new Date().toISOString(),
+        last_bidask_at: new Date().toISOString(),
+        data_age_ms: 0,
+        freshness: 'FRESH',
+        rvol_slope: 0.2,
+        volume_acceleration_slope: 5,
+        rvol_accel: 'ACCELERATING',
+        volume_accel_label: 'ACCELERATING',
         events: [],
         notification_candidates: [],
         feature_availability: {},
         score_coverage_pct: 100,
+        score_confidence: 'high',
     };
 }
 

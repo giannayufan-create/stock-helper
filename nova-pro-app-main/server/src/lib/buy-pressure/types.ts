@@ -40,8 +40,12 @@ export interface BidAskSnap {
     bid_volume: number;
     last_price: number;
     total_volume: number;
-    /** Approximate executed volume at best_ask since previous snap. */
     ask_executed_delta: number;
+    /** Best-level mirrors — full depth when unavailable. */
+    bid_levels: number[];
+    ask_levels: number[];
+    bid_qty: number[];
+    ask_qty: number[];
 }
 
 export interface BuyPressureFeatures {
@@ -82,7 +86,12 @@ export interface BuyPressureEvent {
     price: number | null;
     note: string | null;
     notification_candidate: boolean;
+    reasons: string[];
+    /** True if emitted in the latest evaluate cycle. */
+    cycle_fresh: boolean;
 }
+
+export type BuyPressureTag = 'LARGE_BID' | 'OVERHEATED';
 
 export interface BuyPressureItem {
     symbol: string;
@@ -94,6 +103,8 @@ export interface BuyPressureItem {
     radar_rank_score: number;
     primary_state: BuyPressureState;
     states: BuyPressureState[];
+    /** Non-primary tags — OVERHEATED / LARGE_BID do not replace action state. */
+    tags: BuyPressureTag[];
     c_score: number | null;
     heat_score: number | null;
     rank: number | null;
@@ -107,7 +118,6 @@ export interface BuyPressureItem {
     vwap_bucket: VwapBucket | null;
     distance_from_vwap_pct: number | null;
     chase_penalty: number;
-    /** Independent chase risk — not folded into buy_pressure_score. */
     chase_risk: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
     overheated: boolean;
     overheated_note: string | null;
@@ -117,10 +127,20 @@ export interface BuyPressureItem {
     data_health: string;
     updated_at: string;
     last_updated: string;
+    evaluated_at: string;
+    last_tick_at: string | null;
+    last_bidask_at: string | null;
+    data_age_ms: number | null;
+    freshness: 'FRESH' | 'AGING' | 'STALE';
+    rvol_slope: number | null;
+    volume_acceleration_slope: number | null;
+    rvol_accel: 'ACCELERATING' | 'DECELERATING' | 'FLAT' | 'UNKNOWN';
+    volume_accel_label: 'ACCELERATING' | 'DECELERATING' | 'FLAT' | 'UNKNOWN';
     events: BuyPressureEvent[];
     notification_candidates: BuyPressureEvent[];
     feature_availability: Record<string, boolean>;
     score_coverage_pct: number;
+    score_confidence: 'high' | 'medium' | 'low';
 }
 
 export interface BuyPressureBatch {

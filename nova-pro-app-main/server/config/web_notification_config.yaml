@@ -1,0 +1,17 @@
+# Web Notification Center — consumes Buy Pressure events only.
+enabled: true
+version: wn_v1
+max_stored: 200
+no_toast:
+  - ASK_CANCEL
+  - COOLING
+  - LARGE_BID_CANCEL
+
+cooldown_sec:
+  EARLY_ENTER: 300
+  BUY_SURGE: 300
+  ASK_EATING: 180
+  VOLUME_BREAKOUT: 300
+  OVERHEATED_STRONG: 600
+  LARGE_BID_APPEAR: 300
+  RANK_ACCELERATION: 300

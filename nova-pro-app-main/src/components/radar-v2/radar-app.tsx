@@ -13,12 +13,18 @@ import { MorePage } from './more-page';
 import { IntelPage } from './intel-page';
 import { BrokerRadarPage } from './broker-radar-page';
 import { BuyPressurePage } from './buy-pressure-page';
+import {
+    NotificationCenter,
+    useNotificationToasts,
+} from './notification-center';
 import { PerformancePage } from './performance-page';
+import { fetchUnreadCount } from '../../lib/notifications';
 import * as s from './radar.css';
 import { RadarPage } from './radar-page';
 import { StockDetailPage } from './stock-detail';
 import { TodayPage } from './today-page';
 import type { LiveStatus, RadarTab } from './tokens';
+import { radarColor } from './tokens';
 import { useRadarFeed } from './use-radar-feed';
 import { WatchPage } from './watch-page';
 
@@ -52,6 +58,20 @@ export function RadarApp({
     const [showIntel, setShowIntel] = useState(false);
     const [showBrokerRadar, setShowBrokerRadar] = useState(false);
     const [showBuyPressure, setShowBuyPressure] = useState(false);
+    const [showNotifications, setShowNotifications] = useState(false);
+    const [unreadNotif, setUnreadNotif] = useState(0);
+
+    useEffect(() => {
+        const t = setInterval(() => {
+            void fetchUnreadCount()
+                .then((r) => setUnreadNotif(r.unread_count))
+                .catch(() => undefined);
+        }, 4000);
+        void fetchUnreadCount()
+            .then((r) => setUnreadNotif(r.unread_count))
+            .catch(() => undefined);
+        return () => clearInterval(t);
+    }, []);
 
     useEffect(() => {
         const t = setInterval(() => setClock(taipeiClock()), 15_000);
@@ -79,6 +99,8 @@ export function RadarApp({
         setDetailSymbol(symbol);
         void onSelectCode(symbol);
     };
+
+    const toastLayer = useNotificationToasts(true, openSymbol);
 
     const closeDetail = () => setDetailSymbol(null);
 
@@ -240,6 +262,36 @@ export function RadarApp({
                     <span className={s.statusDot} />
                     {liveStatusLabel(statusLabel)}
                 </div>
+                <button
+                    type="button"
+                    className={s.iconBtn}
+                    aria-label="通知"
+                    style={{ position: 'relative', minWidth: 44, minHeight: 44 }}
+                    onClick={() => setShowNotifications(true)}
+                >
+                    🔔
+                    {unreadNotif > 0 && (
+                        <span
+                            style={{
+                                position: 'absolute',
+                                top: 4,
+                                right: 4,
+                                minWidth: 16,
+                                height: 16,
+                                borderRadius: 8,
+                                background: radarColor.strong,
+                                color: '#fff',
+                                fontSize: 10,
+                                fontWeight: 800,
+                                lineHeight: '16px',
+                                textAlign: 'center',
+                                padding: '0 4px',
+                            }}
+                        >
+                            {unreadNotif > 99 ? '99+' : unreadNotif}
+                        </span>
+                    )}
+                </button>
                 {onOpenSearch && (
                     <button
                         type="button"
@@ -313,8 +365,22 @@ export function RadarApp({
         )
     ) : null;
 
+    const notifChrome = (
+        <>
+            {toastLayer}
+            <NotificationCenter
+                open={showNotifications}
+                onClose={() => setShowNotifications(false)}
+                onOpenSymbol={openSymbol}
+                onUnreadChange={setUnreadNotif}
+            />
+        </>
+    );
+
     if (isDesktop) {
         return (
+            <>
+                {notifChrome}
             <div className={s.desktopShell}>
                 <aside className={s.sideNav}>
                     <div className={s.sideBrand}>
@@ -330,7 +396,7 @@ export function RadarApp({
                             }`}
                             onClick={() => {
                                 setTab(n.id);
-                                if (n.id === 'radar') setRadarInner('strong');
+                                if (n.id === 'radar') setRadarInner('buy');
                             }}
                         >
                             <span>{n.icon}</span>
@@ -351,12 +417,15 @@ export function RadarApp({
                     )}
                 </div>
             </div>
+            </>
         );
     }
 
     // Mobile: list OR detail (not both). Detail has fat back bar.
     if (detailSymbol) {
         return (
+            <>
+                {notifChrome}
             <div className={s.shell}>
                 <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     {detailInner}
@@ -375,17 +444,20 @@ export function RadarApp({
                         onClick={() => {
                             closeDetail();
                             setTab('radar');
-                            setRadarInner('strong');
+                            setRadarInner('buy');
                         }}
                     >
                         回雷達
                     </button>
                 </div>
             </div>
+            </>
         );
     }
 
     return (
+        <>
+            {notifChrome}
         <div className={s.shell}>
             {headerBlock}
             {healthBanner}
@@ -400,7 +472,7 @@ export function RadarApp({
                         }`}
                         onClick={() => {
                             setTab(n.id);
-                            if (n.id === 'radar') setRadarInner('strong');
+                            if (n.id === 'radar') setRadarInner('buy');
                         }}
                     >
                         <span className={s.dockIcon}>{n.icon}</span>
@@ -409,6 +481,7 @@ export function RadarApp({
                 ))}
             </nav>
         </div>
+        </>
     );
 }
 

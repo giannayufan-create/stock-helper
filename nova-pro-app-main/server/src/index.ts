@@ -22,6 +22,7 @@ import { IntradayRankService } from './lib/intraday-rank/service.ts';
 import { MarketIntelligenceService } from './lib/market-intelligence/index.ts';
 import { BrokerIntelligenceService } from './lib/broker-intelligence/index.ts';
 import { BuyPressureService } from './lib/buy-pressure/index.ts';
+import { WebNotificationService } from './lib/web-notifications/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -166,17 +167,25 @@ async function main(): Promise<void> {
         `broker-intelligence: ${brokerIntelligence.getHealth().status} provider=${brokerIntelligence.getProvider().id}`,
     );
 
+    const hub = new SseHub();
+
     const buyPressure = new BuyPressureService(intradayRank, marketRuntime);
+    const webNotifications = new WebNotificationService(
+        join(dataDir, 'web_notifications.json'),
+        hub,
+    );
+    buyPressure.setNotificationSink(webNotifications);
     buyPressure.start();
     console.log(
         `buy-pressure: ${buyPressure.getHealth().status} interval=${buyPressure.cfg.evaluate_interval_sec}s`,
     );
+    console.log(`web-notifications: enabled max=${webNotifications.cfg.max_stored}`);
 
     const ctx: AppContext = {
         config,
         market: manager,
         trading,
-        hub: new SseHub(),
+        hub,
         subs: new SubscriptionRegistry(marketRuntime),
         watchlists: new WatchlistStore(join(dataDir, 'watchlists.json')),
         runtimeConfig,
@@ -186,6 +195,7 @@ async function main(): Promise<void> {
         marketIntelligence,
         brokerIntelligence,
         buyPressure,
+        webNotifications,
         startedAt: Date.now(),
     };
 

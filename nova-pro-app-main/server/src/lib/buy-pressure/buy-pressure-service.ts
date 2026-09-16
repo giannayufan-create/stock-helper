@@ -5,6 +5,7 @@
 import type { IntradayRankItem } from '../intraday-rank/types.ts';
 import type { IntradayRankService } from '../intraday-rank/service.ts';
 import type { MarketRuntime } from '../market-runtime/index.ts';
+import type { WebNotificationService } from '../web-notifications/index.ts';
 import {
     loadBuyPressureConfig,
     type BuyPressureConfig,
@@ -20,7 +21,18 @@ import {
     resolveStates,
     vwapBucket,
 } from './detectors.ts';
-import { applyPriceFilter, computeBpChaseRisk, computeRadarRankScore, isOverheatedStrong, sortBuyPressureItems, type BpSortMode } from './ranking.ts';
+import {
+    FeatureHistoryStore,
+    slopesFromHistory,
+} from './feature-history.ts';
+import {
+    applyPriceFilter,
+    computeBpChaseRisk,
+    computeRadarRankScore,
+    isOverheatedStrong,
+    sortBuyPressureItems,
+    type BpSortMode,
+} from './ranking.ts';
 import { computeBuyPressureScore } from './score-engine.ts';
 import type {
     BidAskSnap,
@@ -32,6 +44,7 @@ import type {
     BuyPressureMarket,
     BuyPressureQuery,
     BuyPressureState,
+    BuyPressureTag,
     BpInternalEvent,
 } from './types.ts';
 import { BP_VERSION } from './types.ts';
@@ -65,6 +78,8 @@ export class BuyPressureService {
     private bidAskHistory = new Map<string, BidAskSnap[]>();
     private eventLog = new Map<string, BuyPressureEvent[]>();
     private notifyCooldown = new Map<string, number>();
+    private featureHistory = new FeatureHistoryStore();
+    private notifications: WebNotificationService | null = null;
 
     constructor(
         private intradayRank: IntradayRankService,
@@ -72,6 +87,11 @@ export class BuyPressureService {
         cfg?: BuyPressureConfig,
     ) {
         this.cfg = cfg ?? loadBuyPressureConfig();
+    }
+
+    /** Wire notification consumer after construction (avoids circular boot). */
+    setNotificationSink(svc: WebNotificationService | null): void {
+        this.notifications = svc;
     }
 
     start(): void {
@@ -223,6 +243,7 @@ export class BuyPressureService {
         };
         this.lastBatch = out;
         this.lastEvaluateAt = out.as_of;
+        this.notifications?.ingestFromBuyPressure(items);
         return out;
     }
 
@@ -266,6 +287,10 @@ export class BuyPressureService {
             last_price: st.last_price || 0,
             total_volume: st.total_volume || 0,
             ask_executed_delta: askExecuted,
+            bid_levels: st.best_bid > 0 ? [st.best_bid] : [],
+            ask_levels: st.best_ask > 0 ? [st.best_ask] : [],
+            bid_qty: st.bid_volume > 0 ? [st.bid_volume] : [],
+            ask_qty: st.ask_volume > 0 ? [st.ask_volume] : [],
         };
         const next = [...hist, snap].slice(-this.cfg.bidask_history_len);
         this.bidAskHistory.set(symbol, next);
@@ -358,16 +383,38 @@ export class BuyPressureService {
     private buildItem(row: IntradayRankItem): BuyPressureItem {
         const features = this.buildFeatures(row);
         const scored = computeBuyPressureScore(features, this.cfg);
+        const nowMs = this.runtime.now().getTime();
+        const featHist = this.featureHistory.push(row.symbol, {
+            t: nowMs,
+            rvol: features.rvol.value,
+            volume_acceleration: features.volume_acceleration.value,
+            trade_aggression: features.trade_aggression.value,
+            rank_velocity: features.rank_velocity.value,
+            momentum_acceleration: features.momentum_acceleration.value,
+            bidask_imbalance: features.bidask_imbalance.value,
+            distance_from_vwap_pct: features.distance_from_vwap_pct,
+            rank: features.rank,
+        });
+        const slopes = slopesFromHistory(featHist);
+
         const hist = this.bidAskHistory.get(row.symbol) ?? [];
         const ask = detectAskConsumption(hist, this.cfg);
         const large = detectLargeBid(hist, this.cfg);
         const overheated = detectOverheated(features, this.cfg);
         const early = detectEarly(features, this.cfg);
-        const buySurge = detectBuySurge(
+        let buySurge = detectBuySurge(
             features,
             scored.buy_pressure_score,
             this.cfg,
         );
+        // Prefer accelerating volume; decelerating alone is not surge.
+        if (
+            buySurge &&
+            slopes.volume_accel_label === 'DECELERATING' &&
+            slopes.rvol_accel === 'DECELERATING'
+        ) {
+            buySurge = false;
+        }
         const volBreak = detectVolumeBreakout(features, this.cfg);
         const cooling = detectCooling(features, this.cfg);
 
@@ -383,6 +430,10 @@ export class BuyPressureService {
             staleBlock: this.cfg.stale_block_states,
         });
 
+        const tags: BuyPressureTag[] = [];
+        if (large.hit) tags.push('LARGE_BID');
+        if (overheated) tags.push('OVERHEATED');
+
         const bpChase = computeBpChaseRisk(features);
         const rankOut = computeRadarRankScore({
             buy_pressure_score: scored.buy_pressure_score,
@@ -395,12 +446,32 @@ export class BuyPressureService {
             chase_risk: bpChase,
         });
 
+        const st = this.runtime.getState(row.symbol);
+        const lastTickAt = st?.last_tick_at ?? null;
+        const lastBaAt = st?.last_bidask_at ?? null;
+        const ageMs =
+            lastTickAt != null ? Math.max(0, nowMs - lastTickAt) : null;
+        const freshness =
+            features.data_stale || (ageMs != null && ageMs > 120_000)
+                ? 'STALE'
+                : ageMs != null && ageMs > 30_000
+                  ? 'AGING'
+                  : 'FRESH';
+
+        const conf: 'high' | 'medium' | 'low' =
+            scored.coverage_pct >= 80
+                ? 'high'
+                : scored.coverage_pct >= 50
+                  ? 'medium'
+                  : 'low';
+
         const nowIso = new Date().toISOString();
         const newEvents: BuyPressureEvent[] = [];
         const pushEv = (
             type: BpInternalEvent,
             note: string | null,
             notify: boolean,
+            reasons: string[],
         ) => {
             if (features.data_stale && this.cfg.stale_block_states) {
                 if (
@@ -424,30 +495,74 @@ export class BuyPressureService {
                 price: features.last_price,
                 note,
                 notification_candidate: notify && cooled,
+                reasons,
+                cycle_fresh: true,
             };
             if (notify && cooled) this.notifyCooldown.set(key, now);
             newEvents.push(ev);
         };
 
-        if (early) pushEv('EARLY_ENTER', '開始轉強', true);
+        const baseReasons: string[] = [];
+        if (features.volume_acceleration.value != null) {
+            baseReasons.push(
+                `3分鐘量能 ${features.volume_acceleration.value > 0 ? '+' : ''}${Math.round(features.volume_acceleration.value)}%`,
+            );
+        }
+        if (features.rank != null && features.rank_prev != null) {
+            baseReasons.push(`Rank ${features.rank_prev} → ${features.rank}`);
+        }
+        if (features.rvol.value != null) {
+            baseReasons.push(`RVOL ${features.rvol.value.toFixed(1)}x`);
+        }
+        if (features.distance_from_vwap_pct != null) {
+            baseReasons.push(
+                `VWAP ${features.distance_from_vwap_pct > 0 ? '+' : ''}${features.distance_from_vwap_pct.toFixed(1)}%`,
+            );
+        }
+
+        if (early)
+            pushEv('EARLY_ENTER', '開始轉強', true, [
+                ...baseReasons,
+                '尚未要求 C STRONG',
+            ].slice(0, 4));
         if (buySurge && !features.data_stale)
-            pushEv('BUY_SURGE', '買盤加速', true);
+            pushEv('BUY_SURGE', '買盤加速', true, [
+                ...baseReasons,
+                '主動買盤持續增強',
+            ].slice(0, 4));
         if (ask.eating && !features.data_stale)
-            pushEv('ASK_EATING', ask.note, true);
-        if (ask.cancel) pushEv('ASK_CANCEL', ask.note, false);
+            pushEv(
+                'ASK_EATING',
+                ask.note,
+                true,
+                [...baseReasons, ask.note ?? '正在吃賣單'].filter(Boolean).slice(0, 4) as string[],
+            );
+        if (ask.cancel)
+            pushEv('ASK_CANCEL', ask.note, false, [
+                ask.note ?? 'ASK_CANCEL',
+            ]);
         if (volBreak && !features.data_stale)
-            pushEv('VOLUME_BREAKOUT', '放量突破', true);
-        if (large.hit) pushEv('LARGE_BID_APPEAR', large.note, false);
+            pushEv('VOLUME_BREAKOUT', '放量突破', true, baseReasons.slice(0, 4));
+        if (large.hit)
+            pushEv('LARGE_BID_APPEAR', large.note, false, [
+                large.note ?? '大額委買出現',
+            ]);
         if (overheated)
-            pushEv('OVERHEATED', '買盤強，但短線延伸較大', false);
+            pushEv('OVERHEATED', '買盤強，短線延伸較大', false, [
+                '買盤強，短線延伸較大',
+                `Chase Risk ${bpChase}`,
+            ]);
         if (
             features.rank_velocity.available &&
             (features.rank_velocity.value ?? 0) >= 10
         ) {
-            pushEv('RANK_ACCELERATION', '排名加速前進', true);
+            pushEv('RANK_ACCELERATION', '排名加速前進', true, baseReasons.slice(0, 4));
         }
 
-        const prevLog = this.eventLog.get(row.symbol) ?? [];
+        const prevLog = (this.eventLog.get(row.symbol) ?? []).map((e) => ({
+            ...e,
+            cycle_fresh: false,
+        }));
         const merged = [...prevLog, ...newEvents].slice(-40);
         this.eventLog.set(row.symbol, merged);
 
@@ -461,6 +576,7 @@ export class BuyPressureService {
             radar_rank_score: rankOut.radar_rank_score,
             primary_state: primary,
             states,
+            tags,
             c_score: features.c_score,
             heat_score: features.heat_score,
             rank: features.rank,
@@ -477,7 +593,7 @@ export class BuyPressureService {
             chase_risk: bpChase,
             overheated,
             overheated_note: overheated
-                ? '買盤強，但短線延伸較大'
+                ? '買盤強，短線延伸較大'
                 : null,
             ask_eating_note: ask.eating ? ask.note : null,
             large_bid_note: large.hit ? large.note : null,
@@ -485,10 +601,24 @@ export class BuyPressureService {
             data_health: features.data_health,
             updated_at: nowIso,
             last_updated: row.updated_at || nowIso,
+            evaluated_at: nowIso,
+            last_tick_at:
+                lastTickAt != null ? new Date(lastTickAt).toISOString() : null,
+            last_bidask_at:
+                lastBaAt != null ? new Date(lastBaAt).toISOString() : null,
+            data_age_ms: ageMs,
+            freshness,
+            rvol_slope: slopes.rvol_slope,
+            volume_acceleration_slope: slopes.volume_acceleration_slope,
+            rvol_accel: slopes.rvol_accel,
+            volume_accel_label: slopes.volume_accel_label,
             events: merged,
-            notification_candidates: merged.filter((e) => e.notification_candidate),
+            notification_candidates: newEvents.filter(
+                (e) => e.notification_candidate,
+            ),
             feature_availability: scored.feature_availability,
             score_coverage_pct: scored.coverage_pct,
+            score_confidence: conf,
         };
     }
 }
