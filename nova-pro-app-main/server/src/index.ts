@@ -32,6 +32,7 @@ import {
     LiveAcceptanceService,
     ReadinessTracker,
 } from './lib/live-acceptance/index.ts';
+import { DecisionSummaryService } from './lib/decision-summary/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -261,6 +262,17 @@ async function main(): Promise<void> {
         `context-research: ${contextResearch.getHealth().version} (shadow/research only)`,
     );
 
+    const decisionSummary = new DecisionSummaryService(
+        intradayRank,
+        buyPressure,
+        marketContext,
+        eventIntelligence,
+    );
+    decisionSummary.start();
+    console.log(
+        `decision-summary: ${decisionSummary.getHealth().status} interval=${decisionSummary.cfg.evaluate_interval_sec}s (support only)`,
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -282,6 +294,7 @@ async function main(): Promise<void> {
         researchRepos,
         marketCalendar,
         liveAcceptance: null,
+        decisionSummary,
         startedAt: Date.now(),
     };
     const liveAcceptance = new LiveAcceptanceService(ctx, dataDir);

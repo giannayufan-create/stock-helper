@@ -168,6 +168,7 @@ export function TodayPage({
             sectorHeat: sec?.heat ?? null,
             taiwanRegime: tw?.state ?? null,
             eventConfirmed: hasMarketConfirmed && Boolean(sec),
+            decision: feed.dsBySymbol[symbol] ?? null,
         };
     };
 

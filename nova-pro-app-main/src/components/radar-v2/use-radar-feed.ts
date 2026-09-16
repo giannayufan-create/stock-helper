@@ -12,13 +12,19 @@ import {
     fetchBuyPressure,
     type BuyPressureItemDto,
 } from '../../lib/buy-pressure';
+import {
+    fetchDecisionSummary,
+    type DecisionSummaryDto,
+} from '../../lib/decision-summary';
 import { fetchMiOverview } from '../../lib/market-intelligence';
+import { fetchMarketContextOverview } from '../../lib/market-context';
 import type { LiveStatus } from './tokens';
 
 export interface SectorHint {
     name: string;
     rank: number | null;
     heat: number | null;
+    state?: string | null;
 }
 
 export interface RadarFeed {
@@ -36,6 +42,7 @@ export interface RadarFeed {
     openConfirm: OpenConfirmV2Result | null;
     marketScore: number;
     marketRegime: string;
+    taiwanRegime: string | null;
     strong: number;
     heating: number;
     emerging: number;
@@ -47,6 +54,7 @@ export interface RadarFeed {
     asOf: string | null;
     bpBySymbol: Record<string, BuyPressureItemDto>;
     sectorBySymbol: Record<string, SectorHint>;
+    dsBySymbol: Record<string, DecisionSummaryDto>;
     refresh: () => void;
 }
 
@@ -84,6 +92,10 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
     const [sectorBySymbol, setSectorBySymbol] = useState<
         Record<string, SectorHint>
     >({});
+    const [dsBySymbol, setDsBySymbol] = useState<
+        Record<string, DecisionSummaryDto>
+    >({});
+    const [taiwanRegime, setTaiwanRegime] = useState<string | null>(null);
     const [tick, setTick] = useState(0);
 
     const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -92,7 +104,8 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
         let cancelled = false;
         const load = async () => {
             try {
-                const [rank, ev, health, snaps, bp, mi] = await Promise.all([
+                const [rank, ev, health, snaps, bp, mi, ds, mc] =
+                    await Promise.all([
                     fetchIntradayRank({ limit: 40, includeWatch: true }),
                     fetchIntradayEvents(40),
                     fetchHealth().catch(() => null),
@@ -101,6 +114,8 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     >),
                     fetchBuyPressure({ limit: 80 }).catch(() => null),
                     fetchMiOverview().catch(() => null),
+                    fetchDecisionSummary({ limit: 80 }).catch(() => null),
+                    fetchMarketContextOverview().catch(() => null),
                 ]);
                 if (cancelled) return;
 
@@ -139,6 +154,13 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     }
                 }
                 setSectorBySymbol(secMap);
+
+                const dsMap: Record<string, DecisionSummaryDto> = {};
+                for (const row of ds?.items ?? []) {
+                    dsMap[row.symbol] = row;
+                }
+                setDsBySymbol(dsMap);
+                setTaiwanRegime(mc?.taiwan_regime?.state ?? null);
 
                 const idx = snaps.find((s) => s.code === '001');
                 const otc = snaps.find((s) => s.code === '101');
@@ -211,6 +233,7 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             openConfirm,
             marketScore: openConfirm?.market_score ?? 50,
             marketRegime: openConfirm?.market_regime ?? 'neutral',
+            taiwanRegime,
             strong,
             heating,
             emerging,
@@ -222,6 +245,7 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             asOf,
             bpBySymbol,
             sectorBySymbol,
+            dsBySymbol,
             refresh,
         }),
         [
@@ -229,6 +253,7 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             items,
             events,
             openConfirm,
+            taiwanRegime,
             strong,
             heating,
             emerging,
@@ -239,6 +264,7 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             asOf,
             bpBySymbol,
             sectorBySymbol,
+            dsBySymbol,
             refresh,
         ],
     );

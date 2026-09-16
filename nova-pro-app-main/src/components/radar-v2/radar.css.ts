@@ -992,3 +992,32 @@ export const detailBackBar = style({
     borderTop: `1px solid ${radarColor.glassBorder}`,
     background: 'rgba(8, 12, 20, 0.94)',
 });
+
+export const decisionBlock = style({
+    marginTop: 10,
+    marginBottom: 10,
+    textAlign: 'left',
+});
+
+export const decisionStatus = style({
+    fontSize: 13,
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    lineHeight: 1.3,
+});
+
+export const decisionHeadline = style({
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: 600,
+    color: vars.color.foreground,
+    lineHeight: 1.4,
+});
+
+export const decisionSection = style([
+    glass,
+    {
+        padding: '14px 16px',
+        marginBottom: 16,
+    },
+]);

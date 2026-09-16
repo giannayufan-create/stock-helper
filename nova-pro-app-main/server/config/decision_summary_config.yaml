@@ -1,0 +1,39 @@
+# Decision Summary Engine v1 — Decision Support only.
+# NEVER mutates A / B / C / Buy Pressure / Heat / Rank / production thresholds.
+
+enabled: true
+version: ds_v1
+evaluate_interval_sec: 5
+
+# Core confirmation (status gate — does not change C/BP scores)
+c_min_watch: 80
+c_min_confirmed: 80
+bp_min_confirmed: 70
+rank_strong_max: 30
+rank_improve_min: 5
+rvol_strong_min: 1.5
+volume_accel_positive_min: 0
+vwap_above_min_pct: 0
+vwap_extended_pct: 4
+confirm_streak_required: 2
+
+# Data gate
+coverage_not_ready_below: 40
+require_price: true
+require_vwap: true
+
+# Confidence (≠ strength)
+coverage_confidence_high_min: 75
+coverage_confidence_medium_min: 55
+context_coverage_weight: 0.25
+
+# Context
+sector_breadth_strong_min: 0.55
+sector_rs_positive_min: 0
+
+# Chase → EXTENDED (does not lower C/BP)
+chase_extended:
+  - high
+  - extreme
+  - HIGH
+  - EXTREME

@@ -344,7 +344,8 @@ export function RadarApp({
             <StockDetailPage
                 item={detailItem}
                 favorite={favorites.includes(detailSymbol)}
-                marketRegime={feed.marketRegime}
+                marketRegime={feed.taiwanRegime ?? feed.marketRegime}
+                decision={feed.dsBySymbol[detailSymbol] ?? null}
                 onBack={closeDetail}
                 onToggleFavorite={setFavorites}
                 onSelectCode={onSelectCode}

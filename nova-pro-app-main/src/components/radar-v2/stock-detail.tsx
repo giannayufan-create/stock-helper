@@ -51,6 +51,11 @@ import {
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 import { deriveConfirmLayers } from './ui-context';
+import {
+    DECISION_STATUS_EMOJI,
+    DECISION_STATUS_LABEL,
+    type DecisionSummaryDto,
+} from '../../lib/decision-summary';
 
 const AI_STALE_MS = 4 * 60 * 1000;
 
@@ -62,6 +67,7 @@ export function StockDetailPage({
     onToggleFavorite,
     onSelectCode,
     desktop = false,
+    decision = null,
 }: {
     item: IntradayRankItemDto;
     favorite: boolean;
@@ -70,6 +76,7 @@ export function StockDetailPage({
     onToggleFavorite: (codes: string[]) => void;
     onSelectCode: (code: string) => void;
     desktop?: boolean;
+    decision?: DecisionSummaryDto | null;
 }) {
     const quote = useQuote(item.symbol);
     const [snapPrice, setSnapPrice] = useState<number | null>(null);
@@ -171,12 +178,13 @@ export function StockDetailPage({
     const rawPct = item.raw_change_pct ?? null;
     const confirmLayers = useMemo(
         () =>
+            decision?.layers ??
             deriveConfirmLayers({
                 state: item.state,
                 taiwanRegime: marketRegime,
                 eventConfirmed: (item.events ?? []).length > 0,
             }),
-        [item.state, item.events, marketRegime],
+        [decision?.layers, item.state, item.events, marketRegime],
     );
     const whyStrongReasons = useMemo(() => {
         const bullets: string[] = [];
@@ -441,6 +449,84 @@ export function StockDetailPage({
                     {stateLabel(item.state)}
                     {event ? ` · ${eventLabel(event)}` : ''}
                 </div>
+
+                {decision ? (
+                    <div className={s.decisionSection}>
+                        <div
+                            className={s.decisionStatus}
+                            style={{
+                                color:
+                                    decision.status === 'CONFIRMED_STRENGTH'
+                                        ? radarColor.strong
+                                        : decision.status === 'EXTENDED'
+                                          ? '#a78bfa'
+                                          : decision.status === 'WATCH'
+                                            ? '#f59e0b'
+                                            : vars.color.mutedForeground,
+                            }}
+                        >
+                            {DECISION_STATUS_EMOJI[decision.status]}{' '}
+                            {DECISION_STATUS_LABEL[decision.status]}
+                        </div>
+                        <div className={s.decisionHeadline}>
+                            {decision.headline}
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                            <ConfirmLayersRow layers={confirmLayers} />
+                        </div>
+                        <div
+                            style={{
+                                marginTop: 12,
+                                fontSize: 12,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            Context {decision.context_alignment} · Confidence{' '}
+                            {decision.confidence} · Coverage{' '}
+                            {Math.round(decision.data_coverage_pct)}%
+                        </div>
+                        {decision.confirmed_reasons.length > 0 ? (
+                            <div style={{ marginTop: 12 }}>
+                                <div className={s.zoneTitle}>已確認</div>
+                                <ul className={s.reasonList}>
+                                    {decision.confirmed_reasons.map((r) => (
+                                        <li key={r}>{r}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                        {decision.missing_confirmations.length > 0 ? (
+                            <div style={{ marginTop: 12 }}>
+                                <div className={s.zoneTitle}>尚缺條件</div>
+                                <ul className={s.reasonList}>
+                                    {decision.missing_confirmations.map((r) => (
+                                        <li key={r}>{r}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                        {decision.risk_flags.length > 0 ? (
+                            <div style={{ marginTop: 12 }}>
+                                <div className={s.zoneTitle}>Risk</div>
+                                <ul className={s.reasonList}>
+                                    {decision.risk_flags.map((r) => (
+                                        <li key={r}>{r}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                        {decision.next_confirmations.length > 0 ? (
+                            <div style={{ marginTop: 12 }}>
+                                <div className={s.zoneTitle}>下一步觀察</div>
+                                <ul className={s.reasonList}>
+                                    {decision.next_confirmations.map((r) => (
+                                        <li key={r}>{r}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                    </div>
+                ) : null}
 
                 {/* 1. 為什麼現在變強？ */}
                 <div className={s.zoneBlock}>

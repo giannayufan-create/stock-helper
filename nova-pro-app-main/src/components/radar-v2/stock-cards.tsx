@@ -1,5 +1,10 @@
 import type { IntradayRankItemDto } from '../../lib/backend';
 import type { BuyPressureItemDto } from '../../lib/buy-pressure';
+import {
+    DECISION_STATUS_EMOJI,
+    DECISION_STATUS_LABEL,
+    type DecisionSummaryDto,
+} from '../../lib/decision-summary';
 import { vars } from '../../theme.css';
 import {
     chaseLabel,
@@ -24,6 +29,13 @@ function pctTone(pct: number | null | undefined) {
     return pct > 0 ? s.toneUp : s.toneDown;
 }
 
+function decisionTone(status: DecisionSummaryDto['status']): string {
+    if (status === 'CONFIRMED_STRENGTH') return radarColor.strong;
+    if (status === 'EXTENDED') return '#a78bfa';
+    if (status === 'WATCH') return '#f59e0b';
+    return vars.color.mutedForeground;
+}
+
 export interface RadarCardEnrichment {
     bp?: BuyPressureItemDto | null;
     sectorName?: string | null;
@@ -33,6 +45,7 @@ export interface RadarCardEnrichment {
     taiwanRegime?: string | null;
     eventConfirmed?: boolean;
     layers?: ConfirmLayers;
+    decision?: DecisionSummaryDto | null;
 }
 
 /** Premium radar card — curated metrics only. */
@@ -61,6 +74,7 @@ export function CompactStockRow({
         Boolean(bp?.data_stale);
     const price = item.last_price;
     const layers =
+        enrich?.decision?.layers ??
         enrich?.layers ??
         deriveConfirmLayers({
             state: item.state,
@@ -70,6 +84,7 @@ export function CompactStockRow({
             taiwanRegime: enrich?.taiwanRegime,
             eventConfirmed: enrich?.eventConfirmed,
         });
+    const decision = enrich?.decision ?? null;
     const event = primaryEvent(item);
     const rankChg = item.rank_change;
     const chase = bp?.chase_risk ?? item.risk?.chase_risk;
@@ -192,6 +207,19 @@ export function CompactStockRow({
                     ) : null}
                 </div>
             </div>
+
+            {decision ? (
+                <div className={s.decisionBlock}>
+                    <div
+                        className={s.decisionStatus}
+                        style={{ color: decisionTone(decision.status) }}
+                    >
+                        {DECISION_STATUS_EMOJI[decision.status]}{' '}
+                        {DECISION_STATUS_LABEL[decision.status]}
+                    </div>
+                    <div className={s.decisionHeadline}>{decision.headline}</div>
+                </div>
+            ) : null}
 
             <div className={s.cardMetaGrid}>
                 <div className={s.cardMetaCell}>

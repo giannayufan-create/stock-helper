@@ -143,8 +143,11 @@ export function RadarPage({
                                 feed.sectorBySymbol[item.symbol]?.rank ?? null,
                             sectorHeat:
                                 feed.sectorBySymbol[item.symbol]?.heat ?? null,
-                            taiwanRegime: null,
+                            sectorState:
+                                feed.sectorBySymbol[item.symbol]?.state ?? null,
+                            taiwanRegime: feed.taiwanRegime,
                             eventConfirmed: false,
+                            decision: feed.dsBySymbol[item.symbol] ?? null,
                         }}
                     />
                 ))
