@@ -42,4 +42,12 @@ else
 fi
 
 # Bind Render $PORT ASAP (public HTTP). Bridge stays on 127.0.0.1:18080 only.
-exec npx tsx src/index.ts
+# Use local node_modules binaries — never npx (which may fetch a bare tsx
+# without installing server deps like fastify).
+if [ ! -d /app/server/node_modules/fastify ]; then
+  echo "FATAL: /app/server/node_modules/fastify missing — image build did not install server deps"
+  ls -la /app/server/node_modules 2>/dev/null | head -50 || true
+  exit 1
+fi
+cd /app/server
+exec npm start

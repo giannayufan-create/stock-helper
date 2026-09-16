@@ -9,13 +9,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Frontend deps
+# Frontend deps (root is pnpm; prefer lockfile when present, else npm install)
 COPY package.json package-lock.json* pnpm-lock.yaml* ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN if [ -f package-lock.json ]; then npm ci; \
+    elif [ -f pnpm-lock.yaml ]; then npm install -g pnpm@9.15.9 && pnpm install --frozen-lockfile; \
+    else npm install; fi
 
-# Server deps
-COPY server/package.json server/package-lock.json* ./server/
-RUN cd server && if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# Server deps — NEVER reuse a broken lock that points at ../node_modules/.pnpm
+# (local pnpm hoist lockfiles break Docker npm ci and leave fastify missing at runtime)
+COPY server/package.json ./server/
+WORKDIR /app/server
+RUN npm install --omit=dev \
+    && node -e "require('fastify'); require('tsx/package.json'); console.log('server deps ok')"
+
+WORKDIR /app
 
 # Shioaji bridge deps — fail the image build if import breaks
 COPY shioaji-bridge/requirements.txt ./shioaji-bridge/
@@ -23,7 +30,7 @@ RUN pip3 install --break-system-packages --upgrade pip \
     && pip3 install --break-system-packages -r shioaji-bridge/requirements.txt \
     && python3 -c "import shioaji, fastapi, uvicorn; print('shioaji', shioaji.__version__)"
 
-# Source
+# Source (node_modules excluded via .dockerignore)
 COPY . .
 
 # Build SPA (relative /api — same origin when Fastify serves dist)
