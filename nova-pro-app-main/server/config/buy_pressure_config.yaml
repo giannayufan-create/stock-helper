@@ -1,0 +1,67 @@
+# Buy Pressure Radar v1 — context only; never mutates A/B/C.
+enabled: true
+version: bp_v1
+evaluate_interval_sec: 2
+bidask_history_len: 12
+near_vwap_pct: 0.35
+notification_cooldown_sec: 90
+stale_block_states: true
+
+score_weights:
+  volume_acceleration: 0.25
+  trade_aggression: 0.2
+  rvol: 0.15
+  rank_velocity: 0.15
+  momentum_acceleration: 0.1
+  vwap_structure: 0.1
+  bidask_imbalance: 0.05
+
+early:
+  min_rank_improve: 8
+  min_volume_accel: 20
+  min_rvol: 1.5
+  require_above_vwap: true
+  min_momentum: 0
+  min_aggression: 40
+
+buy_surge:
+  min_rvol: 1.8
+  min_volume_accel: 40
+  min_momentum: 10
+  min_aggression: 55
+  min_rank_velocity: 5
+  min_score: 65
+
+ask_eating:
+  min_ask_drop_pct: 0.4
+  min_executed_ratio: 0.5
+  min_snapshots: 3
+
+ask_cancel:
+  max_executed_ratio: 0.15
+
+large_bid:
+  min_multiple_of_avg: 2.5
+  min_history: 4
+
+volume_breakout:
+  min_volume_accel: 30
+  min_aggression: 50
+  require_rank_improving: true
+
+overheated:
+  min_change_pct: 7
+  min_heat: 90
+  min_vwap_distance_pct: 3
+  chase_risks: [high, extreme]
+
+cooling:
+  max_volume_accel: 0
+  max_rank_velocity: 0
+
+ranking:
+  early_bonus: 12
+  rank_velocity_bonus_scale: 0.35
+  fresh_accel_bonus_scale: 0.12
+  chase_penalty_scale: 8
+  overheated_penalty: 25

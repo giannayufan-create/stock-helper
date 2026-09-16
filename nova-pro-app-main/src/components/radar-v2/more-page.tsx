@@ -9,11 +9,13 @@ export function MorePage({
     onOpenSearch,
     onGoIntel,
     onGoBrokerRadar,
+    onGoBuyPressure,
 }: {
     feed: RadarFeed;
     onOpenSearch?: () => void;
     onGoIntel?: () => void;
     onGoBrokerRadar?: () => void;
+    onGoBuyPressure?: () => void;
 }) {
     const coverageB =
         feed.openConfirm?.items?.length
@@ -85,6 +87,25 @@ export function MorePage({
                     </p>
                 )}
             </div>
+
+            <button
+                type="button"
+                className={s.stockCard}
+                onClick={onGoBuyPressure}
+                disabled={!onGoBuyPressure}
+                style={{ marginBottom: 10 }}
+            >
+                <strong>🔥 即時買盤雷達</strong>
+                <div
+                    style={{
+                        fontSize: 13,
+                        color: vars.color.mutedForeground,
+                        marginTop: 4,
+                    }}
+                >
+                    EARLY · 買盤加速 · 吃賣單 · 放量突破（context only）
+                </div>
+            </button>
 
             <button
                 type="button"

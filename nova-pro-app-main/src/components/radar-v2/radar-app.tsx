@@ -12,6 +12,7 @@ import { liveStatusLabel, taipeiClock } from './helpers';
 import { MorePage } from './more-page';
 import { IntelPage } from './intel-page';
 import { BrokerRadarPage } from './broker-radar-page';
+import { BuyPressurePage } from './buy-pressure-page';
 import { PerformancePage } from './performance-page';
 import * as s from './radar.css';
 import { RadarPage } from './radar-page';
@@ -41,7 +42,7 @@ export function RadarApp({
     const isDesktop = useMediaQuery('screen and (min-width: 1025px)');
     const feed = useRadarFeed(5000);
     const [tab, setTab] = useState<RadarTab>('radar');
-    const [radarInner, setRadarInner] = useState<string>('strong');
+    const [radarInner, setRadarInner] = useState<string>('buy');
     const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
     const [favorites, setFavorites] = useState<string[]>(() => loadFavorites());
     const [clock, setClock] = useState(() => taipeiClock());
@@ -50,6 +51,7 @@ export function RadarApp({
     );
     const [showIntel, setShowIntel] = useState(false);
     const [showBrokerRadar, setShowBrokerRadar] = useState(false);
+    const [showBuyPressure, setShowBuyPressure] = useState(false);
 
     useEffect(() => {
         const t = setInterval(() => setClock(taipeiClock()), 15_000);
@@ -93,6 +95,14 @@ export function RadarApp({
                         openSymbol(sym);
                     }}
                 />
+            ) : showBuyPressure ? (
+                <BuyPressurePage
+                    onBack={() => setShowBuyPressure(false)}
+                    onOpenSymbol={(sym) => {
+                        setShowBuyPressure(false);
+                        openSymbol(sym);
+                    }}
+                />
             ) : showIntel ? (
                 <IntelPage
                     onBack={() => {
@@ -107,7 +117,7 @@ export function RadarApp({
                     selectedSymbol={detailSymbol}
                     onOpenSymbol={openSymbol}
                     onGoRadar={(inner) => {
-                        setRadarInner(inner ?? 'strong');
+                        setRadarInner(inner ?? 'buy');
                         setTab('radar');
                         if (!isDesktop) closeDetail();
                     }}
@@ -123,13 +133,39 @@ export function RadarApp({
                 />
             )}
             {tab === 'radar' && (
-                <RadarPage
-                    feed={feed}
-                    initialTab={radarInner}
-                    selectedSymbol={detailSymbol}
-                    onOpenSymbol={openSymbol}
-                    onOpenSearch={onOpenSearch}
-                />
+                <>
+                    <div className={s.quickBar} style={{ marginBottom: 10 }}>
+                        <button
+                            type="button"
+                            className={`${s.quickBtn} ${
+                                radarInner === 'buy' ? s.tabChipOn : ''
+                            }`}
+                            onClick={() => setRadarInner('buy')}
+                        >
+                            🔥 即時買盤
+                        </button>
+                        <button
+                            type="button"
+                            className={`${s.quickBtn} ${
+                                radarInner !== 'buy' ? s.tabChipOn : ''
+                            }`}
+                            onClick={() => setRadarInner('strong')}
+                        >
+                            強度雷達
+                        </button>
+                    </div>
+                    {radarInner === 'buy' ? (
+                        <BuyPressurePage onOpenSymbol={openSymbol} />
+                    ) : (
+                        <RadarPage
+                            feed={feed}
+                            initialTab={radarInner}
+                            selectedSymbol={detailSymbol}
+                            onOpenSymbol={openSymbol}
+                            onOpenSearch={onOpenSearch}
+                        />
+                    )}
+                </>
             )}
             {tab === 'watch' && (
                 <WatchPage
@@ -149,6 +185,7 @@ export function RadarApp({
                     onOpenSearch={onOpenSearch}
                     onGoIntel={() => setShowIntel(true)}
                     onGoBrokerRadar={() => setShowBrokerRadar(true)}
+                    onGoBuyPressure={() => setShowBuyPressure(true)}
                 />
             )}
             <div className={s.pageEnd} />

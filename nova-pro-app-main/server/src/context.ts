@@ -4,6 +4,7 @@ import type { Config } from './config.ts';
 import type { IntradayRankService } from './lib/intraday-rank/service.ts';
 import type { MarketIntelligenceService } from './lib/market-intelligence/index.ts';
 import type { BrokerIntelligenceService } from './lib/broker-intelligence/index.ts';
+import type { BuyPressureService } from './lib/buy-pressure/index.ts';
 import type { MarketRuntime } from './lib/market-runtime/index.ts';
 import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import type { MarketManager } from './providers/manager.ts';
@@ -33,6 +34,8 @@ export interface AppContext {
     marketIntelligence: MarketIntelligenceService | null;
     /** Broker/branch context — never mutates A/B/C; no fabricated branches. */
     brokerIntelligence: BrokerIntelligenceService | null;
+    /** Buy pressure context — never mutates A/B/C; no new upstream subs. */
+    buyPressure: BuyPressureService | null;
     startedAt: number;
 }
 
