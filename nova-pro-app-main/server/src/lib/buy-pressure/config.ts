@@ -74,6 +74,13 @@ export interface BuyPressureConfig {
     stale_block_states: boolean;
     /** Near VWAP band as abs % */
     near_vwap_pct: number;
+    /** Timestamp window for EARLY / accel slopes (ms). */
+    slope_window_ms: number;
+    /**
+     * Max symbols BP actively evaluates from Broad Discovery ∩ already-subscribed
+     * runtime. Never creates new upstream subscriptions.
+     */
+    max_active_observation: number;
 }
 
 export const DEFAULT_BP_CONFIG: BuyPressureConfig = {
@@ -143,6 +150,8 @@ export const DEFAULT_BP_CONFIG: BuyPressureConfig = {
     notification_cooldown_sec: 90,
     stale_block_states: true,
     near_vwap_pct: 0.35,
+    slope_window_ms: 90_000,
+    max_active_observation: 80,
 };
 
 function deepMerge<T extends Record<string, unknown>>(

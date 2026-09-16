@@ -32,7 +32,28 @@ export function registerBuyPressureRoutes(
                 buy_pressure_available: false,
             };
         }
-        return { buy_pressure_available: true, ...svc.getHealth() };
+        const health = svc.getHealth();
+        const snap = ctx.marketRuntime?.subscriptions.snapshot() ?? {};
+        return {
+            buy_pressure_available: true,
+            ...health,
+            upstream_subscription_symbols: Object.keys(snap).length,
+            upstream_holders: Object.fromEntries(
+                Object.entries(snap).map(([k, v]) => [k, v]),
+            ),
+        };
+    });
+
+    /** Lightweight upstream subscription count for live acceptance tests. */
+    app.get('/api/v1/data/buy-pressure/upstream-subscriptions', async () => {
+        const snap = ctx.marketRuntime?.subscriptions.snapshot() ?? {};
+        const symbols = Object.keys(snap);
+        return {
+            count: symbols.length,
+            symbols,
+            holders: snap,
+            as_of: new Date().toISOString(),
+        };
     });
 
     app.get('/api/v1/data/buy-pressure', async (req, reply) => {

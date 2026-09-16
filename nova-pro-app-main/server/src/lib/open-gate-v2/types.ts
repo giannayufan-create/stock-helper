@@ -72,6 +72,13 @@ export interface SymbolMarketState {
     best_ask: number;
     bid_volume: number;
     ask_volume: number;
+    /** Full book levels when provider sends them; length 1 = best-only. */
+    bid_levels?: number[];
+    ask_levels?: number[];
+    bid_qty_levels?: number[];
+    ask_qty_levels?: number[];
+    /** Count of usable ask/bid price levels from last BidAsk event. */
+    orderbook_depth?: number;
     tick_count: number;
     last_tick_at: number | null;
     last_bidask_at: number | null;

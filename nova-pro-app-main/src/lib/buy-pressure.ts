@@ -49,6 +49,14 @@ export interface BuyPressureItemDto {
         notification_candidate: boolean;
     }>;
     score_coverage_pct: number;
+    score_confidence?: 'high' | 'medium' | 'low';
+    universe_source?: string;
+    discovery_reason?: string | null;
+    orderbook_depth_available?: number;
+    ask_eating_confidence?: string;
+    breakout_type?: string | null;
+    reference_level?: number | null;
+    reference_time?: string | null;
 }
 
 export interface BuyPressureBatchDto {

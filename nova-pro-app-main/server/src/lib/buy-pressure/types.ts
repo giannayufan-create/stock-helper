@@ -16,6 +16,27 @@ export type BuyPressureMarket = 'ALL' | 'TSE' | 'OTC' | 'ESM';
 
 export type VwapBucket = 'Above VWAP' | 'Near VWAP' | 'Below VWAP';
 
+export type BreakoutRefType =
+    | 'OPENING_RANGE_HIGH'
+    | 'LOCAL_HIGH'
+    | 'PREVIOUS_BREAKOUT_LEVEL'
+    | 'INTRADAY_HIGH';
+
+export type UniverseSource =
+    | 'C_TOP_RANK'
+    | 'C_DISCOVERY'
+    | 'A_POOL'
+    | 'B_PASS'
+    | 'B_WATCH'
+    | 'SCANNER_VOLUME'
+    | 'SCANNER_CHANGE'
+    | 'SCANNER_AMOUNT'
+    | 'SCANNER_TICK'
+    | 'SCANNER_DAYRANGE'
+    | 'UNKNOWN';
+
+export type DiscoveryReason = UniverseSource;
+
 export type BpInternalEvent =
     | 'EARLY_ENTER'
     | 'BUY_SURGE'
@@ -41,11 +62,12 @@ export interface BidAskSnap {
     last_price: number;
     total_volume: number;
     ask_executed_delta: number;
-    /** Best-level mirrors — full depth when unavailable. */
+    /** Full available levels from provider (may be length 1 = best-only). */
     bid_levels: number[];
     ask_levels: number[];
     bid_qty: number[];
     ask_qty: number[];
+    orderbook_depth_available: number;
 }
 
 export interface BuyPressureFeatures {
@@ -141,6 +163,15 @@ export interface BuyPressureItem {
     feature_availability: Record<string, boolean>;
     score_coverage_pct: number;
     score_confidence: 'high' | 'medium' | 'low';
+    universe_source: UniverseSource;
+    discovery_reason: DiscoveryReason | null;
+    orderbook_depth_available: number;
+    ask_eating_confidence: 'high' | 'medium' | 'low' | 'none';
+    breakout_type: BreakoutRefType | null;
+    reference_level: number | null;
+    reference_time: string | null;
+    slope_window_ms: number;
+    slope_sample_count: number;
 }
 
 export interface BuyPressureBatch {

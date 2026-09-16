@@ -2,7 +2,11 @@
 // Context only — NEVER mutates A/B/C / Heat / Rank / Events.
 // NEVER creates Shioaji upstream subscriptions.
 
-import type { IntradayRankItem } from '../intraday-rank/types.ts';
+import type {
+    CandidateSource,
+    DiscoveryItem,
+    IntradayRankItem,
+} from '../intraday-rank/types.ts';
 import type { IntradayRankService } from '../intraday-rank/service.ts';
 import type { MarketRuntime } from '../market-runtime/index.ts';
 import type { WebNotificationService } from '../web-notifications/index.ts';
@@ -20,8 +24,10 @@ import {
     detectVolumeBreakout,
     resolveStates,
     vwapBucket,
+    type BreakoutReference,
 } from './detectors.ts';
 import {
+    DEFAULT_SLOPE_WINDOW_MS,
     FeatureHistoryStore,
     slopesFromHistory,
 } from './feature-history.ts';
@@ -46,6 +52,8 @@ import type {
     BuyPressureState,
     BuyPressureTag,
     BpInternalEvent,
+    DiscoveryReason,
+    UniverseSource,
 } from './types.ts';
 import { BP_VERSION } from './types.ts';
 
@@ -70,6 +78,60 @@ function isStaleHealth(h: string | undefined): boolean {
     );
 }
 
+function mapSource(src: CandidateSource | string | undefined): UniverseSource {
+    switch (src) {
+        case 'A':
+            return 'A_POOL';
+        case 'B_PASS':
+            return 'B_PASS';
+        case 'B_WATCH':
+            return 'B_WATCH';
+        case 'SCANNER_VOLUME':
+            return 'SCANNER_VOLUME';
+        case 'SCANNER_CHANGE':
+            return 'SCANNER_CHANGE';
+        case 'SCANNER_AMOUNT':
+            return 'SCANNER_AMOUNT';
+        case 'SCANNER_TICK':
+            return 'SCANNER_TICK';
+        case 'SCANNER_DAYRANGE':
+            return 'SCANNER_DAYRANGE';
+        default:
+            return 'UNKNOWN';
+    }
+}
+
+function pickUniverseSource(
+    sources: CandidateSource[] | undefined,
+    inCTop: boolean,
+): { universe_source: UniverseSource; discovery_reason: DiscoveryReason | null } {
+    if (inCTop) {
+        return { universe_source: 'C_TOP_RANK', discovery_reason: null };
+    }
+    const order: CandidateSource[] = [
+        'SCANNER_VOLUME',
+        'SCANNER_AMOUNT',
+        'SCANNER_CHANGE',
+        'SCANNER_TICK',
+        'SCANNER_DAYRANGE',
+        'B_PASS',
+        'B_WATCH',
+        'A',
+    ];
+    for (const s of order) {
+        if (sources?.includes(s)) {
+            const u = mapSource(s);
+            return { universe_source: u, discovery_reason: u };
+        }
+    }
+    return { universe_source: 'C_DISCOVERY', discovery_reason: 'C_DISCOVERY' };
+}
+
+interface OpeningRange {
+    high: number;
+    high_at: number;
+}
+
 export class BuyPressureService {
     readonly cfg: BuyPressureConfig;
     private timer: ReturnType<typeof setInterval> | null = null;
@@ -80,6 +142,14 @@ export class BuyPressureService {
     private notifyCooldown = new Map<string, number>();
     private featureHistory = new FeatureHistoryStore();
     private notifications: WebNotificationService | null = null;
+    /** Session opening-range high (first 15m) per symbol. */
+    private openingRange = new Map<string, OpeningRange>();
+    /** Last confirmed breakout level for PREVIOUS_BREAKOUT_LEVEL. */
+    private prevBreakout = new Map<
+        string,
+        { level: number; at: number }
+    >();
+    private peakOrderbookDepth = 0;
 
     constructor(
         private intradayRank: IntradayRankService,
@@ -89,7 +159,6 @@ export class BuyPressureService {
         this.cfg = cfg ?? loadBuyPressureConfig();
     }
 
-    /** Wire notification consumer after construction (avoids circular boot). */
     setNotificationSink(svc: WebNotificationService | null): void {
         this.notifications = svc;
     }
@@ -108,8 +177,14 @@ export class BuyPressureService {
         this.timer = null;
     }
 
-    getHealth(): BuyPressureHealth {
+    getHealth(): BuyPressureHealth & {
+        orderbook_depth_available_peak: number;
+        max_active_observation: number;
+        upstream_subscription_count: number;
+        creates_upstream_subscription: false;
+    } {
         const stale = this.lastBatch?.data_stale_global ?? false;
+        const snap = this.runtime.subscriptions.snapshot();
         return {
             enabled: this.cfg.enabled,
             status: !this.cfg.enabled
@@ -122,9 +197,12 @@ export class BuyPressureService {
             version: BP_VERSION,
             last_evaluate_at: this.lastEvaluateAt,
             item_count: this.lastBatch?.count ?? 0,
-            note: 'Buy Pressure reads MarketRuntime + IntradayRank only; no new upstream subscriptions.',
+            note: 'Buy Pressure reads MarketRuntime + IntradayRank Discovery only; no new upstream subscriptions.',
             creates_upstream_subscription: false,
             mutates_strategy: false,
+            orderbook_depth_available_peak: this.peakOrderbookDepth,
+            max_active_observation: this.cfg.max_active_observation,
+            upstream_subscription_count: Object.keys(snap).length,
         };
     }
 
@@ -138,7 +216,7 @@ export class BuyPressureService {
         if (fromBatch) return fromBatch;
         const ranked = this.intradayRank.getSymbol(code);
         if (!ranked) return null;
-        return this.buildItem(ranked);
+        return this.buildItem(ranked, true);
     }
 
     list(query: BuyPressureQuery = {}): BuyPressureBatch {
@@ -155,7 +233,6 @@ export class BuyPressureService {
 
         let items = [...base.items];
 
-        // Price filter — display only; scores already computed without it.
         if (query.min_price != null || query.max_price != null) {
             items = applyPriceFilter(items, query.min_price, query.max_price);
         }
@@ -186,7 +263,6 @@ export class BuyPressureService {
                 );
             }
         }
-        // 「僅未過熱」— user opt-in only; default includes OVERHEATED
         if (query.overheated === false) {
             items = items.filter((i) => !i.overheated);
         } else if (query.overheated === true) {
@@ -209,19 +285,51 @@ export class BuyPressureService {
         };
     }
 
-    /** Evaluate cycle — read-only against runtime + C batch. */
+    /**
+     * Broad Discovery → Candidate Pool → active observation (already subscribed)
+     * → BuyPressureEngine. Never acquire new Shioaji upstream.
+     */
     evaluate(): BuyPressureBatch {
         const batch = this.intradayRank.getLastBatch();
+        const discovery = this.intradayRank.getDiscoveryPool();
         const warnings: string[] = [];
-        if (!batch) {
-            warnings.push('intraday_rank_empty');
+        if (!batch) warnings.push('intraday_rank_empty');
+
+        const cItems = batch?.items ?? [];
+        const cSet = new Set(cItems.map((i) => i.symbol));
+        const candidates: Array<{
+            row: IntradayRankItem;
+            inCTop: boolean;
+        }> = [];
+
+        for (const row of cItems) {
+            candidates.push({ row, inCTop: true });
         }
+
+        // Discovery symbols not yet in C Top Rank — only if already observed
+        for (const d of discovery) {
+            if (cSet.has(d.symbol)) continue;
+            if (!this.runtime.getState(d.symbol)) continue;
+            candidates.push({
+                row: this.syntheticRankFromDiscovery(d),
+                inCTop: false,
+            });
+        }
+
+        const maxObs = Math.max(10, this.cfg.max_active_observation);
+        const limited = candidates.slice(0, maxObs);
+        if (candidates.length > maxObs) {
+            warnings.push(
+                `active_observation_capped:${maxObs}/${candidates.length}`,
+            );
+        }
+
         const items: BuyPressureItem[] = [];
         let staleGlobal = false;
-
-        for (const row of batch?.items ?? []) {
+        for (const { row, inCTop } of limited) {
             this.captureBidAsk(row.symbol);
-            const item = this.buildItem(row);
+            this.trackOpeningRange(row.symbol);
+            const item = this.buildItem(row, inCTop);
             if (item.data_stale) staleGlobal = true;
             items.push(item);
         }
@@ -247,9 +355,128 @@ export class BuyPressureService {
         return out;
     }
 
-    /** Test hook: inject bid/ask history without live market. */
     __setBidAskHistory(symbol: string, snaps: BidAskSnap[]): void {
         this.bidAskHistory.set(symbol, snaps);
+    }
+
+    private syntheticRankFromDiscovery(d: DiscoveryItem): IntradayRankItem {
+        const st = this.runtime.getState(d.symbol);
+        const nowIso = new Date().toISOString();
+        return {
+            symbol: d.symbol,
+            name: d.name || d.symbol,
+            candidate_origin: d.candidate_origin,
+            candidate_sources: d.candidate_sources,
+            a_score: d.a_score,
+            open_score: d.open_score,
+            open_gate_status: d.open_gate_status,
+            rank: 999,
+            rank_prev: null,
+            rank_change: null,
+            rank_1m_ago: null,
+            rank_5m_ago: null,
+            rank_velocity: null,
+            last_price: st?.last_price ?? null,
+            change_pct: d.change_pct,
+            intraday_score: Math.min(100, d.discovery_score),
+            raw_intraday_score: d.discovery_score,
+            heat_score: 0,
+            state: 'EMERGING',
+            metrics: {
+                return_30s: null,
+                return_1m: null,
+                return_3m: null,
+                return_5m: null,
+                momentum_acceleration: 0,
+                volume_acceleration: null,
+                volume_1m: null,
+                volume_3m: null,
+                vwap: null,
+                vwap_pos_pct: null,
+                vwap_structure_score: null,
+                relative_strength_score: null,
+                breakout_score: null,
+                breakout_type: 'none',
+                trade_aggression_score: null,
+                trade_aggression_available: false,
+                pullback_quality_score: null,
+                pullback_state: 'none',
+                spread_pct: null,
+                liquidity_score: null,
+            },
+            risk: {
+                chase_risk: 'low',
+                invalid_price: null,
+                invalid_reason: null,
+            },
+            events: [],
+            reasons: [`discovery:${d.candidate_sources.join(',')}`],
+            risks: [],
+            data_health: st ? 'healthy' : 'partial',
+            data_blocked: false,
+            notification_candidate: false,
+            confirmation_count: 0,
+            signal_id: null,
+            evaluation_id: `bp_disc_${d.symbol}`,
+            updated_at: nowIso,
+        };
+    }
+
+    private trackOpeningRange(symbol: string): void {
+        const st = this.runtime.getState(symbol);
+        if (!st || st.high <= 0) return;
+        const now = this.runtime.now();
+        // Taiwan session open 09:00 — opening range = first 15 minutes
+        const hh = now.getHours();
+        const mm = now.getMinutes();
+        const inOr = hh === 9 && mm < 15;
+        const existing = this.openingRange.get(symbol);
+        if (inOr) {
+            if (!existing || st.high > existing.high) {
+                this.openingRange.set(symbol, {
+                    high: st.high,
+                    high_at: now.getTime(),
+                });
+            }
+        } else if (!existing && st.open > 0) {
+            // After OR window: seed once from current high if never tracked
+            this.openingRange.set(symbol, {
+                high: Math.max(st.open, st.high),
+                high_at: st.last_tick_at ?? now.getTime(),
+            });
+        }
+    }
+
+    private breakoutRefs(symbol: string): BreakoutReference[] {
+        const refs: BreakoutReference[] = [];
+        const or = this.openingRange.get(symbol);
+        if (or && or.high > 0) {
+            refs.push({
+                breakout_type: 'OPENING_RANGE_HIGH',
+                reference_level: or.high,
+                reference_time: new Date(or.high_at).toISOString(),
+            });
+        }
+        const st = this.runtime.getState(symbol);
+        if (st && st.high > 0) {
+            refs.push({
+                breakout_type: 'LOCAL_HIGH',
+                reference_level: st.high,
+                reference_time:
+                    st.last_tick_at != null
+                        ? new Date(st.last_tick_at).toISOString()
+                        : null,
+            });
+        }
+        const prev = this.prevBreakout.get(symbol);
+        if (prev && prev.level > 0) {
+            refs.push({
+                breakout_type: 'PREVIOUS_BREAKOUT_LEVEL',
+                reference_level: prev.level,
+                reference_time: new Date(prev.at).toISOString(),
+            });
+        }
+        return refs;
     }
 
     private captureBidAsk(symbol: string): void {
@@ -260,24 +487,52 @@ export class BuyPressureService {
         let askExecuted = 0;
         if (prev && st.best_ask > 0) {
             const volDelta = Math.max(0, st.total_volume - prev.total_volume);
-            // If last trade near ask, attribute volume to ask consumption.
             if (
                 st.last_price > 0 &&
                 Math.abs(st.last_price - st.best_ask) / st.best_ask < 0.003
             ) {
                 askExecuted = volDelta;
             } else if (prev.best_ask === st.best_ask && volDelta > 0) {
-                // Split unknown — use recent_prices at ask
                 const atAsk = (st.recent_prices ?? [])
                     .filter(
                         (p) =>
                             Math.abs(p.p - st.best_ask) / st.best_ask < 0.003 &&
-                            (!prev || p.t >= prev.t),
+                            p.t >= prev.t,
                     )
                     .reduce((a, p) => a + (p.v ?? 0), 0);
                 askExecuted = atAsk > 0 ? atAsk : 0;
             }
         }
+        const bidLevels =
+            st.bid_levels && st.bid_levels.length
+                ? [...st.bid_levels]
+                : st.best_bid > 0
+                  ? [st.best_bid]
+                  : [];
+        const askLevels =
+            st.ask_levels && st.ask_levels.length
+                ? [...st.ask_levels]
+                : st.best_ask > 0
+                  ? [st.best_ask]
+                  : [];
+        const bidQty =
+            st.bid_qty_levels && st.bid_qty_levels.length
+                ? [...st.bid_qty_levels]
+                : st.bid_volume > 0
+                  ? [st.bid_volume]
+                  : [];
+        const askQty =
+            st.ask_qty_levels && st.ask_qty_levels.length
+                ? [...st.ask_qty_levels]
+                : st.ask_volume > 0
+                  ? [st.ask_volume]
+                  : [];
+        const depth =
+            st.orderbook_depth && st.orderbook_depth > 0
+                ? st.orderbook_depth
+                : Math.max(bidLevels.length, askLevels.length);
+        if (depth > this.peakOrderbookDepth) this.peakOrderbookDepth = depth;
+
         const snap: BidAskSnap = {
             t: this.runtime.now().getTime(),
             best_ask: st.best_ask || 0,
@@ -287,10 +542,11 @@ export class BuyPressureService {
             last_price: st.last_price || 0,
             total_volume: st.total_volume || 0,
             ask_executed_delta: askExecuted,
-            bid_levels: st.best_bid > 0 ? [st.best_bid] : [],
-            ask_levels: st.best_ask > 0 ? [st.best_ask] : [],
-            bid_qty: st.bid_volume > 0 ? [st.bid_volume] : [],
-            ask_qty: st.ask_volume > 0 ? [st.ask_volume] : [],
+            bid_levels: bidLevels,
+            ask_levels: askLevels,
+            bid_qty: bidQty,
+            ask_qty: askQty,
+            orderbook_depth_available: depth,
         };
         const next = [...hist, snap].slice(-this.cfg.bidask_history_len);
         this.bidAskHistory.set(symbol, next);
@@ -320,7 +576,6 @@ export class BuyPressureService {
                         60000,
                 ) || 60,
             );
-            // Prefer same-time RVOL from runtime when profiles exist.
             const rv = this.runtime.rvolSameTime(
                 row.symbol,
                 st.total_volume,
@@ -331,24 +586,17 @@ export class BuyPressureService {
                 rvolAvail = true;
             }
         }
+        // Profile unavailable → available=false (never coerce missing to 0)
 
         const bid = st?.bid_volume ?? 0;
         const ask = st?.ask_volume ?? 0;
-        const imb =
-            bid + ask > 0 ? (bid - ask) / (bid + ask) : null;
+        const imb = bid + ask > 0 ? (bid - ask) / (bid + ask) : null;
 
         const vwapStructure =
             dist == null
                 ? feat(null)
-                : feat(
-                      // Above VWAP positive structure 50..100
-                      Math.max(
-                          0,
-                          Math.min(100, 50 + dist * 15),
-                      ),
-                  );
+                : feat(Math.max(0, Math.min(100, 50 + dist * 15)));
 
-        // Rank velocity: prefer engine field; else rank improve positive
         let rankVel = row.rank_velocity;
         if (rankVel == null && row.rank != null && row.rank_prev != null) {
             rankVel = row.rank_prev - row.rank;
@@ -372,7 +620,7 @@ export class BuyPressureService {
             c_score: row.intraday_score,
             chase_risk: row.risk?.chase_risk ?? null,
             last_price: row.last_price ?? st?.last_price ?? null,
-            rank: row.rank,
+            rank: row.rank < 900 ? row.rank : null,
             rank_prev: row.rank_prev,
             high: st?.high && st.high > 0 ? st.high : null,
             data_stale: stale,
@@ -380,10 +628,11 @@ export class BuyPressureService {
         };
     }
 
-    private buildItem(row: IntradayRankItem): BuyPressureItem {
+    private buildItem(row: IntradayRankItem, inCTop: boolean): BuyPressureItem {
         const features = this.buildFeatures(row);
         const scored = computeBuyPressureScore(features, this.cfg);
         const nowMs = this.runtime.now().getTime();
+        const windowMs = this.cfg.slope_window_ms || DEFAULT_SLOPE_WINDOW_MS;
         const featHist = this.featureHistory.push(row.symbol, {
             t: nowMs,
             rvol: features.rvol.value,
@@ -395,19 +644,18 @@ export class BuyPressureService {
             distance_from_vwap_pct: features.distance_from_vwap_pct,
             rank: features.rank,
         });
-        const slopes = slopesFromHistory(featHist);
+        const slopes = slopesFromHistory(featHist, windowMs, nowMs);
 
         const hist = this.bidAskHistory.get(row.symbol) ?? [];
         const ask = detectAskConsumption(hist, this.cfg);
         const large = detectLargeBid(hist, this.cfg);
         const overheated = detectOverheated(features, this.cfg);
-        const early = detectEarly(features, this.cfg);
+        const early = detectEarly(features, this.cfg, slopes);
         let buySurge = detectBuySurge(
             features,
             scored.buy_pressure_score,
             this.cfg,
         );
-        // Prefer accelerating volume; decelerating alone is not surge.
         if (
             buySurge &&
             slopes.volume_accel_label === 'DECELERATING' &&
@@ -415,14 +663,21 @@ export class BuyPressureService {
         ) {
             buySurge = false;
         }
-        const volBreak = detectVolumeBreakout(features, this.cfg);
+        const refs = this.breakoutRefs(row.symbol);
+        const volBreak = detectVolumeBreakout(features, this.cfg, refs);
+        if (volBreak.hit && volBreak.reference_level != null) {
+            this.prevBreakout.set(row.symbol, {
+                level: volBreak.reference_level,
+                at: nowMs,
+            });
+        }
         const cooling = detectCooling(features, this.cfg);
 
         const { primary, states } = resolveStates({
             early,
             buySurge,
             askEating: ask.eating,
-            volumeBreakout: volBreak,
+            volumeBreakout: volBreak.hit,
             largeBid: large.hit,
             overheated,
             cooling,
@@ -458,12 +713,22 @@ export class BuyPressureService {
                   ? 'AGING'
                   : 'FRESH';
 
+        // Lower confidence when RVOL profile missing
+        let coverage = scored.coverage_pct;
+        if (!features.rvol.available) {
+            coverage = Math.min(coverage, scored.coverage_pct);
+        }
         const conf: 'high' | 'medium' | 'low' =
-            scored.coverage_pct >= 80
+            coverage >= 80 && features.rvol.available
                 ? 'high'
-                : scored.coverage_pct >= 50
+                : coverage >= 50
                   ? 'medium'
                   : 'low';
+
+        const { universe_source, discovery_reason } = pickUniverseSource(
+            row.candidate_sources,
+            inCTop,
+        );
 
         const nowIso = new Date().toISOString();
         const newEvents: BuyPressureEvent[] = [];
@@ -511,7 +776,7 @@ export class BuyPressureService {
         if (features.rank != null && features.rank_prev != null) {
             baseReasons.push(`Rank ${features.rank_prev} → ${features.rank}`);
         }
-        if (features.rvol.value != null) {
+        if (features.rvol.available && features.rvol.value != null) {
             baseReasons.push(`RVOL ${features.rvol.value.toFixed(1)}x`);
         }
         if (features.distance_from_vwap_pct != null) {
@@ -535,14 +800,21 @@ export class BuyPressureService {
                 'ASK_EATING',
                 ask.note,
                 true,
-                [...baseReasons, ask.note ?? '正在吃賣單'].filter(Boolean).slice(0, 4) as string[],
+                [...baseReasons, ask.note ?? '正在吃賣單']
+                    .filter(Boolean)
+                    .slice(0, 4) as string[],
             );
         if (ask.cancel)
             pushEv('ASK_CANCEL', ask.note, false, [
                 ask.note ?? 'ASK_CANCEL',
             ]);
-        if (volBreak && !features.data_stale)
-            pushEv('VOLUME_BREAKOUT', '放量突破', true, baseReasons.slice(0, 4));
+        if (volBreak.hit && !features.data_stale)
+            pushEv(
+                'VOLUME_BREAKOUT',
+                `放量突破 ${volBreak.breakout_type ?? ''}`.trim(),
+                true,
+                baseReasons.slice(0, 4),
+            );
         if (large.hit)
             pushEv('LARGE_BID_APPEAR', large.note, false, [
                 large.note ?? '大額委買出現',
@@ -556,7 +828,12 @@ export class BuyPressureService {
             features.rank_velocity.available &&
             (features.rank_velocity.value ?? 0) >= 10
         ) {
-            pushEv('RANK_ACCELERATION', '排名加速前進', true, baseReasons.slice(0, 4));
+            pushEv(
+                'RANK_ACCELERATION',
+                '排名加速前進',
+                true,
+                baseReasons.slice(0, 4),
+            );
         }
 
         const prevLog = (this.eventLog.get(row.symbol) ?? []).map((e) => ({
@@ -592,9 +869,7 @@ export class BuyPressureService {
             chase_penalty: 0,
             chase_risk: bpChase,
             overheated,
-            overheated_note: overheated
-                ? '買盤強，短線延伸較大'
-                : null,
+            overheated_note: overheated ? '買盤強，短線延伸較大' : null,
             ask_eating_note: ask.eating ? ask.note : null,
             large_bid_note: large.hit ? large.note : null,
             data_stale: features.data_stale,
@@ -616,9 +891,21 @@ export class BuyPressureService {
             notification_candidates: newEvents.filter(
                 (e) => e.notification_candidate,
             ),
-            feature_availability: scored.feature_availability,
-            score_coverage_pct: scored.coverage_pct,
+            feature_availability: {
+                ...scored.feature_availability,
+                rvol: features.rvol.available,
+            },
+            score_coverage_pct: coverage,
             score_confidence: conf,
+            universe_source,
+            discovery_reason,
+            orderbook_depth_available: ask.orderbook_depth_available,
+            ask_eating_confidence: ask.ask_eating_confidence,
+            breakout_type: volBreak.hit ? volBreak.breakout_type : null,
+            reference_level: volBreak.hit ? volBreak.reference_level : null,
+            reference_time: volBreak.hit ? volBreak.reference_time : null,
+            slope_window_ms: slopes.window_ms,
+            slope_sample_count: slopes.sample_count,
         };
     }
 }

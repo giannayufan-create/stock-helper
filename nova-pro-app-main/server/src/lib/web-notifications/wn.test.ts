@@ -60,6 +60,15 @@ function item(
         feature_availability: {},
         score_coverage_pct: 100,
         score_confidence: 'high',
+        universe_source: over.universe_source ?? 'C_TOP_RANK',
+        discovery_reason: over.discovery_reason ?? null,
+        orderbook_depth_available: over.orderbook_depth_available ?? 1,
+        ask_eating_confidence: over.ask_eating_confidence ?? 'low',
+        breakout_type: over.breakout_type ?? null,
+        reference_level: over.reference_level ?? null,
+        reference_time: over.reference_time ?? null,
+        slope_window_ms: over.slope_window_ms ?? 90_000,
+        slope_sample_count: over.slope_sample_count ?? 5,
     };
 }
 

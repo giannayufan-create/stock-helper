@@ -11,6 +11,7 @@ import {
     detectVolumeBreakout,
     resolveStates,
 } from './detectors.ts';
+import { slopesFromHistory } from './feature-history.ts';
 import { applyPriceFilter, computeBpChaseRisk, computeRadarRankScore, isOverheatedStrong, sortBuyPressureItems } from './ranking.ts';
 import { computeBuyPressureScore } from './score-engine.ts';
 import type { BidAskSnap, BuyPressureFeatures, BuyPressureItem } from './types.ts';
@@ -65,6 +66,7 @@ function snap(
         ask_levels: [ask],
         bid_qty: [bidVol],
         ask_qty: [askVol],
+        orderbook_depth_available: partial.orderbook_depth_available ?? 1,
     };
 }
 
@@ -89,7 +91,7 @@ function pass(name: string) {
     pass('Test A — volume alone not BUY_SURGE');
 }
 
-// ---- TEST B: EARLY path ----
+// ---- TEST B: EARLY path (requires time-window slopes) ----
 {
     const f = baseFeatures({
         rank: 8,
@@ -103,8 +105,20 @@ function pass(name: string) {
         distance_from_vwap_pct: 0.5,
         c_score: 55, // not STRONG
     });
-    assert.equal(detectEarly(f, DEFAULT_BP_CONFIG), true);
-    pass('Test B — EARLY detection');
+    const slopesOk = {
+        rvol_slope: 0.01,
+        volume_acceleration_slope: 0.2,
+        trade_aggression_change: 0.05,
+        momentum_acceleration_slope: 0.02,
+        rank_velocity_slope: 0.01,
+        vwap_distance_change: 0.001,
+        rvol_accel: 'ACCELERATING' as const,
+        volume_accel_label: 'ACCELERATING' as const,
+        sample_count: 5,
+    };
+    assert.equal(detectEarly(f, DEFAULT_BP_CONFIG, slopesOk), true);
+    assert.equal(detectEarly(f, DEFAULT_BP_CONFIG, null), false);
+    pass('Test B — EARLY detection requires slopes');
 }
 
 // ---- TEST C: ASK_CANCEL ----
@@ -291,8 +305,76 @@ function pass(name: string) {
         rank: 10,
         rank_prev: 20,
     });
-    assert.equal(detectVolumeBreakout(f, DEFAULT_BP_CONFIG), true);
-    pass('VOLUME_BREAKOUT path');
+    const vb = detectVolumeBreakout(f, DEFAULT_BP_CONFIG, [
+        {
+            breakout_type: 'OPENING_RANGE_HIGH',
+            reference_level: 69.5,
+            reference_time: '2026-09-16T01:15:00.000Z',
+        },
+    ]);
+    assert.equal(vb.hit, true);
+    assert.equal(vb.breakout_type, 'OPENING_RANGE_HIGH');
+    assert.equal(vb.reference_level, 69.5);
+    pass('VOLUME_BREAKOUT path with breakout_type');
+}
+
+// Time-window slope (not sample-count seconds)
+{
+    const t0 = Date.now() - 90_000;
+    const hist = [
+        {
+            t: t0,
+            rvol: 1.0,
+            volume_acceleration: 10,
+            trade_aggression: 40,
+            rank_velocity: 5,
+            momentum_acceleration: 5,
+            bidask_imbalance: 0,
+            distance_from_vwap_pct: 0.2,
+            rank: 40,
+        },
+        {
+            t: t0 + 45_000,
+            rvol: 1.5,
+            volume_acceleration: 30,
+            trade_aggression: 50,
+            rank_velocity: 10,
+            momentum_acceleration: 10,
+            bidask_imbalance: 0.1,
+            distance_from_vwap_pct: 0.4,
+            rank: 25,
+        },
+        {
+            t: t0 + 90_000,
+            rvol: 2.2,
+            volume_acceleration: 55,
+            trade_aggression: 60,
+            rank_velocity: 18,
+            momentum_acceleration: 20,
+            bidask_imbalance: 0.2,
+            distance_from_vwap_pct: 0.7,
+            rank: 12,
+        },
+    ];
+    const s = slopesFromHistory(hist, 90_000, t0 + 90_000);
+    assert.ok(s.rvol_slope != null && s.rvol_slope > 0);
+    assert.ok(s.sample_count === 3);
+    assert.equal(s.window_ms, 90_000);
+    pass('Slope uses timestamp window');
+}
+
+// Best-only depth → low confidence
+{
+    const hist = [
+        snap({ ask_volume: 800, ask_executed_delta: 0, orderbook_depth_available: 1 }),
+        snap({ ask_volume: 500, ask_executed_delta: 280, orderbook_depth_available: 1 }),
+        snap({ ask_volume: 200, ask_executed_delta: 320, orderbook_depth_available: 1 }),
+    ];
+    const r = detectAskConsumption(hist, DEFAULT_BP_CONFIG);
+    assert.equal(r.eating, true);
+    assert.equal(r.ask_eating_confidence, 'low');
+    assert.equal(r.orderbook_depth_available, 1);
+    pass('ASK_EATING best-only → confidence low');
 }
 
 function stubItem(
@@ -350,6 +432,15 @@ function stubItem(
         feature_availability: {},
         score_coverage_pct: 100,
         score_confidence: 'high',
+        universe_source: partial.universe_source ?? 'C_TOP_RANK',
+        discovery_reason: partial.discovery_reason ?? null,
+        orderbook_depth_available: partial.orderbook_depth_available ?? 1,
+        ask_eating_confidence: partial.ask_eating_confidence ?? 'low',
+        breakout_type: partial.breakout_type ?? null,
+        reference_level: partial.reference_level ?? null,
+        reference_time: partial.reference_time ?? null,
+        slope_window_ms: partial.slope_window_ms ?? 90_000,
+        slope_sample_count: partial.slope_sample_count ?? 5,
     };
 }
 

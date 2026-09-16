@@ -419,16 +419,30 @@ export class MarketDataEngine {
         const symbol = ba.code;
         if (!this.stockWatch.has(symbol)) return;
         const st = this.states.get(symbol) ?? emptyState(symbol);
-        const bid = n(ba.bid_price?.[0]);
-        const ask = n(ba.ask_price?.[0]);
+        const bidLevels = (ba.bid_price ?? [])
+            .map((x) => n(x))
+            .filter((x) => x > 0);
+        const askLevels = (ba.ask_price ?? [])
+            .map((x) => n(x))
+            .filter((x) => x > 0);
+        const bidQty = (ba.bid_volume ?? []).map((x) => n(x));
+        const askQty = (ba.ask_volume ?? []).map((x) => n(x));
+        const bid = bidLevels[0] ?? n(ba.bid_price?.[0]);
+        const ask = askLevels[0] ?? n(ba.ask_price?.[0]);
+        const depth = Math.max(bidLevels.length, askLevels.length);
         const now = Date.now();
         this.states.set(symbol, {
             ...st,
             timestamp: now,
             best_bid: bid || st.best_bid,
             best_ask: ask || st.best_ask,
-            bid_volume: n(ba.bid_volume?.[0]) || st.bid_volume,
-            ask_volume: n(ba.ask_volume?.[0]) || st.ask_volume,
+            bid_volume: bidQty[0] || n(ba.bid_volume?.[0]) || st.bid_volume,
+            ask_volume: askQty[0] || n(ba.ask_volume?.[0]) || st.ask_volume,
+            bid_levels: bidLevels.length ? bidLevels : st.bid_levels,
+            ask_levels: askLevels.length ? askLevels : st.ask_levels,
+            bid_qty_levels: bidQty.length ? bidQty : st.bid_qty_levels,
+            ask_qty_levels: askQty.length ? askQty : st.ask_qty_levels,
+            orderbook_depth: depth || st.orderbook_depth || 0,
             last_bidask_at: now,
         });
         this.lastAnyBidAskAt = now;

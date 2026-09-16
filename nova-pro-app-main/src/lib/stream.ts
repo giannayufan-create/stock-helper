@@ -37,6 +37,8 @@ const quoteListeners = new Map<string, Set<Listener>>();
 const statusListeners = new Set<Listener>();
 const orderEventListeners = new Set<(ev: OrderEventData) => void>();
 const tickTapeListeners = new Set<(tick: SseTick) => void>();
+/** Buy-pressure web notifications via existing SSE hub (primary path). */
+const bpNotificationListeners = new Set<(payload: unknown) => void>();
 
 function emitQuote(code: string) {
     quoteListeners.get(code)?.forEach((l) => l());
@@ -160,6 +162,14 @@ function connect() {
         const data = JSON.parse((e as MessageEvent).data) as OrderEventData;
         orderEventListeners.forEach((l) => l(data));
     });
+    es.addEventListener('buy_pressure_notification', (e) => {
+        try {
+            const data = JSON.parse((e as MessageEvent).data);
+            bpNotificationListeners.forEach((l) => l(data));
+        } catch {
+            // ignore malformed payload
+        }
+    });
     es.addEventListener('heartbeat', () => {
         lastHeartbeat = Date.now();
         setStatus('live');
@@ -228,5 +238,14 @@ export function onAnyTick(listener: (tick: SseTick) => void) {
     tickTapeListeners.add(listener);
     return () => {
         tickTapeListeners.delete(listener);
+    };
+}
+
+/** Subscribe to hub.broadcast('buy_pressure_notification') over the shared EventSource. */
+export function onBuyPressureNotification(listener: (payload: unknown) => void) {
+    ensureStream();
+    bpNotificationListeners.add(listener);
+    return () => {
+        bpNotificationListeners.delete(listener);
     };
 }

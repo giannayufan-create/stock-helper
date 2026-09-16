@@ -115,7 +115,9 @@ export const linkBtn = style({
     fontSize: 13,
     fontWeight: 600,
     minHeight: 44,
-    padding: '0 4px',
+    minWidth: 44,
+    padding: '0 8px',
+    boxSizing: 'border-box',
 });
 
 export const glass = style({
@@ -451,8 +453,12 @@ export const detailHeader = style({
 });
 
 export const iconBtn = style({
+    boxSizing: 'border-box',
     width: 44,
     height: 44,
+    minWidth: 44,
+    minHeight: 44,
+    flexShrink: 0,
     borderRadius: 12,
     border: `1px solid ${radarColor.glassBorder}`,
     background: radarColor.glass,
@@ -461,6 +467,7 @@ export const iconBtn = style({
     display: 'grid',
     placeItems: 'center',
     cursor: 'pointer',
+    padding: 0,
 });
 
 export const detailBody = style({

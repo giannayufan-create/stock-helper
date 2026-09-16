@@ -19,6 +19,7 @@ import {
 } from './notification-center';
 import { PerformancePage } from './performance-page';
 import { fetchUnreadCount } from '../../lib/notifications';
+import { ensureStream, onBuyPressureNotification } from '../../lib/stream';
 import * as s from './radar.css';
 import { RadarPage } from './radar-page';
 import { StockDetailPage } from './stock-detail';
@@ -62,15 +63,20 @@ export function RadarApp({
     const [unreadNotif, setUnreadNotif] = useState(0);
 
     useEffect(() => {
-        const t = setInterval(() => {
+        ensureStream();
+        const refresh = () => {
             void fetchUnreadCount()
                 .then((r) => setUnreadNotif(r.unread_count))
                 .catch(() => undefined);
-        }, 4000);
-        void fetchUnreadCount()
-            .then((r) => setUnreadNotif(r.unread_count))
-            .catch(() => undefined);
-        return () => clearInterval(t);
+        };
+        refresh();
+        const unsub = onBuyPressureNotification(() => refresh());
+        // Fallback only
+        const t = setInterval(refresh, 20_000);
+        return () => {
+            clearInterval(t);
+            unsub();
+        };
     }, []);
 
     useEffect(() => {
@@ -100,7 +106,7 @@ export function RadarApp({
         void onSelectCode(symbol);
     };
 
-    const toastLayer = useNotificationToasts(true, openSymbol);
+    const toastLayer = useNotificationToasts(true, openSymbol, setUnreadNotif);
 
     const closeDetail = () => setDetailSymbol(null);
 

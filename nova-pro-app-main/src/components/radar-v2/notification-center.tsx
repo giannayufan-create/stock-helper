@@ -1,9 +1,11 @@
 // src/components/radar-v2/notification-center.tsx
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     EVENT_LABEL,
+    fetchNotificationPreferences,
     fetchNotifications,
+    fetchUnreadCount,
     markAllNotificationsRead,
     markNotificationRead,
     saveNotificationPreferences,
@@ -11,6 +13,7 @@ import {
     type NotificationPreferencesDto,
     type WebNotificationDto,
 } from '../../lib/notifications';
+import { ensureStream, onBuyPressureNotification } from '../../lib/stream';
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
@@ -43,6 +46,7 @@ export function NotificationCenter({
     useEffect(() => {
         if (!open) return;
         let cancelled = false;
+        ensureStream();
         const load = () => {
             void fetchNotifications({ limit: 50 })
                 .then((r) => {
@@ -54,10 +58,16 @@ export function NotificationCenter({
                 .catch(() => undefined);
         };
         load();
-        const t = setInterval(load, 3000);
+        // SSE primary path — immediate refresh on hub event
+        const unsub = onBuyPressureNotification(() => {
+            if (!cancelled) load();
+        });
+        // Slow poll as reconnect/fallback only
+        const t = setInterval(load, 15_000);
         return () => {
             cancelled = true;
             clearInterval(t);
+            unsub();
         };
     }, [open, onUnreadChange]);
 
@@ -103,6 +113,7 @@ export function NotificationCenter({
                         <button
                             type="button"
                             className={s.linkBtn}
+                            style={{ minWidth: 44, minHeight: 44, padding: '0 12px' }}
                             onClick={() => setShowPrefs((v) => !v)}
                         >
                             設定
@@ -110,6 +121,7 @@ export function NotificationCenter({
                         <button
                             type="button"
                             className={s.linkBtn}
+                            style={{ minWidth: 44, minHeight: 44, padding: '0 12px' }}
                             onClick={() => {
                                 void markAllNotificationsRead().then((r) => {
                                     setItems((prev) =>
@@ -123,7 +135,8 @@ export function NotificationCenter({
                         </button>
                         <button
                             type="button"
-                            className={s.linkBtn}
+                            className={s.iconBtn}
+                            aria-label="關閉通知中心"
                             onClick={onClose}
                         >
                             ✕
@@ -290,57 +303,87 @@ function PrefsPanel({
 export function useNotificationToasts(
     enabled: boolean,
     onOpenSymbol: (symbol: string) => void,
+    onUnreadBump?: (n: number) => void,
 ) {
     const [toasts, setToasts] = useState<WebNotificationDto[]>([]);
     const [soundOn, setSoundOn] = useState(false);
-    const seen = useState(() => new Set<string>())[0];
+    const [toastEnabled, setToastEnabled] = useState(true);
+    const seenRef = useRef(new Set<string>());
+
+    const playBeep = () => {
+        try {
+            const ctx = new AudioContext();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.connect(g);
+            g.connect(ctx.destination);
+            g.gain.value = 0.04;
+            o.frequency.value = 880;
+            o.start();
+            o.stop(ctx.currentTime + 0.08);
+        } catch {
+            // autoplay blocked
+        }
+    };
+
+    const ingest = (n: WebNotificationDto, prefsToast: boolean, prefsSound: boolean) => {
+        if (seenRef.current.has(n.notification_id)) return;
+        seenRef.current.add(n.notification_id);
+        if (!prefsToast) return;
+        setToasts((prev) => [n, ...prev].slice(0, 3));
+        if (prefsSound) playBeep();
+    };
 
     useEffect(() => {
         void fetchNotificationPreferences()
-            .then((p) => setSoundOn(p.sound))
+            .then((p) => {
+                setSoundOn(p.sound);
+                setToastEnabled(p.toast);
+            })
             .catch(() => undefined);
     }, []);
 
     useEffect(() => {
         if (!enabled) return;
         let cancelled = false;
+        ensureStream();
+
+        // Primary: SSE hub event — payload is the WebNotification DTO
+        const unsub = onBuyPressureNotification((payload) => {
+            if (cancelled || !payload || typeof payload !== 'object') return;
+            const n = payload as WebNotificationDto;
+            if (!n.notification_id || !n.symbol) return;
+            ingest(n, toastEnabled, soundOn);
+            void fetchUnreadCount()
+                .then((r) => {
+                    if (!cancelled) onUnreadBump?.(r.unread_count);
+                })
+                .catch(() => undefined);
+        });
+
+        // Fallback poll only (reconnect / missed events) — not primary path
         const poll = () => {
             void fetchNotifications({ unread: true, limit: 10 })
                 .then((r) => {
                     if (cancelled) return;
                     setSoundOn(r.preferences.sound);
+                    setToastEnabled(r.preferences.toast);
+                    onUnreadBump?.(r.unread_count);
                     if (!r.preferences.toast) return;
-                    const fresh = r.items.filter(
-                        (n) => !seen.has(n.notification_id),
-                    );
-                    for (const n of fresh) seen.add(n.notification_id);
-                    if (!fresh.length) return;
-                    setToasts((prev) => [...fresh, ...prev].slice(0, 3));
-                    if (r.preferences.sound && soundOn) {
-                        try {
-                            const ctx = new AudioContext();
-                            const o = ctx.createOscillator();
-                            const g = ctx.createGain();
-                            o.connect(g);
-                            g.connect(ctx.destination);
-                            g.gain.value = 0.04;
-                            o.frequency.value = 880;
-                            o.start();
-                            o.stop(ctx.currentTime + 0.08);
-                        } catch {
-                            // autoplay blocked — ignore
-                        }
+                    for (const n of r.items) {
+                        ingest(n, r.preferences.toast, r.preferences.sound);
                     }
                 })
                 .catch(() => undefined);
         };
         poll();
-        const t = setInterval(poll, 3000);
+        const t = setInterval(poll, 20_000);
         return () => {
             cancelled = true;
             clearInterval(t);
+            unsub();
         };
-    }, [enabled, seen, soundOn]);
+    }, [enabled, soundOn, toastEnabled, onUnreadBump]);
 
     useEffect(() => {
         if (!toasts.length) return;
@@ -357,6 +400,8 @@ export function useNotificationToasts(
                 top: 'max(12px, env(safe-area-inset-top))',
                 right: 12,
                 left: 12,
+                // Keep clear of bottom navigation (~56px + safe area)
+                bottom: 'auto',
                 zIndex: 90,
                 display: 'flex',
                 flexDirection: 'column',
@@ -364,7 +409,9 @@ export function useNotificationToasts(
                 pointerEvents: 'none',
                 maxWidth: 420,
                 marginLeft: 'auto',
+                paddingBottom: 0,
             }}
+            data-toast-layer="buy-pressure"
         >
             {toasts.map((n) => (
                 <button
