@@ -4,5 +4,20 @@ service cloud.firestore {
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    // Research persistence — Admin SDK only (Render backend).
+    // Frontend must use /api/v1/research/context/* — no client direct access.
+    match /strategy_signals/{signalId} {
+      allow read, write: if false;
+    }
+    match /signal_outcomes/{signalId} {
+      allow read, write: if false;
+    }
+    match /notification_preferences/{docId} {
+      allow read, write: if false;
+    }
+    match /web_notifications/{docId} {
+      allow read, write: if false;
+    }
   }
 }

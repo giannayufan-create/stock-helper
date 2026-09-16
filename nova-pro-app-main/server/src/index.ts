@@ -26,6 +26,7 @@ import { WebNotificationService } from './lib/web-notifications/index.ts';
 import { MarketContextRuntime } from './lib/market-context/index.ts';
 import { EventIntelligenceService } from './lib/event-intelligence/index.ts';
 import { ContextResearchService } from './lib/context-research/index.ts';
+import { createResearchRepositories } from './lib/research-persistence/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -136,7 +137,18 @@ async function main(): Promise<void> {
             marketRuntime.releaseStocks([key.code], 'USER_MONITOR'),
     });
 
-    const signalBridge = new StrategySignalBridge();
+    const researchRepos = createResearchRepositories();
+    console.log(
+        `research-persistence: mode=${researchRepos.mode}`,
+    );
+    void researchRepos.hydrate().catch((err) => {
+        console.warn(
+            '[research-persistence] hydrate failed:',
+            err instanceof Error ? err.message : String(err),
+        );
+    });
+
+    const signalBridge = new StrategySignalBridge(researchRepos.signals);
     signalBridge.setContext({
         source_mode: 'live',
         data_resolution: 'tick',
@@ -209,6 +221,8 @@ async function main(): Promise<void> {
     const contextResearch = new ContextResearchService(
         marketContext,
         eventIntelligence,
+        researchRepos.signals,
+        researchRepos.outcomes,
     );
     signalBridge.setContext({
         captureContext: ({ symbol, signalTime }) =>
@@ -240,6 +254,7 @@ async function main(): Promise<void> {
         marketContext,
         eventIntelligence,
         contextResearch,
+        researchRepos,
         startedAt: Date.now(),
     };
 

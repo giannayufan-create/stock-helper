@@ -1,51 +1,83 @@
 {
-  // Example (Standard Edition):
-  //
-  // "indexes": [
-  //   {
-  //     "collectionGroup": "widgets",
-  //     "queryScope": "COLLECTION",
-  //     "fields": [
-  //       { "fieldPath": "foo", "arrayConfig": "CONTAINS" },
-  //       { "fieldPath": "bar", "mode": "DESCENDING" }
-  //     ]
-  //   },
-  //
-  //  "fieldOverrides": [
-  //    {
-  //      "collectionGroup": "widgets",
-  //      "fieldPath": "baz",
-  //      "indexes": [
-  //        { "order": "ASCENDING", "queryScope": "COLLECTION" }
-  //      ]
-  //    },
-  //   ]
-  // ]
-  //
-  // Example (Enterprise Edition):
-  //
-  // "indexes": [
-  //   {
-  //     "collectionGroup": "reviews",
-  //     "queryScope": "COLLECTION_GROUP",
-  //     "apiScope": "MONGODB_COMPATIBLE_API",
-  //     "density": "DENSE",
-  //     "multikey": false,
-  //     "fields": [
-  //       { "fieldPath": "baz", "mode": "ASCENDING" }
-  //     ]
-  //   },
-  //   {
-  //     "collectionGroup": "items",
-  //     "queryScope": "COLLECTION_GROUP",
-  //     "apiScope": "MONGODB_COMPATIBLE_API",
-  //     "density": "SPARSE_ANY",
-  //     "multikey": true,
-  //     "fields": [
-  //       { "fieldPath": "baz", "mode": "ASCENDING" }
-  //     ]
-  //   },
-  // ]
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "strategy_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "strategy_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "signal_type", "order": "ASCENDING" },
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "strategy_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "symbol", "order": "ASCENDING" },
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "strategy_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "learning_eligible", "order": "ASCENDING" },
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "strategy_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "context_alignment", "order": "ASCENDING" },
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "strategy_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "market_regime", "order": "ASCENDING" },
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "strategy_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sector_state", "order": "ASCENDING" },
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "strategy_signals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "event_state", "order": "ASCENDING" },
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "signal_outcomes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "signal_outcomes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "signal_type", "order": "ASCENDING" },
+        { "fieldPath": "signal_time", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

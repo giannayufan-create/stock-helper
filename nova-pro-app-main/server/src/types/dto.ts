@@ -51,6 +51,7 @@ export interface Health {
     token_stale: boolean;
     contract_count: number;
     next_maintenance: string;
+    research_persistence?: unknown;
 }
 
 export interface ServerInfo {

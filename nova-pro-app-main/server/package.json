@@ -18,6 +18,8 @@
         "test:mc": "tsx src/lib/market-context/mc.test.ts",
         "test:ei": "tsx src/lib/event-intelligence/ei.test.ts",
         "test:cr": "tsx src/lib/context-research/cr.test.ts",
+        "test:rp": "tsx src/lib/research-persistence/rp.test.ts",
+        "migrate:research-firestore": "tsx src/scripts/migrate-research-to-firestore.ts",
         "acceptance:gate": "tsx src/acceptance-gate.ts",
         "replay": "tsx src/replay-cli.ts",
         "outcome:summary": "tsx src/outcome-summary-cli.ts",
@@ -30,6 +32,7 @@
         "@fastify/static": "^10.1.3",
         "@fugle/marketdata": "^1.4.2",
         "fastify": "^5.2.0",
+        "firebase-admin": "^13.10.0",
         "tsx": "^4.19.0"
     },
     "devDependencies": {

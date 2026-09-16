@@ -8,15 +8,30 @@ export function registerHealthRoutes(
     app: FastifyInstance,
     ctx: AppContext,
 ): void {
-    app.get('/api/v1/health', async (): Promise<Health> => ({
-        status: 'ok',
-        version: SERVER_VERSION,
-        timestamp: new Date().toISOString(),
-        token_expires_in_seconds: 86_400,
-        token_stale: false,
-        contract_count: ctx.market.contractCount(),
-        next_maintenance: '',
-    }));
+    app.get('/api/v1/health', async (): Promise<Health> => {
+        const rp = ctx.researchRepos?.getHealth() ?? null;
+        return {
+            status: 'ok',
+            version: SERVER_VERSION,
+            timestamp: new Date().toISOString(),
+            token_expires_in_seconds: 86_400,
+            token_stale: false,
+            contract_count: ctx.market.contractCount(),
+            next_maintenance: '',
+            research_persistence: rp,
+        } as Health;
+    });
+
+    app.get('/api/v1/research/persistence/health', async () => {
+        const rp = ctx.researchRepos?.getHealth();
+        if (!rp) {
+            return {
+                enabled: false,
+                research_persistence_available: false,
+            };
+        }
+        return { research_persistence_available: true, ...rp };
+    });
 
     app.get('/api/v1/info', async (): Promise<ServerInfo> => ({
         name: 'nova-pro-server',

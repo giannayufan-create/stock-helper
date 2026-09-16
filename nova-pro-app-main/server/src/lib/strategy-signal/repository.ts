@@ -12,6 +12,7 @@ import {
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SignalType, StrategySignal } from './types.ts';
+import { signalsContentEqual } from '../research-persistence/hash.ts';
 
 export interface StrategySignalRepository {
     save(signal: StrategySignal): void;
@@ -101,11 +102,19 @@ export class JsonlStrategySignalRepository implements StrategySignalRepository {
     }
 
     save(signal: StrategySignal): void {
-        // Immutable: reject overwrite / duplicate append even after restart
+        // Immutable: reject overwrite; allow idempotent identical content
         if (
             this.cache.has(signal.signal_id) ||
             this.known.has(signal.signal_id)
         ) {
+            const prev =
+                this.cache.get(signal.signal_id) ??
+                this.findById(signal.signal_id);
+            if (prev) {
+                if (signalsContentEqual(prev, signal)) {
+                    return; // SKIP_IDEMPOTENT
+                }
+            }
             throw new Error(
                 `feature_snapshot immutable: signal ${signal.signal_id} already saved`,
             );
