@@ -2,6 +2,7 @@
 // Wraps Shioaji/Fugle MarketManager — MarketRuntime must not know provider details.
 
 import type { MarketManager } from '../../providers/manager.ts';
+import { PreOpenBuffer } from '../market-context/gap-layers/preopen-buffer.ts';
 import type { Clock } from './clock.ts';
 import type {
     MarketEventHandler,
@@ -28,7 +29,18 @@ export class LiveMarketSource implements MarketSource {
         this.started = true;
         // Tick/BidAsk → Trade/BidAsk events for any listeners (engine still hooks manager directly in live path)
         this.market.onTick((_ch, tick) => {
-            if (tick.simtrade) return;
+            if (tick.simtrade) {
+                // Auction context only — never feed strategy engine.
+                PreOpenBuffer.noteTick({
+                    symbol: tick.code,
+                    t: this.clock.now().getTime(),
+                    price: Number(tick.close) || 0,
+                    volume: Number(tick.volume) || 0,
+                    total_volume: Number(tick.total_volume) || 0,
+                    simtrade: true,
+                });
+                return;
+            }
             for (const h of this.handlers) {
                 h({
                     type: 'trade',
@@ -43,7 +55,18 @@ export class LiveMarketSource implements MarketSource {
             }
         });
         this.market.onBidAsk((_ch, ba) => {
-            if (ba.simtrade) return;
+            if (ba.simtrade) {
+                PreOpenBuffer.noteBidAsk({
+                    symbol: ba.code,
+                    t: this.clock.now().getTime(),
+                    bid_prices: (ba.bid_price ?? []).map(Number).filter((n) => n > 0),
+                    ask_prices: (ba.ask_price ?? []).map(Number).filter((n) => n > 0),
+                    bid_volumes: (ba.bid_volume ?? []).map(Number),
+                    ask_volumes: (ba.ask_volume ?? []).map(Number),
+                    simtrade: true,
+                });
+                return;
+            }
             for (const h of this.handlers) {
                 h({
                     type: 'bidask',

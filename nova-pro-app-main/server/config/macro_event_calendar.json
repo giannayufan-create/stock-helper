@@ -1,0 +1,74 @@
+[
+  {
+    "event_id": "us_fomc_2026_03",
+    "scheduled_at": "2026-03-18T18:00:00.000Z",
+    "country": "US",
+    "event_type": "FOMC",
+    "importance": "CRITICAL",
+    "source": "Federal Reserve (curated schedule)"
+  },
+  {
+    "event_id": "us_cpi_2026_03",
+    "scheduled_at": "2026-03-11T12:30:00.000Z",
+    "country": "US",
+    "event_type": "US CPI",
+    "importance": "HIGH",
+    "source": "BLS (curated schedule)"
+  },
+  {
+    "event_id": "us_employment_2026_03",
+    "scheduled_at": "2026-03-06T13:30:00.000Z",
+    "country": "US",
+    "event_type": "US Employment",
+    "importance": "HIGH",
+    "source": "BLS (curated schedule)"
+  },
+  {
+    "event_id": "tw_cbc_2026_03",
+    "scheduled_at": "2026-03-19T02:00:00.000Z",
+    "country": "TW",
+    "event_type": "Taiwan CBC",
+    "importance": "HIGH",
+    "source": "台灣央行 (curated schedule)"
+  },
+  {
+    "event_id": "tw_cpi_2026_03",
+    "scheduled_at": "2026-03-05T02:00:00.000Z",
+    "country": "TW",
+    "event_type": "Taiwan CPI",
+    "importance": "MEDIUM",
+    "source": "主計總處 (curated schedule)"
+  },
+  {
+    "event_id": "tw_exports_2026_03",
+    "scheduled_at": "2026-03-07T08:00:00.000Z",
+    "country": "TW",
+    "event_type": "Exports",
+    "importance": "HIGH",
+    "source": "財政部 (curated schedule)"
+  },
+  {
+    "event_id": "tw_export_orders_2026_03",
+    "scheduled_at": "2026-03-20T08:00:00.000Z",
+    "country": "TW",
+    "event_type": "Export Orders",
+    "importance": "HIGH",
+    "source": "經濟部 (curated schedule)"
+  },
+  {
+    "event_id": "tw_ip_2026_03",
+    "scheduled_at": "2026-03-23T08:00:00.000Z",
+    "country": "TW",
+    "event_type": "Industrial Production",
+    "importance": "MEDIUM",
+    "source": "經濟部 (curated schedule)"
+  },
+  {
+    "event_id": "tw_gdp_2026_q1",
+    "scheduled_at": "2026-04-30T02:00:00.000Z",
+    "country": "TW",
+    "event_type": "GDP",
+    "importance": "HIGH",
+    "source": "主計總處 (curated schedule)"
+  }
+]

@@ -87,6 +87,23 @@ export interface MarketContextOverviewDto {
         realtime_level: 'PREVIOUS_DAY';
         note: string;
     };
+    gap_layers?: {
+        asia_regime?: { data?: { state?: string; vs_taiwan?: string }; available?: boolean };
+        index_concentration?: { data?: { state?: string }; proxy?: boolean; available?: boolean };
+        futures_lead?: { data?: { state?: string }; available?: boolean };
+        crowding?: { data?: { state?: string }; available?: boolean };
+        macro_event_calendar?: {
+            data?: { nearest?: { event_type?: string; phase?: string } | null };
+            available?: boolean;
+        };
+        passive_flow_calendar?: { data?: { passive_flow_event?: boolean } };
+        preopen_auction?: { data?: { state?: string; window?: string }; available?: boolean };
+        derivatives_positioning?: { available?: boolean; data?: { state?: string } };
+        overseas_company?: { data?: { mapped_count?: number }; available?: boolean };
+        industry_drivers?: {
+            data?: { drivers?: Array<{ driver: string; available: boolean }> };
+        };
+    } | null;
     warnings: string[];
 }
 
@@ -99,6 +116,10 @@ export function fetchMarketContextSectors() {
         items: MarketContextOverviewDto['top_rotating'];
         count: number;
     }>('/api/v1/market-context/sectors');
+}
+
+export function fetchMarketContextGapLayers() {
+    return apiGet<Record<string, unknown>>('/api/v1/market-context/gap-layers');
 }
 
 export const TW_REGIME_LABEL: Record<TaiwanRegimeState, string> = {

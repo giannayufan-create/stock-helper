@@ -27,6 +27,7 @@ export const GLOBAL_ASSET_SPECS: GlobalAssetSpec[] = [
     { id: 'kospi', name: 'KOSPI', yahoo: '^KS11', group: 'asia' },
     { id: 'hsi', name: 'Hang Seng', yahoo: '^HSI', group: 'asia' },
     { id: 'shanghai', name: 'Shanghai', yahoo: '000001.SS', group: 'asia' },
+    { id: 'csi300', name: 'CSI 300', yahoo: '000300.SS', group: 'asia' },
     { id: 'gold', name: 'Gold', yahoo: 'GC=F', group: 'commodity' },
     { id: 'wti', name: 'WTI', yahoo: 'CL=F', group: 'commodity' },
     { id: 'copper', name: 'Copper', yahoo: 'HG=F', group: 'commodity' },
@@ -183,6 +184,7 @@ export class GlobalMarketService {
             pct('kospi'),
             pct('hsi'),
             pct('shanghai'),
+            pct('csi300'),
         ]);
         const fx = pct('usdtwd');
 

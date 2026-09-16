@@ -28,6 +28,8 @@ import type {
     TaiwanRegime,
 } from './types.ts';
 import { MC_VERSION } from './types.ts';
+import { buildGapLayersSnapshot } from './gap-layers/index.ts';
+import type { GapLayersSnapshot } from './gap-layers/types.ts';
 import { EvalTimingRegistry } from '../live-acceptance/eval-timing.ts';
 import { ReadinessTracker } from '../live-acceptance/readiness.ts';
 
@@ -47,6 +49,7 @@ export class MarketContextRuntime {
     private sectorsLastFull: SectorRotationRow[] = [];
     private lastQuotes: TwDayQuote[] = [];
     private globalMarket = new GlobalMarketService();
+    private lastGapLayers: GapLayersSnapshot | null = null;
 
     constructor(
         private runtime: MarketRuntime,
@@ -113,6 +116,10 @@ export class MarketContextRuntime {
 
     getSectors(): SectorRotationRow[] {
         return this.sectorsLastFull;
+    }
+
+    getGapLayers(): GapLayersSnapshot | null {
+        return this.lastGapLayers ?? this.lastOverview?.gap_layers ?? null;
     }
 
     getSector(name: string): SectorRotationRow | null {
@@ -216,6 +223,25 @@ export class MarketContextRuntime {
         const institutional_eod = this.institutionalEod(fetchedAt);
         const institutional_risk_proxy = this.institutionalProxy(fetchedAt);
 
+        const globalAssets =
+            this.globalMarket.getCached()?.assets ?? [];
+        let gap_layers: GapLayersSnapshot | null = null;
+        try {
+            gap_layers = await buildGapLayersSnapshot({
+                runtime: this.runtime,
+                quotes,
+                breadthAdvancePct: breadth.advance_pct,
+                taiwanRegime: taiwan_regime.state,
+                globalAssets,
+                fetchedAt,
+            });
+            this.lastGapLayers = gap_layers;
+        } catch (e) {
+            warnings.push(
+                `gap_layers_failed:${e instanceof Error ? e.message : 'error'}`,
+            );
+        }
+
         const overview: MarketContextOverview = {
             as_of: fetchedAt,
             version: MC_VERSION,
@@ -228,6 +254,7 @@ export class MarketContextRuntime {
                 .slice(0, 12),
             institutional_eod,
             institutional_risk_proxy,
+            gap_layers,
             creates_upstream_subscription: false,
             mutates_strategy: false,
             warnings,

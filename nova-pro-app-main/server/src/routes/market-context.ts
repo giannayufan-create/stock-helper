@@ -70,4 +70,13 @@ export function registerMarketContextRoutes(
             return row;
         },
     );
+
+    app.get('/api/v1/market-context/gap-layers', async (_req, reply) => {
+        const svc = mc();
+        if (!svc) return reply.code(503).send({ error: 'disabled' });
+        if (!svc.getOverview()) await svc.evaluate();
+        const layers = svc.getGapLayers();
+        if (!layers) return reply.code(503).send({ error: 'not_ready' });
+        return layers;
+    });
 }

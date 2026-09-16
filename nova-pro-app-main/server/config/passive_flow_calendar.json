@@ -1,0 +1,10 @@
+[
+  {
+    "event_id": "msci_review_placeholder",
+    "event_type": "INDEX_REVIEW",
+    "index_name": "MSCI Taiwan",
+    "effective_at": "2026-05-15T00:00:00.000Z",
+    "symbols": [],
+    "source": "MSCI (curated — empty symbols until official list published)"
+  }
+]

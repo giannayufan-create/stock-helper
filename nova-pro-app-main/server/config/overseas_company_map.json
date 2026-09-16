@@ -1,0 +1,23 @@
+[
+  {
+    "taiwan_symbol": "2330",
+    "overseas_symbol": "TSM",
+    "relation": "ADR",
+    "exposure_confidence": "HIGH",
+    "source": "TWSE overseas DR / common ADR mapping"
+  },
+  {
+    "taiwan_symbol": "2317",
+    "overseas_symbol": "HNHPF",
+    "relation": "ADR",
+    "exposure_confidence": "MEDIUM",
+    "source": "common ADR mapping"
+  },
+  {
+    "taiwan_symbol": "2454",
+    "overseas_symbol": "MDTKF",
+    "relation": "RELATED",
+    "exposure_confidence": "LOW",
+    "source": "related listing (low confidence)"
+  }
+]

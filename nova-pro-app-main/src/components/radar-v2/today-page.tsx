@@ -348,6 +348,62 @@ export function TodayPage({
                 )}
             </div>
 
+            {mc?.gap_layers ? (
+                <div className={s.zoneBlock}>
+                    <div className={s.zoneTitle}>延伸情境層</div>
+                    <div
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: 8,
+                            fontSize: 12,
+                        }}
+                    >
+                        <div>
+                            Asia{' '}
+                            {mc.gap_layers.asia_regime?.data?.state ?? '—'}
+                            {mc.gap_layers.asia_regime?.data?.vs_taiwan
+                                ? ` · ${mc.gap_layers.asia_regime.data.vs_taiwan}`
+                                : ''}
+                        </div>
+                        <div>
+                            Conc.{' '}
+                            {mc.gap_layers.index_concentration?.data?.state ??
+                                '—'}
+                            {mc.gap_layers.index_concentration?.proxy
+                                ? ' (PROXY)'
+                                : ''}
+                        </div>
+                        <div>
+                            Futures{' '}
+                            {mc.gap_layers.futures_lead?.data?.state ?? '—'}
+                        </div>
+                        <div>
+                            Crowding{' '}
+                            {mc.gap_layers.crowding?.data?.state ?? '—'}
+                        </div>
+                        <div>
+                            Macro{' '}
+                            {mc.gap_layers.macro_event_calendar?.data?.nearest
+                                ?.event_type ?? '—'}
+                        </div>
+                        <div>
+                            PreOpen{' '}
+                            {mc.gap_layers.preopen_auction?.data?.state ?? '—'}
+                        </div>
+                    </div>
+                    <div
+                        style={{
+                            marginTop: 8,
+                            fontSize: 11,
+                            color: vars.color.mutedForeground,
+                        }}
+                    >
+                        Context only · 不修改 C / BP
+                    </div>
+                </div>
+            ) : null}
+
             {/* 3 Capital / Sector Rotation */}
             <div className={s.section}>
                 <div className={s.sectionRow}>

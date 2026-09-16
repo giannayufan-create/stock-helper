@@ -162,6 +162,8 @@ export interface MarketContextOverview {
     top_rotating: SectorRotationRow[];
     institutional_eod: InstitutionalEodBlock;
     institutional_risk_proxy: InstitutionalRiskProxy;
+    /** Gap-completion layers — Decision Support only; never mutates strategy. */
+    gap_layers?: import('./gap-layers/types.ts').GapLayersSnapshot | null;
     creates_upstream_subscription: false;
     mutates_strategy: false;
     warnings: string[];
