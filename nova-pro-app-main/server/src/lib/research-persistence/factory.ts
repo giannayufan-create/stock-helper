@@ -45,7 +45,7 @@ export function createResearchRepositories(
 ): ResearchRepositories {
     console.log(
         `[research-persistence] configured_mode=${cfg.configured_mode} effective_repository_mode=${cfg.mode}` +
-            (cfg.used_legacy_alias ? ' (legacy RESEARCH_REPOSITORY_MODE)' : '') +
+            (cfg.used_legacy_alias ? ' (legacy RESEARCH_REPOSITORY)' : '') +
             (cfg.env_conflict ? ' ENV_CONFLICT_FAILSAFE' : ''),
     );
 

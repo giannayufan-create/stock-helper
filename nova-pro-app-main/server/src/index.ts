@@ -18,6 +18,7 @@ import { SseHub } from './sse/hub.ts';
 import { SubscriptionRegistry } from './sse/subscriptions.ts';
 import { WatchlistStore } from './watchlist-store.ts';
 import { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
+import { OpenGateRuntimeCoordinator } from './lib/open-gate-v2/open-gate-runtime-coordinator.ts';
 import { IntradayRankService } from './lib/intraday-rank/service.ts';
 import { MarketIntelligenceService } from './lib/market-intelligence/index.ts';
 import { BrokerIntelligenceService } from './lib/broker-intelligence/index.ts';
@@ -175,8 +176,12 @@ async function main(): Promise<void> {
         manager,
         marketRuntime,
         signalBridge,
+        dataDir,
     );
     openGateV2.start();
+    const openGateRuntime = new OpenGateRuntimeCoordinator(openGateV2);
+    // Explicit restart recovery path (boot hydrate also runs inside start())
+    await openGateRuntime.onBoot();
     const intradayRank = new IntradayRankService(
         manager,
         marketRuntime,
@@ -280,6 +285,15 @@ async function main(): Promise<void> {
         researchRepos,
         getNotificationCandidateCount: () =>
             webNotifications?.list({ limit: 200 }).length ?? 0,
+        onPreopen: async () => {
+            await openGateRuntime.onPreopen();
+        },
+        onCashLive: async () => {
+            // OpenGate already cadence-evaluates; ensure pool still active after open
+            if (openGateV2.getAPoolMeta().count === 0) {
+                await openGateRuntime.onRestart();
+            }
+        },
     });
     sessionAutonomy.start(15_000);
     console.log(

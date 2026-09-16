@@ -20,6 +20,9 @@ export {
 } from './open-gate-evaluator.ts';
 export { OpenGateV2Service } from './service.ts';
 export type { OpenConfirmBatchResult } from './service.ts';
+export { OpenGateRuntimeCoordinator } from './open-gate-runtime-coordinator.ts';
+export { ACandidateStore } from './a-candidate-store.ts';
+export type { ACandidateSnapshot } from './a-candidate-store.ts';
 export type {
     ACandidate,
     ChaseRisk,

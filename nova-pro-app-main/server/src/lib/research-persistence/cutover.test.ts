@@ -15,8 +15,8 @@ function pass(name: string) {
 
 {
     const cfg = loadResearchPersistenceConfig({
-        RESEARCH_REPOSITORY: 'dual',
-        RESEARCH_REPOSITORY_MODE: 'jsonl',
+        RESEARCH_REPOSITORY_MODE: 'dual',
+        RESEARCH_REPOSITORY: 'jsonl',
     } as NodeJS.ProcessEnv);
     assert.equal(cfg.env_conflict, true);
     assert.equal(cfg.configured_mode, 'dual');
@@ -26,22 +26,23 @@ function pass(name: string) {
 
 {
     const cfg = loadResearchPersistenceConfig({
-        RESEARCH_REPOSITORY_MODE: 'dual',
+        RESEARCH_REPOSITORY: 'dual',
     } as NodeJS.ProcessEnv);
     assert.equal(cfg.used_legacy_alias, true);
     assert.equal(cfg.configured_mode, 'dual');
     assert.equal(cfg.mode, 'dual');
-    pass('CUT-env — legacy alias RESEARCH_REPOSITORY_MODE');
+    pass('CUT-env — legacy alias RESEARCH_REPOSITORY');
 }
 
 {
     const cfg = loadResearchPersistenceConfig({
-        RESEARCH_REPOSITORY: 'firestore',
+        RESEARCH_REPOSITORY_MODE: 'firestore',
     } as NodeJS.ProcessEnv);
     assert.equal(cfg.configured_mode, 'firestore');
     assert.equal(cfg.mode, 'firestore');
     assert.equal(cfg.env_conflict, false);
-    pass('CUT-env — canonical RESEARCH_REPOSITORY');
+    assert.equal(cfg.used_legacy_alias, false);
+    pass('CUT-env — canonical RESEARCH_REPOSITORY_MODE');
 }
 
 {

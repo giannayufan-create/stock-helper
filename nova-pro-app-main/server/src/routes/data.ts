@@ -231,11 +231,15 @@ export function registerDataRoutes(
             }>;
         };
     }>('/api/v1/data/open-confirm', async (req) => {
+        // Admin/debug trigger only — production headless uses OpenGateRuntimeCoordinator.
         const raw = Array.isArray(req.body?.codes) ? req.body.codes : [];
         const batch = await ctx.openGateV2.setCandidates(raw);
         const result = ctx.openGateV2.getLastBatch();
         return {
             adapted: batch.length,
+            trigger: 'admin_debug',
+            production_required: false,
+            post_required: false,
             ...(result ?? {
                 phase: 'after',
                 as_of: new Date().toISOString(),
@@ -255,9 +259,10 @@ export function registerDataRoutes(
         };
     });
 
-    /** Latest cached B results (cadence-updated). */
+    /** Latest cached B results (cadence-updated). Headless: pool may exist without POST. */
     app.get('/api/v1/data/open-confirm', async () => {
         const result = ctx.openGateV2.getLastBatch();
+        const aMeta = ctx.openGateV2.getAPoolMeta();
         if (!result) {
             return {
                 phase: 'after',
@@ -272,11 +277,18 @@ export function registerDataRoutes(
                 items: [],
                 market_regime: 'neutral',
                 market_score: 50,
-                warnings: ['pool empty — POST candidates first'],
+                warnings:
+                    aMeta.count === 0
+                        ? [
+                              'pool empty — backend hydrate pending (POST not required)',
+                          ]
+                        : ['evaluation pending'],
                 evaluate_interval_sec: 3,
+                a_pool: aMeta,
+                post_required: false,
             };
         }
-        return result;
+        return { ...result, a_pool: aMeta, post_required: false };
     });
 
     app.get<{ Params: { symbol: string } }>(
@@ -288,7 +300,8 @@ export function registerDataRoutes(
                 return {
                     error: 'not_found',
                     symbol,
-                    hint: 'POST /api/v1/data/open-confirm with A pool first',
+                    hint: 'A pool is backend-owned; wait for OpenGate hydrate/evaluation (POST not required)',
+                    post_required: false,
                 };
             }
             return item;

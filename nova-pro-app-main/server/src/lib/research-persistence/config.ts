@@ -3,14 +3,14 @@
 import type { ResearchRepositoryMode } from './types.ts';
 
 export interface ResearchPersistenceConfig {
-    /** Canonical configured mode from RESEARCH_REPOSITORY (or legacy alias). */
+    /** Canonical configured mode from RESEARCH_REPOSITORY_MODE (or legacy alias). */
     configured_mode: ResearchRepositoryMode;
     /** Effective mode after fail-safe (may fall back to jsonl). */
     mode: ResearchRepositoryMode;
-    /** True when RESEARCH_REPOSITORY and RESEARCH_REPOSITORY_MODE disagree. */
+    /** True when RESEARCH_REPOSITORY_MODE and RESEARCH_REPOSITORY disagree. */
     env_conflict: boolean;
     env_conflict_message: string | null;
-    /** Legacy alias was used because RESEARCH_REPOSITORY unset. */
+    /** Legacy alias was used because RESEARCH_REPOSITORY_MODE unset. */
     used_legacy_alias: boolean;
     queue_max_depth: number;
     queue_warn_depth: number;
@@ -27,18 +27,19 @@ function parseMode(raw: string | undefined): ResearchRepositoryMode | null {
 }
 
 /**
- * Canonical env: RESEARCH_REPOSITORY
- * Legacy alias: RESEARCH_REPOSITORY_MODE (backward compatible)
+ * Canonical env: RESEARCH_REPOSITORY_MODE
+ * Legacy alias: RESEARCH_REPOSITORY (backward compatible)
  *
  * Conflict (both set, different values) → fail-safe to jsonl + warning.
+ * Production should set only RESEARCH_REPOSITORY_MODE.
  * Never logs secret values.
  */
 export function loadResearchPersistenceConfig(
     env: NodeJS.ProcessEnv = process.env,
 ): ResearchPersistenceConfig {
-    const primaryRaw = env.RESEARCH_REPOSITORY;
-    const legacyRaw = env.RESEARCH_REPOSITORY_MODE;
-    const primary = parseMode(primaryRaw);
+    const canonicalRaw = env.RESEARCH_REPOSITORY_MODE;
+    const legacyRaw = env.RESEARCH_REPOSITORY;
+    const canonical = parseMode(canonicalRaw);
     const legacy = parseMode(legacyRaw);
 
     let configured_mode: ResearchRepositoryMode = 'jsonl';
@@ -46,21 +47,21 @@ export function loadResearchPersistenceConfig(
     let env_conflict = false;
     let env_conflict_message: string | null = null;
 
-    if (primary && legacy && primary !== legacy) {
+    if (canonical && legacy && canonical !== legacy) {
         env_conflict = true;
         env_conflict_message =
-            `RESEARCH_REPOSITORY=${primary} conflicts with RESEARCH_REPOSITORY_MODE=${legacy}; fail-safe effective_mode=jsonl`;
-        configured_mode = primary; // report what primary asked for
+            `RESEARCH_REPOSITORY_MODE=${canonical} conflicts with RESEARCH_REPOSITORY=${legacy}; fail-safe effective_mode=jsonl`;
+        configured_mode = canonical; // report canonical intent
         console.warn(`[research-persistence] ${env_conflict_message}`);
-    } else if (primary) {
-        configured_mode = primary;
+    } else if (canonical) {
+        configured_mode = canonical;
     } else if (legacy) {
         configured_mode = legacy;
         used_legacy_alias = true;
         console.warn(
-            '[research-persistence] RESEARCH_REPOSITORY unset; using legacy alias RESEARCH_REPOSITORY_MODE — prefer RESEARCH_REPOSITORY',
+            '[research-persistence] RESEARCH_REPOSITORY_MODE unset; using legacy alias RESEARCH_REPOSITORY — prefer RESEARCH_REPOSITORY_MODE',
         );
-    } else if (primaryRaw || legacyRaw) {
+    } else if (canonicalRaw || legacyRaw) {
         console.warn(
             '[research-persistence] invalid repository mode value; fail-safe jsonl (allowed: jsonl|dual|firestore)',
         );

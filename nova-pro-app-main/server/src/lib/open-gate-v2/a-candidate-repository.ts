@@ -1,5 +1,6 @@
 // server/src/lib/open-gate-v2/a-candidate-repository.ts
-// Future: A Screener Server owns the pool. MVP still accepts frontend POST.
+// Headless: OpenGateV2Service.ensureAPoolHeadless / OpenGateRuntimeCoordinator.
+// POST /open-confirm remains admin/debug only (replaceFromFrontend).
 
 import type { ACandidate } from './types.ts';
 import {
@@ -19,7 +20,7 @@ export class ACandidateRepository {
         return this.bySymbol.get(symbol);
     }
 
-    /** MVP: frontend posts A pool (a_score_source = legacy_frontend). */
+    /** Admin/debug: frontend posts A pool (a_score_source = legacy_frontend). */
     replaceFromFrontend(raws: ACandidateRaw[]): ACandidate[] {
         const list = adaptACandidates(raws).map((c) => ({
             ...c,
@@ -31,7 +32,7 @@ export class ACandidateRepository {
         return list;
     }
 
-    /** Future server-owned A screener. */
+    /** Server-owned A pool (headless hydrate / EOD seed). */
     replaceFromServer(candidates: ACandidate[]): ACandidate[] {
         this.bySymbol.clear();
         for (const c of candidates) {
