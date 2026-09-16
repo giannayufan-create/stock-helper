@@ -80,7 +80,6 @@ export function StockDetailPage({
                 const rows = await fetchSnapshots([
                     {
                         code: item.symbol,
-                        name: item.name,
                         security_type: 'STK',
                         exchange: 'TSE',
                         target_code: null,
