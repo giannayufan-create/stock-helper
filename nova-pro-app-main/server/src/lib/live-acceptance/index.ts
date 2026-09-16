@@ -7,5 +7,6 @@ export { LA_VERSION } from './types.ts';
 export { DAILY_LA_VERSION } from './daily-types.ts';
 export { assembleDailyReport, renderDailyMarkdown } from './daily-finalize.ts';
 export { selectSignalSamples, selectAnomalies, rowsToCsv } from './daily-sampler.ts';
+export { buildZip } from './zip-pack.ts';
 export type * from './types.ts';
 export type * from './daily-types.ts';

@@ -8,7 +8,12 @@ const base = getApiBase();
 async function fail(res: Response): Promise<never> {
     let detail = '';
     try {
-        detail = (await res.json())?.detail ?? '';
+        const body = (await res.json()) as {
+            detail?: string;
+            error?: string;
+            message?: string;
+        };
+        detail = body.detail || body.error || body.message || '';
     } catch {
         // non-JSON error body
     }

@@ -520,11 +520,17 @@ export class LiveAcceptanceService {
         firestore: DailyLiveAcceptanceReport['firestore'] | null;
         signals: DailyLiveAcceptanceReport['signals'] | null;
         notifications: DailyLiveAcceptanceReport['notifications'];
+        anomalies_count: number;
+        anomaly_kinds: string[];
+        generated_at: string | null;
         finalized: boolean;
         mutates_strategy: false;
     } {
         const ymd = todayYmd();
-        const last = this.lastDailyReport;
+        const last =
+            this.lastDailyReport && this.lastDailyReport.trading_day === ymd
+                ? this.lastDailyReport
+                : null;
         const cov = this.coverageSamples.at(-1) ?? null;
         const firestore = buildFirestoreSummary(this.ctx, ymd, {
             firestore_queue: this.peakFsQueue,
@@ -534,6 +540,8 @@ export class LiveAcceptanceService {
             ...collectBpEventRows(this.ctx),
         ];
         const signals = last?.signals ?? countSignalTypes(allRows);
+        const anomalies = last?.anomalies ?? [];
+        const kindSet = Array.from(new Set(anomalies.map((a) => a.kind)));
 
         return {
             trading_day: ymd,
@@ -549,8 +557,33 @@ export class LiveAcceptanceService {
                 notify: this.notifyStats,
                 priority: this.notifyPriority,
             }),
-            finalized: Boolean(last && last.trading_day === ymd),
+            anomalies_count: anomalies.length,
+            anomaly_kinds: kindSet,
+            generated_at: last?.generated_at ?? null,
+            finalized: Boolean(last),
             mutates_strategy: false,
+        };
+    }
+
+    /** Paths for today's finalized pack; null if not generated this process/day. */
+    getFinalizedPaths(): {
+        trading_day: string;
+        generated_at: string;
+        md: string;
+        json: string;
+        csv: string;
+        zip_name: string;
+    } | null {
+        const ymd = todayYmd();
+        const last = this.lastDailyReport;
+        if (!last || last.trading_day !== ymd) return null;
+        return {
+            trading_day: ymd,
+            generated_at: last.generated_at,
+            md: last.paths.md,
+            json: last.paths.json,
+            csv: last.paths.csv,
+            zip_name: `${ymd}-live-acceptance-pack.zip`,
         };
     }
 

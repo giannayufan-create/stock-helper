@@ -17,6 +17,7 @@ import {
 import { assembleDailyReport } from './daily-finalize.ts';
 import { DAILY_LA_VERSION } from './daily-types.ts';
 import type { SignalSampleRow } from './daily-types.ts';
+import { buildZip } from './zip-pack.ts';
 
 console.log('=== Live Acceptance instrumentation tests ===');
 
@@ -268,6 +269,17 @@ console.log('=== Live Acceptance instrumentation tests ===');
     assert.ok(assembled.md.includes('Daily Live Acceptance'));
     assert.ok(countSignalTypes(pool).EARLY_ENTER >= 12);
     console.log('PASS daily sampler / finalize');
+}
+
+{
+    const zip = buildZip([
+        { name: 'a.md', data: '# hi\n' },
+        { name: 'b.json', data: '{"ok":true}' },
+        { name: 'c.csv', data: 'a,b\n1,2\n' },
+    ]);
+    assert.ok(zip.length > 40);
+    assert.equal(zip.readUInt32LE(0), 0x04034b50);
+    console.log('PASS zip pack');
 }
 
 console.log('\nAll Live Acceptance instrumentation tests PASSED');

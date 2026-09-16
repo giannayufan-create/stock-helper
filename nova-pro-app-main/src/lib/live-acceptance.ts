@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from './api';
+import { getApiBase } from './runtime';
 
 export type LiveAcceptanceOverall =
     | 'PASS'
@@ -26,6 +27,9 @@ export interface LiveAcceptanceTodayDto {
         MEDIUM: number;
         INFO: number;
     };
+    anomalies_count: number;
+    anomaly_kinds: string[];
+    generated_at: string | null;
     finalized: boolean;
     mutates_strategy: false;
 }
@@ -34,8 +38,10 @@ export interface LiveAcceptanceFinalizeDto {
     ok: boolean;
     overall: 'PASS' | 'WARNING' | 'FAIL';
     trading_day: string;
+    generated_at: string;
     paths: { md: string; json: string; csv: string };
     quality: Array<{ id: string; label: string; status: string; detail: string }>;
+    anomalies_count: number;
     mutates_strategy: false;
 }
 
@@ -52,8 +58,6 @@ export function finalizeLiveAcceptance() {
     );
 }
 
-export function liveAcceptanceDownloadUrl(
-    kind: 'json' | 'md' | 'csv',
-): string {
-    return `/api/v1/system/live-acceptance/download/${kind}`;
+export function liveAcceptanceZipUrl(): string {
+    return `${getApiBase()}/api/v1/system/live-acceptance/download/zip`;
 }

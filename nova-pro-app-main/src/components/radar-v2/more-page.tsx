@@ -1,15 +1,32 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { vars } from '../../theme.css';
 import {
     fetchLiveAcceptanceToday,
     finalizeLiveAcceptance,
-    liveAcceptanceDownloadUrl,
+    liveAcceptanceZipUrl,
     type LiveAcceptanceTodayDto,
 } from '../../lib/live-acceptance';
 import { liveStatusLabel } from './helpers';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 import type { RadarFeed } from './use-radar-feed';
+
+function fmtTaipei(iso: string | null | undefined): string {
+    if (!iso) return '尚未產生';
+    try {
+        return new Date(iso).toLocaleString('zh-TW', {
+            timeZone: 'Asia/Taipei',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+        });
+    } catch {
+        return iso;
+    }
+}
 
 export function MorePage({
     feed,
@@ -45,7 +62,14 @@ export function MorePage({
 
     const [la, setLa] = useState<LiveAcceptanceTodayDto | null>(null);
     const [laBusy, setLaBusy] = useState(false);
-    const [laMsg, setLaMsg] = useState<string | null>(null);
+    const [laError, setLaError] = useState<string | null>(null);
+    const [laOkMsg, setLaOkMsg] = useState<string | null>(null);
+
+    const refreshLa = async () => {
+        const d = await fetchLiveAcceptanceToday();
+        setLa(d);
+        return d;
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -65,25 +89,70 @@ export function MorePage({
 
     const onFinalize = async () => {
         setLaBusy(true);
-        setLaMsg(null);
+        setLaError(null);
+        setLaOkMsg(null);
         try {
             const r = await finalizeLiveAcceptance();
-            setLaMsg(`已產生 ${r.trading_day} 報告 · Overall ${r.overall}`);
-            const d = await fetchLiveAcceptanceToday();
-            setLa(d);
+            if (!r.ok) {
+                setLaError('產生失敗：伺服器回傳未成功');
+                return;
+            }
+            const d = await refreshLa();
+            setLaOkMsg(
+                `已產生 · ${fmtTaipei(r.generated_at || d.generated_at)} · ${r.overall}`,
+            );
         } catch (e) {
-            setLaMsg(e instanceof Error ? e.message : '產生失敗');
+            setLaError(
+                e instanceof Error ? e.message : '產生失敗，請稍後再試',
+            );
         } finally {
             setLaBusy(false);
         }
     };
 
+    const onDownloadZip = () => {
+        setLaError(null);
+        if (!la?.finalized) {
+            setLaError('尚未產生，請先產生今日驗收報告');
+            return;
+        }
+        // Full navigation — most reliable on iOS / Android browsers
+        window.location.assign(liveAcceptanceZipUrl());
+    };
+
+    const overallLabel =
+        !la || !la.finalized || la.overall === 'PENDING'
+            ? '尚未產生'
+            : la.overall;
+
     const overallTone =
-        la?.overall === 'PASS'
+        overallLabel === 'PASS'
             ? radarColor.live
-            : la?.overall === 'FAIL'
+            : overallLabel === 'FAIL'
               ? '#f87171'
-              : '#fcd34d';
+              : overallLabel === '尚未產生'
+                ? vars.color.mutedForeground
+                : '#fcd34d';
+
+    const actionBtn: CSSProperties = {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        minHeight: 48,
+        boxSizing: 'border-box',
+        borderRadius: 14,
+        fontSize: 15,
+        fontWeight: 700,
+        padding: '12px 14px',
+        cursor: 'pointer',
+        border: `1px solid ${radarColor.glassBorder}`,
+        color: vars.color.foreground,
+        background: 'transparent',
+        textDecoration: 'none',
+        WebkitTapHighlightColor: 'transparent',
+        touchAction: 'manipulation',
+    };
 
     return (
         <>
@@ -137,7 +206,16 @@ export function MorePage({
                 )}
             </div>
 
-            <div className={s.glass} style={{ padding: 16, marginBottom: 14 }}>
+            <div
+                className={s.glass}
+                style={{
+                    padding: 16,
+                    marginBottom: 14,
+                    overflowX: 'hidden',
+                    maxWidth: '100%',
+                }}
+                data-testid="live-acceptance-panel"
+            >
                 <div
                     style={{
                         display: 'flex',
@@ -145,6 +223,7 @@ export function MorePage({
                         alignItems: 'center',
                         gap: 8,
                         marginBottom: 10,
+                        flexWrap: 'wrap',
                     }}
                 >
                     <div style={{ fontSize: 16, fontWeight: 700 }}>
@@ -158,9 +237,15 @@ export function MorePage({
                             color: overallTone,
                         }}
                     >
-                        {la?.overall ?? '—'}
+                        Overall {overallLabel}
                     </span>
                 </div>
+
+                <HealthRow
+                    label="產生時間"
+                    value={fmtTaipei(la?.generated_at)}
+                    ok={Boolean(la?.finalized)}
+                />
                 <HealthRow
                     label="Market Coverage"
                     value={
@@ -197,7 +282,7 @@ export function MorePage({
                         la?.signals
                             ? Object.entries(la.signals)
                                   .filter(([, n]) => n > 0)
-                                  .slice(0, 4)
+                                  .slice(0, 3)
                                   .map(([k, n]) => `${k}:${n}`)
                                   .join(' · ') || '0'
                             : '—'
@@ -213,78 +298,92 @@ export function MorePage({
                     }
                     ok={(la?.notifications.duplicate_count ?? 0) === 0}
                 />
+                <HealthRow
+                    label="Anomalies"
+                    value={
+                        !la?.finalized
+                            ? '尚未產生'
+                            : la.anomalies_count === 0
+                              ? '0'
+                              : `${la.anomalies_count}${
+                                    la.anomaly_kinds.length
+                                        ? ` · ${la.anomaly_kinds.slice(0, 2).join(',')}`
+                                        : ''
+                                }`
+                    }
+                    ok={!la?.finalized || la.anomalies_count < 10}
+                />
+
                 <div
                     style={{
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: 8,
+                        gap: 10,
                         marginTop: 14,
+                        width: '100%',
                     }}
                 >
                     <button
                         type="button"
-                        className={s.aiBtn}
                         disabled={laBusy}
                         onClick={() => void onFinalize()}
-                        style={{ minHeight: 44 }}
+                        style={{
+                            ...actionBtn,
+                            background: radarColor.glass,
+                            opacity: laBusy ? 0.6 : 1,
+                        }}
                     >
                         {laBusy ? '產生中…' : '產生今日驗收報告'}
                     </button>
-                    <a
-                        href={liveAcceptanceDownloadUrl('md')}
+                    <button
+                        type="button"
+                        onClick={onDownloadZip}
                         style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            minHeight: 44,
-                            borderRadius: 12,
-                            border: `1px solid ${radarColor.glassBorder}`,
-                            color: vars.color.foreground,
-                            textDecoration: 'none',
-                            fontSize: 14,
-                            fontWeight: 600,
+                            ...actionBtn,
+                            opacity: la?.finalized ? 1 : 0.55,
                         }}
                     >
-                        下載完整報告
-                    </a>
-                    <a
-                        href={liveAcceptanceDownloadUrl('csv')}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            minHeight: 44,
-                            borderRadius: 12,
-                            border: `1px solid ${radarColor.glassBorder}`,
-                            color: vars.color.foreground,
-                            textDecoration: 'none',
-                            fontSize: 14,
-                            fontWeight: 600,
-                        }}
-                    >
-                        下載訊號樣本
-                    </a>
+                        下載今日測試包 ZIP
+                    </button>
                 </div>
-                {laMsg && (
+
+                {laError && (
+                    <p
+                        role="alert"
+                        style={{
+                            marginTop: 12,
+                            fontSize: 13,
+                            color: '#fca5a5',
+                            lineHeight: 1.45,
+                            wordBreak: 'break-word',
+                        }}
+                    >
+                        {laError}
+                    </p>
+                )}
+                {laOkMsg && !laError && (
                     <p
                         style={{
-                            marginTop: 10,
-                            fontSize: 12,
-                            color: vars.color.mutedForeground,
+                            marginTop: 12,
+                            fontSize: 13,
+                            color: radarColor.live,
+                            lineHeight: 1.45,
+                            wordBreak: 'break-word',
                         }}
                     >
-                        {laMsg}
+                        {laOkMsg}
                     </p>
                 )}
                 <p
                     style={{
-                        marginTop: 8,
+                        marginTop: 10,
                         fontSize: 11,
                         color: vars.color.mutedForeground,
                         lineHeight: 1.4,
+                        wordBreak: 'break-word',
                     }}
                 >
-                    僅評估 Data / Runtime / Architecture 品質，不評價策略好壞。不修改
+                    ZIP 含 md／json／csv 三檔。僅評估 Data／Runtime／Architecture，不改
                     A/B/C／BP／門檻。
                 </p>
             </div>
@@ -380,6 +479,9 @@ export function MorePage({
                     本系統為決策支援，不是自動下單或買賣建議機器人。
                 </div>
             </div>
+
+            {/* keep content above bottom nav */}
+            <div className={s.pageEnd} />
         </>
     );
 }
@@ -398,13 +500,20 @@ function HealthRow({
             style={{
                 display: 'flex',
                 justifyContent: 'space-between',
-                padding: '8px 0',
+                padding: '10px 0',
                 gap: 12,
                 minHeight: 44,
                 alignItems: 'center',
+                maxWidth: '100%',
             }}
         >
-            <span style={{ fontSize: 13, color: vars.color.mutedForeground }}>
+            <span
+                style={{
+                    fontSize: 13,
+                    color: vars.color.mutedForeground,
+                    flexShrink: 0,
+                }}
+            >
                 {label}
             </span>
             <span
@@ -413,6 +522,9 @@ function HealthRow({
                     fontWeight: 700,
                     textAlign: 'right',
                     color: ok ? vars.color.foreground : '#fcd34d',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere',
+                    minWidth: 0,
                 }}
             >
                 {value}
