@@ -473,6 +473,12 @@ export function fetchIntradayRank(opts?: {
     }>(`/api/v1/data/intraday-rank?${q.toString()}`);
 }
 
+export function fetchIntradayRankSymbol(symbol: string) {
+    return apiGet<IntradayRankItemDto | { error: string; symbol: string }>(
+        `/api/v1/data/intraday-rank/${encodeURIComponent(symbol)}`,
+    );
+}
+
 export function fetchIntradayEvents(limit = 50) {
     return apiGet<{
         items: Array<{

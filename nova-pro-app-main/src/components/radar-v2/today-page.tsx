@@ -72,6 +72,9 @@ export function TodayPage({
     const pullbacks = sortPullback(feed.items).slice(0, 6);
 
     const [mc, setMc] = useState<MarketContextOverviewDto | null>(null);
+    const [mcStatus, setMcStatus] = useState<'loading' | 'ready' | 'error'>(
+        'loading',
+    );
     const [cal, setCal] = useState<CalendarTodayDto | null>(null);
     const [calOpen, setCalOpen] = useState(false);
     const [events, setEvents] = useState<MarketEventDto[]>([]);
@@ -87,9 +90,13 @@ export function TodayPage({
         const load = () =>
             void fetchMarketContextOverview()
                 .then((ov) => {
-                    if (!cancelled) setMc(ov);
+                    if (cancelled) return;
+                    setMc(ov);
+                    setMcStatus('ready');
                 })
-                .catch(() => undefined);
+                .catch(() => {
+                    if (!cancelled) setMcStatus((prev) => (prev === 'ready' ? prev : 'error'));
+                });
         load();
         const t = setInterval(load, 60_000);
         return () => {
@@ -479,7 +486,13 @@ export function TodayPage({
                     </div>
                 ))}
                 {!mc?.top_rotating?.length && (
-                    <div className={s.empty}>產業輪動資料載入中</div>
+                    <div className={s.empty}>
+                        {mcStatus === 'loading'
+                            ? '產業輪動資料載入中'
+                            : mcStatus === 'error'
+                              ? '產業輪動暫時無法載入'
+                              : '目前尚無產業輪動資料'}
+                    </div>
                 )}
             </div>
 

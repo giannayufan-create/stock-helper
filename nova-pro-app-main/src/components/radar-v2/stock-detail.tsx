@@ -83,6 +83,9 @@ export function StockDetailPage({
     const [snapPrice, setSnapPrice] = useState<number | null>(null);
     const [snapPct, setSnapPct] = useState<number | null>(null);
     const [interp, setInterp] = useState<StockAIInterpretationDto | null>(null);
+    const [interpStatus, setInterpStatus] = useState<
+        'loading' | 'ready' | 'missing'
+    >('loading');
     const [aiNarrative, setAiNarrative] = useState<string | null>(null);
     const [aiLoading, setAiLoading] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
@@ -110,8 +113,8 @@ export function StockDetailPage({
     }, [item.symbol]);
 
     useEffect(() => {
-        setAi(null);
         setInterp(null);
+        setInterpStatus('loading');
         setAiNarrative(null);
         setAiError(null);
         setAiAt(null);
@@ -119,7 +122,13 @@ export function StockDetailPage({
         setSnapPct(null);
         let cancelled = false;
         void fetchStockInterpretationScore(item.symbol).then((d) => {
-            if (!cancelled && d) setInterp(d);
+            if (cancelled) return;
+            if (d) {
+                setInterp(d);
+                setInterpStatus('ready');
+            } else {
+                setInterpStatus('missing');
+            }
         });
         void (async () => {
             try {
@@ -275,10 +284,14 @@ export function StockDetailPage({
                 const scoreOnly = await fetchStockInterpretationScore(
                     item.symbol,
                 );
-                if (scoreOnly) setInterp(scoreOnly);
+                if (scoreOnly) {
+                    setInterp(scoreOnly);
+                    setInterpStatus('ready');
+                }
                 return;
             }
             setInterp(result);
+            setInterpStatus('ready');
             setAiNarrative(result.narrative ?? null);
             if (result.llm_error) {
                 setAiError(result.llm_error);
@@ -287,7 +300,10 @@ export function StockDetailPage({
         } catch {
             setAiError('AI 文字解讀暫時無法使用');
             const scoreOnly = await fetchStockInterpretationScore(item.symbol);
-            if (scoreOnly) setInterp(scoreOnly);
+            if (scoreOnly) {
+                setInterp(scoreOnly);
+                setInterpStatus('ready');
+            }
         } finally {
             setAiLoading(false);
         }
@@ -659,7 +675,9 @@ export function StockDetailPage({
                                 marginBottom: 8,
                             }}
                         >
-                            解讀分數載入中或標的尚未進入雷達批次…
+                            {interpStatus === 'loading'
+                                ? '解讀分數載入中…'
+                                : '此標的尚無解讀分數（可能不在目前雷達批次）'}
                         </div>
                     )}
 

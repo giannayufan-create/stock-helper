@@ -86,7 +86,7 @@ export function BuyPressurePage({
     onOpenSymbol,
 }: {
     onBack?: () => void;
-    onOpenSymbol: (symbol: string) => void;
+    onOpenSymbol: (symbol: string, item?: BuyPressureItemDto) => void;
 }) {
     const [pricePreset, setPricePreset] = useState<PricePreset>('ALL');
     const [customMin, setCustomMin] = useState('');
@@ -628,7 +628,7 @@ function DetailView({
 }: {
     item: BuyPressureItemDto;
     onBack: () => void;
-    onOpenSymbol: (symbol: string) => void;
+    onOpenSymbol: (symbol: string, item?: BuyPressureItemDto) => void;
 }) {
     const meta = STATE_META[item.primary_state];
     return (
@@ -770,7 +770,7 @@ function DetailView({
                 type="button"
                 className={s.btnPrimary}
                 style={{ width: '100%' }}
-                onClick={() => onOpenSymbol(item.symbol)}
+                onClick={() => onOpenSymbol(item.symbol, item)}
             >
                 開啟個股詳情
             </button>

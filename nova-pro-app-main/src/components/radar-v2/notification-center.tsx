@@ -68,7 +68,11 @@ export function NotificationCenter({
                     setPrefs(r.preferences);
                     onUnreadChange?.(r.unread_count);
                 })
-                .catch(() => undefined);
+                .catch(() => {
+                    if (cancelled) return;
+                    setItems([]);
+                    onUnreadChange?.(0);
+                });
         };
         load();
         // SSE primary path — immediate refresh on hub event
@@ -194,7 +198,9 @@ export function NotificationCenter({
                 </div>
 
                 {filtered.length === 0 && (
-                    <div className={s.empty}>尚無通知</div>
+                    <div className={s.empty}>
+                        尚無通知（雲端重啟後歷史通知會清空）
+                    </div>
                 )}
                 {filtered.map((n) => (
                     <button

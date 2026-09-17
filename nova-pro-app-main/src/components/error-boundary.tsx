@@ -40,7 +40,9 @@ export class ErrorBoundary extends Component<Props, State> {
                         type="button"
                         onClick={() => {
                             this.setState({ error: null });
-                            window.location.reload();
+                            const u = new URL(window.location.href);
+                            u.searchParams.set('_r', String(Date.now()));
+                            window.location.replace(u.toString());
                         }}
                         style={{
                             marginTop: '1rem',

@@ -104,20 +104,43 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
         let cancelled = false;
         const load = async () => {
             try {
-                const [rank, ev, health, snaps, bp, mi, ds, mc] =
-                    await Promise.all([
+                const settled = await Promise.allSettled([
                     fetchIntradayRank({ limit: 40, includeWatch: true }),
                     fetchIntradayEvents(40),
-                    fetchHealth().catch(() => null),
-                    fetchSnapshots([TSE, OTC]).catch(() => [] as Awaited<
-                        ReturnType<typeof fetchSnapshots>
-                    >),
-                    fetchBuyPressure({ limit: 80 }).catch(() => null),
-                    fetchMiOverview().catch(() => null),
-                    fetchDecisionSummary({ limit: 80 }).catch(() => null),
-                    fetchMarketContextOverview().catch(() => null),
+                    fetchHealth(),
+                    fetchSnapshots([TSE, OTC]),
+                    fetchBuyPressure({ limit: 80 }),
+                    fetchMiOverview(),
+                    fetchDecisionSummary({ limit: 80 }),
+                    fetchMarketContextOverview(),
                 ]);
                 if (cancelled) return;
+
+                const rank =
+                    settled[0].status === 'fulfilled' ? settled[0].value : null;
+                const ev =
+                    settled[1].status === 'fulfilled' ? settled[1].value : null;
+                const health =
+                    settled[2].status === 'fulfilled' ? settled[2].value : null;
+                const snaps =
+                    settled[3].status === 'fulfilled'
+                        ? settled[3].value
+                        : ([] as Awaited<ReturnType<typeof fetchSnapshots>>);
+                const bp =
+                    settled[4].status === 'fulfilled' ? settled[4].value : null;
+                const mi =
+                    settled[5].status === 'fulfilled' ? settled[5].value : null;
+                const ds =
+                    settled[6].status === 'fulfilled' ? settled[6].value : null;
+                const mc =
+                    settled[7].status === 'fulfilled' ? settled[7].value : null;
+
+                if (!rank) {
+                    setLiveStatus('DISCONNECTED');
+                    setHealthNote('無法連線資料服務');
+                    setLoading(false);
+                    return;
+                }
 
                 const list = rank.items ?? [];
                 setItems(list);
@@ -131,7 +154,7 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                 );
                 setAsOf(rank.as_of ?? null);
                 setEvents(
-                    (ev.items ?? []).map((e) => ({
+                    (ev?.items ?? []).map((e) => ({
                         ...e,
                         name: undefined,
                     })),
@@ -162,13 +185,29 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                 setDsBySymbol(dsMap);
                 setTaiwanRegime(mc?.taiwan_regime?.state ?? null);
 
-                const idx = snaps.find((s) => s.code === '001');
-                const otc = snaps.find((s) => s.code === '101');
+                const idx = snaps.find(
+                    (s) => s.code === '001' || s.code === 'IX0001',
+                );
+                const otc = snaps.find(
+                    (s) =>
+                        s.code === '101' ||
+                        s.code === '002' ||
+                        s.code === 'IX0043',
+                );
+                const snapTaiex =
+                    idx?.change_rate != null ? Number(idx.change_rate) : null;
+                const snapTpex =
+                    otc?.change_rate != null ? Number(otc.change_rate) : null;
+                // Shioaji drops IND snapshots — prefer market-context Yahoo %.
                 setTaiexPct(
-                    idx?.change_rate != null ? Number(idx.change_rate) : null,
+                    snapTaiex ??
+                        mc?.taiwan_regime?.taiex_change_pct ??
+                        null,
                 );
                 setTpexPct(
-                    otc?.change_rate != null ? Number(otc.change_rate) : null,
+                    snapTpex ??
+                        mc?.taiwan_regime?.tpex_change_pct ??
+                        null,
                 );
 
                 const blocked = list.filter((i) => i.data_blocked).length;

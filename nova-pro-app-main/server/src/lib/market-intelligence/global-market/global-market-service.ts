@@ -18,7 +18,7 @@ export const GLOBAL_ASSET_SPECS: GlobalAssetSpec[] = [
     { id: 'dow', name: 'Dow Jones', yahoo: '^DJI', group: 'us' },
     { id: 'sox', name: 'SOX', yahoo: '^SOX', group: 'us' },
     { id: 'taiex', name: 'TAIEX', yahoo: '^TWII', group: 'taiwan' },
-    { id: 'tpex', name: 'TPEx', yahoo: '^TPEX', group: 'taiwan' },
+    { id: 'tpex', name: 'TPEx', yahoo: '^TWOII', group: 'taiwan' },
     { id: 'vix', name: 'VIX', yahoo: '^VIX', group: 'vol' },
     { id: 'us10y', name: 'US 10Y', yahoo: '^TNX', group: 'rates' },
     { id: 'dxy', name: 'DXY', yahoo: 'DX-Y.NYB', group: 'fx' },

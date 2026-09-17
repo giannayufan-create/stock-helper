@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+    fetchIntradayRankSymbol,
     fetchMarketConfig,
     type IntradayRankItemDto,
 } from '../../lib/backend';
+import type { BuyPressureItemDto } from '../../lib/buy-pressure';
 import { useMediaQuery } from '../../hooks/use-media-query';
 import type { ContractInfo } from '../../lib/types/contract';
 import type { Snapshot } from '../../lib/types/market';
@@ -51,6 +53,11 @@ export function RadarApp({
     const [tab, setTab] = useState<RadarTab>('today');
     const [radarInner, setRadarInner] = useState<string>('buy');
     const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
+    const [detailFetched, setDetailFetched] =
+        useState<IntradayRankItemDto | null>(null);
+    const [detailHint, setDetailHint] = useState<IntradayRankItemDto | null>(
+        null,
+    );
     const [favorites, setFavorites] = useState<string[]>(() => loadFavorites());
     const [clock, setClock] = useState(() => taipeiClock());
     const [provider, setProvider] = useState<'mock' | 'fugle' | 'shioaji' | null>(
@@ -96,13 +103,57 @@ export function RadarApp({
         setDetailSymbol(feed.items[0]!.symbol);
     }, [isDesktop, feed.items, detailSymbol]);
 
-    const detailItem = useMemo(
-        () => feed.items.find((i) => i.symbol === detailSymbol) ?? null,
-        [feed.items, detailSymbol],
-    );
+    const detailItem = useMemo(() => {
+        if (!detailSymbol) return null;
+        const fromFeed = feed.items.find((i) => i.symbol === detailSymbol);
+        if (fromFeed) return fromFeed;
+        if (detailFetched?.symbol === detailSymbol) return detailFetched;
+        if (detailHint?.symbol === detailSymbol) return detailHint;
+        const bp = feed.bpBySymbol[detailSymbol];
+        if (bp) return buyPressureToRankItem(bp);
+        return stubRankItem(detailSymbol);
+    }, [
+        detailSymbol,
+        feed.items,
+        feed.bpBySymbol,
+        detailFetched,
+        detailHint,
+    ]);
 
-    const openSymbol = (symbol: string) => {
+    useEffect(() => {
+        if (!detailSymbol) {
+            setDetailFetched(null);
+            setDetailHint(null);
+            return;
+        }
+        if (feed.items.some((i) => i.symbol === detailSymbol)) {
+            setDetailFetched(null);
+            return;
+        }
+        let cancelled = false;
+        void fetchIntradayRankSymbol(detailSymbol)
+            .then((d) => {
+                if (cancelled || !d || 'error' in d) return;
+                setDetailFetched(d);
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [detailSymbol, feed.items]);
+
+    const openSymbol = (
+        symbol: string,
+        hint?: IntradayRankItemDto | BuyPressureItemDto,
+    ) => {
         setDetailSymbol(symbol);
+        if (hint && 'buy_pressure_score' in hint) {
+            setDetailHint(buyPressureToRankItem(hint));
+        } else if (hint) {
+            setDetailHint(hint);
+        } else {
+            setDetailHint(null);
+        }
         void onSelectCode(symbol);
     };
 
@@ -340,44 +391,16 @@ export function RadarApp({
         );
 
     const detailInner = detailSymbol ? (
-        detailItem ? (
-            <StockDetailPage
-                item={detailItem}
-                favorite={favorites.includes(detailSymbol)}
-                marketRegime={feed.taiwanRegime ?? feed.marketRegime}
-                decision={feed.dsBySymbol[detailSymbol] ?? null}
-                onBack={closeDetail}
-                onToggleFavorite={setFavorites}
-                onSelectCode={onSelectCode}
-                desktop={isDesktop}
-            />
-        ) : (
-            <div className={isDesktop ? s.detailPanel : undefined}>
-                <header className={s.detailHeader}>
-                    {!isDesktop && (
-                        <button
-                            type="button"
-                            className={s.iconBtn}
-                            onClick={closeDetail}
-                        >
-                            ←
-                        </button>
-                    )}
-                    <div className={s.symCode}>{detailSymbol}</div>
-                </header>
-                <div className={s.empty}>
-                    此代號不在目前雷達池。
-                    <button
-                        type="button"
-                        className={s.quickBtn}
-                        style={{ marginTop: 12, width: '100%' }}
-                        onClick={closeDetail}
-                    >
-                        回到列表
-                    </button>
-                </div>
-            </div>
-        )
+        <StockDetailPage
+            item={detailItem!}
+            favorite={favorites.includes(detailSymbol)}
+            marketRegime={feed.taiwanRegime ?? feed.marketRegime}
+            decision={feed.dsBySymbol[detailSymbol] ?? null}
+            onBack={closeDetail}
+            onToggleFavorite={setFavorites}
+            onSelectCode={onSelectCode}
+            desktop={isDesktop}
+        />
     ) : null;
 
     const notifChrome = (
@@ -505,4 +528,85 @@ export function findRankItem(
     symbol: string,
 ): IntradayRankItemDto | undefined {
     return items.find((i) => i.symbol === symbol);
+}
+
+function stubRankItem(symbol: string, name?: string): IntradayRankItemDto {
+    return {
+        symbol,
+        name: name ?? symbol,
+        candidate_origin: 'lookup',
+        candidate_sources: ['lookup'],
+        rank: 0,
+        rank_prev: null,
+        rank_change: null,
+        rank_velocity: null,
+        intraday_score: 0,
+        heat_score: 0,
+        state: 'WATCH',
+        change_pct: null,
+        last_price: null,
+        metrics: {
+            return_1m: null,
+            return_3m: null,
+            momentum_acceleration: 0,
+            volume_acceleration: null,
+            vwap_pos_pct: null,
+            relative_strength_score: 0,
+            breakout_type: '',
+            pullback_quality_score: 0,
+            pullback_state: '',
+        },
+        risk: { chase_risk: 'LOW', invalid_price: null },
+        events: [],
+        reasons: [],
+        risks: [],
+        data_health: 'ok',
+        data_blocked: false,
+        updated_at: new Date().toISOString(),
+    };
+}
+
+function buyPressureToRankItem(bp: BuyPressureItemDto): IntradayRankItemDto {
+    return {
+        symbol: bp.symbol,
+        name: bp.name || bp.symbol,
+        candidate_origin: bp.universe_source ?? 'buy_pressure',
+        candidate_sources: ['buy_pressure'],
+        rank: bp.rank ?? 0,
+        rank_prev: bp.rank_prev,
+        rank_change:
+            bp.rank != null && bp.rank_prev != null
+                ? bp.rank_prev - bp.rank
+                : null,
+        rank_velocity: bp.rank_velocity,
+        intraday_score: bp.c_score ?? bp.radar_rank_score ?? 0,
+        heat_score: bp.heat_score ?? 0,
+        state: bp.primary_state || 'EMERGING',
+        change_pct: bp.change_pct,
+        last_price: bp.last_price,
+        score_coverage_pct: bp.score_coverage_pct,
+        score_confidence: bp.score_confidence,
+        metrics: {
+            return_1m: null,
+            return_3m: bp.change_pct,
+            momentum_acceleration: bp.momentum_acceleration ?? 0,
+            volume_acceleration: bp.volume_acceleration,
+            rvol_same_time: bp.rvol,
+            vwap_pos_pct: bp.distance_from_vwap_pct,
+            relative_strength_score: 0,
+            breakout_type: bp.breakout_type ?? '',
+            pullback_quality_score: 0,
+            pullback_state: '',
+        },
+        risk: {
+            chase_risk: bp.chase_risk,
+            invalid_price: null,
+        },
+        events: (bp.events ?? []).map((e) => e.event_type),
+        reasons: [],
+        risks: bp.overheated_note ? [bp.overheated_note] : [],
+        data_health: bp.data_health || 'ok',
+        data_blocked: false,
+        updated_at: bp.updated_at || bp.last_updated,
+    };
 }

@@ -526,10 +526,18 @@ export default function App() {
                 const c = (await addSymbol(code, 'STK')) as ContractInfo;
                 setSelected(c);
             } catch (err) {
+                // Keep optimistic stub — radar/detail can proceed without
+                // full contract resolve (Shioaji cold start / bridge lag).
                 console.warn('selectByCode failed', code, err);
-                window.alert(
-                    `無法切換到 ${code}：合約解析失敗。請確認代號或稍後再試。`,
-                );
+                void (async () => {
+                    try {
+                        await new Promise((r) => setTimeout(r, 1500));
+                        const c = (await addSymbol(code, 'STK')) as ContractInfo;
+                        setSelected(c);
+                    } catch (retryErr) {
+                        console.warn('selectByCode retry failed', code, retryErr);
+                    }
+                })();
             }
         },
         [items, addSymbol],
