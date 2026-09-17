@@ -47,6 +47,10 @@ export interface CalendarTodayDto {
     };
     corporate_actions_today: CorporateActionDto[];
     corporate_action_count: number;
+    corporate_actions_this_month?: CorporateActionDto[];
+    corporate_actions_next_month?: CorporateActionDto[];
+    this_month?: string;
+    next_month?: string;
     major_event_count: number;
     calendar_context: {
         monthly_expiry_label: string;

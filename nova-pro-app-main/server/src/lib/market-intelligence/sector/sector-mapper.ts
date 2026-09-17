@@ -1,6 +1,7 @@
 // server/src/lib/market-intelligence/sector/sector-mapper.ts
 
 import { ensureOpenApiBundle } from '../../tw-openapi-enrich.ts';
+import { displayIndustryName } from './industry-names.ts';
 
 export type SectorMappingSource =
     | 'TWSE_OPENAPI'
@@ -41,8 +42,10 @@ export class SectorMapper {
         const byIndustry = new Map<string, string[]>();
 
         for (const [code, enrich] of bundle.byCode) {
-            const industry = enrich.profile?.industry?.trim();
-            if (!industry) continue;
+            const industry = displayIndustryName(
+                enrich.profile?.industry?.trim(),
+            );
+            if (!industry || industry === '未分類') continue;
             // Heuristic: TWSE profile rows vs OTC — both come from openapi enrich;
             // mark UNKNOWN unless we can distinguish later.
             const source: SectorMappingSource =

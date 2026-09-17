@@ -26,6 +26,7 @@ export interface StockAIInterpretationDto {
     narrative?: string | null;
     llm_available?: boolean;
     llm_error?: string | null;
+    narrative_source?: 'gemini' | 'rules';
     narrative_generated_at?: string;
     note?: string;
     mutates_strategy?: false;
@@ -57,6 +58,7 @@ export interface RadarAIInterpretationDto {
     narrative?: string | null;
     llm_available?: boolean;
     llm_error?: string | null;
+    narrative_source?: 'gemini' | 'rules';
     narrative_generated_at?: string;
     note?: string;
 }

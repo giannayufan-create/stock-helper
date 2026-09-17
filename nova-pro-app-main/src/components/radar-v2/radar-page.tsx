@@ -197,7 +197,7 @@ export function RadarPage({
             }
             setRadarAi(result);
             setRadarNarrative(result.narrative ?? null);
-            if (result.llm_error) setRadarAiError(result.llm_error);
+            setRadarAiError(null);
             setRadarAiAt(Date.now());
             setRadarSheetOpen(true);
         } catch {

@@ -16,6 +16,7 @@ import {
     resolveMonthlyExpiry,
     taipeiYmd,
 } from './index.ts';
+import { monthBounds, nextMonthBounds } from './trading-day.ts';
 import type { CorporateAction } from './types.ts';
 import { loadOpenGateConfig } from '../open-gate-v2/config.ts';
 import { loadIntradayRankConfig } from '../intraday-rank/config.ts';
@@ -282,6 +283,24 @@ console.log('=== Market Calendar Tests A–H ===');
     assert.equal(normalizeActionDate('2026/09/16'), '2026-09-16');
     assert.ok(taipeiYmd().match(/^\d{4}-\d{2}-\d{2}$/));
     console.log('PASS date normalize helpers');
+}
+
+{
+    const m = monthBounds('2026-09-17');
+    assert.equal(m.from, '2026-09-01');
+    assert.equal(m.to, '2026-09-30');
+    const n = nextMonthBounds('2026-09-17');
+    assert.equal(n.from, '2026-10-01');
+    assert.equal(n.to, '2026-10-31');
+    const jan = nextMonthBounds('2026-12-31');
+    assert.equal(jan.from, '2027-01-01');
+    assert.equal(jan.to, '2027-01-31');
+    const today = new MarketCalendarService().getToday('2026-09-16');
+    assert.ok(Array.isArray(today.corporate_actions_this_month));
+    assert.ok(Array.isArray(today.corporate_actions_next_month));
+    assert.equal(today.this_month, '2026-09');
+    assert.equal(today.next_month, '2026-10');
+    console.log('PASS month + next-month calendar windows');
 }
 
 console.log('\nAll Market Calendar Tests A–H PASSED');

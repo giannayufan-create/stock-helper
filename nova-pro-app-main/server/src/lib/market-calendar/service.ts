@@ -20,6 +20,8 @@ import {
 import { loadOfficialExpiryFromEnv } from './official-expiry.ts';
 import {
     emptyOverrides,
+    monthBounds,
+    nextMonthBounds,
     taipeiYmd,
     tradingDayInfo,
     type HolidayOverrides,
@@ -222,6 +224,16 @@ export class MarketCalendarService {
             from: asOfYmd,
             to: asOfYmd,
         });
+        const thisMonth = monthBounds(asOfYmd);
+        const nextMonth = nextMonthBounds(asOfYmd);
+        const corporate_actions_this_month = this.getActions({
+            from: thisMonth.from,
+            to: thisMonth.to,
+        });
+        const corporate_actions_next_month = this.getActions({
+            from: nextMonth.from,
+            to: nextMonth.to,
+        });
         const fetched = this.lastRefreshAt ?? new Date().toISOString();
         return {
             date: asOfYmd,
@@ -229,6 +241,10 @@ export class MarketCalendarService {
             monthly_expiry,
             corporate_actions_today,
             corporate_action_count: corporate_actions_today.length,
+            corporate_actions_this_month,
+            corporate_actions_next_month,
+            this_month: thisMonth.from.slice(0, 7),
+            next_month: nextMonth.from.slice(0, 7),
             major_event_count: 0, // filled by route via EventIntelligence if available
             calendar_context: {
                 monthly_expiry_label: monthly_expiry.is_monthly_expiry_day

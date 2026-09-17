@@ -181,18 +181,27 @@ export class AiInterpretationService {
     /** Last-resort input when symbol is outside C/BP pools. */
     private buildMinimalStockInput(symbol: string): StockInterpretationInput {
         const overview = this.marketContext?.getOverview() ?? null;
+        const quote = this.marketContext?.getQuote(symbol) ?? null;
+        const industry = this.mapper.industryOf(symbol)?.industry ?? null;
+        const sectorRow = industry
+            ? this.marketContext?.getSector(industry) ?? null
+            : null;
         const session = resolveTradingSession(Date.now());
         const cashClosed =
             session === 'NIGHT_LIVE' ||
             session === 'WEEKEND' ||
             session === 'CLOSE_AUCTION';
+        const prior =
+            quote != null ? quote.close - quote.change : 0;
+        const change_pct =
+            quote != null && prior > 0 ? (quote.change / prior) * 100 : null;
         return {
             symbol,
-            name: symbol,
-            price: null,
-            change_pct: null,
-            adjusted_change_pct: null,
-            raw_change_pct: null,
+            name: quote?.name ?? symbol,
+            price: quote?.close ?? null,
+            change_pct,
+            adjusted_change_pct: change_pct,
+            raw_change_pct: change_pct,
             has_ca_today: false,
             c_score: null,
             c_state: null,
@@ -211,14 +220,14 @@ export class AiInterpretationService {
             chase_risk: null,
             decision_status: 'NOT_READY',
             context_alignment: 'INSUFFICIENT_DATA',
-            sector: null,
-            sector_state: null,
-            sector_rank: null,
-            sector_rank_velocity: null,
-            sector_breadth: null,
-            sector_rs: null,
-            leader_concentration: null,
-            sector_coverage_pct: null,
+            sector: industry,
+            sector_state: sectorRow?.state ?? null,
+            sector_rank: sectorRow?.sector_rank ?? null,
+            sector_rank_velocity: sectorRow?.sector_rank_velocity ?? null,
+            sector_breadth: sectorRow?.breadth ?? null,
+            sector_rs: sectorRow?.sector_relative_strength ?? null,
+            leader_concentration: sectorRow?.high_concentration ?? null,
+            sector_coverage_pct: sectorRow?.coverage_pct ?? null,
             taiwan_regime: overview?.taiwan_regime?.state ?? null,
             market_breadth: overview?.breadth?.advance_pct ?? null,
             overnight_bias: null,
@@ -233,11 +242,11 @@ export class AiInterpretationService {
             data_health: 'partial',
             data_stale: false,
             data_blocked: false,
-            feature_coverage_pct: 15,
-            context_coverage_pct: null,
+            feature_coverage_pct: quote ? 35 : 15,
+            context_coverage_pct: overview ? 50 : null,
             freshness: 'partial',
             cash_session_closed: cashClosed,
-            last_updated_at: null,
+            last_updated_at: quote?.date ?? null,
         };
     }
 
@@ -310,13 +319,15 @@ export class AiInterpretationService {
                     generated_at: new Date().toISOString(),
                 };
             } catch (e) {
-                narrative.llm_error =
-                    e instanceof Error ? e.message : String(e);
+                narrative.llm_error = null;
                 narrative.llm_available = false;
+                void e;
                 // keep fallback narrative; score still valid
             }
         } else if (withLlm && !this.geminiApiKey) {
-            narrative.llm_error = 'AI 文字解讀暫時無法使用';
+            // Keep fallback narrative; UI should still show 規則整理.
+            narrative.llm_available = false;
+            narrative.llm_error = null;
         }
 
         return { interpretation, narrative };
@@ -441,11 +452,13 @@ export class AiInterpretationService {
                     generated_at: new Date().toISOString(),
                 };
             } catch (e) {
-                narrative.llm_error =
-                    e instanceof Error ? e.message : String(e);
+                narrative.llm_error = null;
+                narrative.llm_available = false;
+                void e;
             }
         } else if (withLlm && !this.geminiApiKey) {
-            narrative.llm_error = 'AI 文字解讀暫時無法使用';
+            narrative.llm_available = false;
+            narrative.llm_error = null;
         }
 
         return { interpretation, narrative };

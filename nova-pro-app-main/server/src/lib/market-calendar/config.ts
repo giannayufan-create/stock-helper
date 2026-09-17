@@ -11,7 +11,7 @@ export interface MarketCalendarConfig {
 export const DEFAULT_MCAL_CONFIG: MarketCalendarConfig = {
     refresh_interval_ms: 6 * 60 * 60 * 1000, // 6h — not per-tick
     calc_lookback_days: 7,
-    calc_lookahead_days: 45,
+    calc_lookahead_days: 70,
     request_timeout_ms: 20_000,
 };
 

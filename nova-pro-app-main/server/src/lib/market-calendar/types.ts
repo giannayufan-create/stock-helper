@@ -117,6 +117,10 @@ export interface CalendarTodaySnapshot {
     monthly_expiry: MonthlyExpiryInfo;
     corporate_actions_today: CorporateAction[];
     corporate_action_count: number;
+    corporate_actions_this_month: CorporateAction[];
+    corporate_actions_next_month: CorporateAction[];
+    this_month: string;
+    next_month: string;
     major_event_count: number;
     calendar_context: {
         monthly_expiry_label: string;

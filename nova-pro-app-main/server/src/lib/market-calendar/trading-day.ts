@@ -80,6 +80,23 @@ export function weekdayTaipei(ymd: string): number {
     return map[wd] ?? new Date(utc).getUTCDay();
 }
 
+export function monthBounds(ymd: string): { from: string; to: string } {
+    const { y, m } = parseYmd(ymd);
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const mm = String(m).padStart(2, '0');
+    return {
+        from: `${y}-${mm}-01`,
+        to: `${y}-${mm}-${String(last).padStart(2, '0')}`,
+    };
+}
+
+export function nextMonthBounds(ymd: string): { from: string; to: string } {
+    const { y, m } = parseYmd(ymd);
+    const ny = m === 12 ? y + 1 : y;
+    const nm = m === 12 ? 1 : m + 1;
+    return monthBounds(`${ny}-${String(nm).padStart(2, '0')}-01`);
+}
+
 export function addCalendarDays(ymd: string, delta: number): string {
     const { y, m, d } = parseYmd(ymd);
     const dt = new Date(Date.UTC(y, m - 1, d + delta));

@@ -1,6 +1,7 @@
 // server/src/lib/ai-interpretation/llm-explain.ts
 // LLM explains deterministic scores only — NEVER assigns 1–10 scores.
 
+import { scoreBandLabel } from './score-bands.ts';
 import type {
     RadarAIInterpretation,
     StockAIInterpretation,
@@ -103,33 +104,58 @@ async function callGemini(
     throw new Error(lastErr);
 }
 
+const CONF_ZH: Record<string, string> = {
+    HIGH: '高',
+    MEDIUM: '中',
+    LOW: '低',
+};
+
 /** Deterministic fallback narrative when LLM unavailable. */
 export function fallbackStockNarrative(i: StockAIInterpretation): string {
-    return [
-        `【整體】${i.headline}`,
-        `【分數】AI 綜合解讀分數 ${i.score}/10（${i.score_band}），Confidence ${i.confidence}。此分數由固定規則計算，非 LLM 打分。`,
-        `【已確認】${i.positive_factors.join('、') || '無'}`,
-        `【尚缺】${i.missing_confirmations.join('、') || '無'}`,
-        `【限制】${i.limiting_factors.join('、') || '無'}`,
-        `【風險】${i.risk_flags.join('、') || '無'}`,
-        `【資料】${i.data_quality_summary}`,
-        'AI 輔助解讀，不影響正式分數。',
-    ].join('\n');
+    const band = scoreBandLabel(i.score_band);
+    const lines = [
+        i.cash_session_closed
+            ? '現貨已收盤。以下用收盤行情與市場背景整理，不是盤中即時分數。'
+            : null,
+        i.headline,
+        `解讀分數 ${i.score}/10（${band}），信心${CONF_ZH[i.confidence] ?? i.confidence}。`,
+        i.positive_factors.length
+            ? `有利：${i.positive_factors.join('、')}`
+            : '有利條件目前不多。',
+        i.missing_confirmations.length
+            ? `還缺：${i.missing_confirmations.join('、')}`
+            : null,
+        i.limiting_factors.length
+            ? `限制：${i.limiting_factors.join('、')}`
+            : null,
+        i.risk_flags.length ? `注意：${i.risk_flags.join('、')}` : null,
+        i.data_quality_summary,
+        '這是規則整理，不是買賣建議。',
+    ];
+    return lines.filter(Boolean).join('\n');
 }
 
 export function fallbackRadarNarrative(i: RadarAIInterpretation): string {
     return [
-        `【篩選】${i.filter_summary}`,
-        `【分數】AI 雷達綜合分數 ${i.score}/10，符合 ${i.matched_count} 檔，Confidence ${i.confidence}。`,
-        `【判讀】${i.headline}`,
-        `【結構】${i.group_structure}`,
-        `【共同優勢】${i.common_strengths.join('、') || '無'}`,
-        `【尚缺】${i.missing_confirmations.join('、') || '無'}`,
-        `【背離】${i.divergence_flags.join('、') || '無'}`,
-        `【產業】${i.sector_summary}`,
-        `【市場】${i.market_summary}`,
-        `【風險】${i.risk_flags.join('、') || '無'}`,
-        `【資料】${i.data_quality_summary}`,
-        'AI 輔助解讀，不影響正式分數與雷達排序。',
-    ].join('\n');
+        i.filter_summary,
+        `這批符合 ${i.matched_count} 檔，解讀分數 ${i.score}/10，信心${CONF_ZH[i.confidence] ?? i.confidence}。`,
+        i.headline,
+        i.group_structure ? `結構：${i.group_structure}` : null,
+        i.common_strengths.length
+            ? `共同優勢：${i.common_strengths.join('、')}`
+            : null,
+        i.missing_confirmations.length
+            ? `還缺：${i.missing_confirmations.join('、')}`
+            : null,
+        i.divergence_flags.length
+            ? `背離：${i.divergence_flags.join('、')}`
+            : null,
+        i.sector_summary ? `產業：${i.sector_summary}` : null,
+        i.market_summary ? `市場：${i.market_summary}` : null,
+        i.risk_flags.length ? `注意：${i.risk_flags.join('、')}` : null,
+        i.data_quality_summary,
+        '這是規則整理，不是選股推薦。',
+    ]
+        .filter(Boolean)
+        .join('\n');
 }

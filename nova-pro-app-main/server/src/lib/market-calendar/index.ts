@@ -13,6 +13,8 @@ export {
 } from './expiry.ts';
 export {
     taipeiYmd,
+    monthBounds,
+    nextMonthBounds,
     isTradingDay,
     tradingDayInfo,
     prevTradingDay,

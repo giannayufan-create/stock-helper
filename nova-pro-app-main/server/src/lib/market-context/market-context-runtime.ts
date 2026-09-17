@@ -100,6 +100,11 @@ export class MarketContextRuntime {
         return this.lastOverview;
     }
 
+    getQuote(symbol: string): TwDayQuote | null {
+        const code = symbol.trim();
+        return this.lastQuotes.find((q) => q.code === code) ?? null;
+    }
+
     getRegime(): {
         global_regime: GlobalRegime;
         taiwan_regime: TaiwanRegime;

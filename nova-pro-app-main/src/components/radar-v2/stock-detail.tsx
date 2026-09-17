@@ -129,14 +129,26 @@ export function StockDetailPage({
         setSnapPrice(null);
         setSnapPct(null);
         let cancelled = false;
-        void fetchStockInterpretationScore(item.symbol).then((d) => {
+        void requestStockInterpretation({
+            symbol: item.symbol,
+            with_llm: false,
+        }).then((d) => {
             if (cancelled) return;
             if (d) {
                 setInterp(d);
                 setInterpStatus('ready');
-            } else {
-                setInterpStatus('missing');
+                if (d.narrative) setAiNarrative(d.narrative);
+                return;
             }
+            void fetchStockInterpretationScore(item.symbol).then((score) => {
+                if (cancelled) return;
+                if (score) {
+                    setInterp(score);
+                    setInterpStatus('ready');
+                } else {
+                    setInterpStatus('missing');
+                }
+            });
         });
         void fetchRadarQuality({ limit: 80 })
             .then((batch) => {
@@ -311,9 +323,7 @@ export function StockDetailPage({
             setInterp(result);
             setInterpStatus('ready');
             setAiNarrative(result.narrative ?? null);
-            if (result.llm_error) {
-                setAiError(result.llm_error);
-            }
+            setAiError(null);
             setAiAt(Date.now());
         } catch {
             setAiError('AI 文字解讀暫時無法使用');
@@ -775,7 +785,12 @@ export function StockDetailPage({
                                 whiteSpace: 'pre-wrap',
                             }}
                         >
-                            <strong>AI 解讀</strong>
+                            <strong>
+                                {interp?.narrative_source === 'gemini' ||
+                                interp?.llm_available
+                                    ? 'AI 解讀'
+                                    : '規則整理'}
+                            </strong>
                             <br />
                             {aiNarrative}
                         </div>
@@ -820,7 +835,7 @@ export function StockDetailPage({
                         onClick={() => void runAi()}
                         disabled={aiLoading}
                     >
-                        {aiNarrative ? '重新解讀' : 'AI 解讀這支股票'}
+                        {aiNarrative ? '重新整理解讀' : '解讀這支股票'}
                     </button>
                 </div>
 
@@ -1355,15 +1370,16 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                 )}
                 {!data.branch_available ? (
                     <div style={{ color: radarColor.healthWarn, fontSize: 13 }}>
-                        目前尚未接入券商分點資料來源
+                        目前還沒有券商分點資料，所以還不能用。
                         <div
                             style={{
                                 color: vars.color.mutedForeground,
                                 fontSize: 11,
                                 marginTop: 4,
+                                lineHeight: 1.5,
                             }}
                         >
-                            不會顯示假券商名稱。Trade Aggression ≠ 分點身份。
+                            Shioaji、Fugle、證交所公開資料都沒有分點買賣超。要另外接「券商分點」付費來源後，這裡才會出現券商名稱與買賣超。現有報價推不出分點身份。
                         </div>
                     </div>
                 ) : (

@@ -80,6 +80,12 @@ export interface MarketContextOverviewDto {
         high_concentration: boolean;
         state: SectorRotationState;
         tags: string[];
+        leaders?: Array<{
+            symbol: string;
+            name: string;
+            turnover: number;
+            change_pct: number;
+        }>;
         meta: ContextMetaDto;
     }>;
     institutional_eod: {

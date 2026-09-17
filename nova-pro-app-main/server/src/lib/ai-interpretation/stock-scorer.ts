@@ -244,6 +244,32 @@ function resolveStatus(
     return 'NOT_READY';
 }
 
+function zhRegime(s: string | null | undefined): string {
+    const m: Record<string, string> = {
+        RISK_ON_BROAD: '大盤偏多（廣）',
+        RISK_ON_NARROW: '大盤偏多（窄）',
+        NEUTRAL: '大盤中性',
+        RISK_OFF_NARROW: '大盤偏空（窄）',
+        RISK_OFF_BROAD: '大盤偏空（廣）',
+        UNKNOWN: '大盤狀態不明',
+    };
+    const key = String(s ?? '').trim();
+    return m[key] ?? key;
+}
+
+function zhSectorState(s: string | null | undefined): string {
+    const m: Record<string, string> = {
+        ROTATING_IN: '資金轉進本產業',
+        HOT: '本產業成交熱',
+        STABLE: '本產業穩定',
+        ROTATING_OUT: '資金轉出本產業',
+        COLD: '本產業冷',
+        INSUFFICIENT_COVERAGE: '產業覆蓋不足',
+    };
+    const key = String(s ?? '').trim();
+    return m[key] ?? key;
+}
+
 function buildFactors(
     input: StockInterpretationInput,
     cfg: AiInterpretationConfig,
@@ -261,35 +287,35 @@ function buildFactors(
     // fix TS - use arrays properly
     const pos: string[] = [];
     if (input.c_score != null && input.c_score >= cfg.c_strong_min) {
-        pos.push(`C ${Math.round(input.c_score)}`);
+        pos.push(`盤中強度 ${Math.round(input.c_score)}`);
     }
     if (input.bp_score != null && input.bp_score >= cfg.bp_confirmed_min) {
-        pos.push(`BP ${Math.round(input.bp_score)}`);
+        pos.push(`買盤 ${Math.round(input.bp_score)}`);
     }
     if (input.rvol != null && input.rvol >= cfg.rvol_strong_min) {
-        pos.push(`RVOL ${input.rvol.toFixed(1)}x`);
+        pos.push(`量比 ${input.rvol.toFixed(1)} 倍`);
     }
     if (
         input.vwap_pos_pct != null &&
         input.vwap_pos_pct > cfg.vwap_above_min_pct
     ) {
-        pos.push(`Above VWAP ${input.vwap_pos_pct.toFixed(2)}%`);
+        pos.push(`站上均價 ${input.vwap_pos_pct.toFixed(1)}%`);
     }
     if (
         (input.sector_state ?? '').toUpperCase().includes('ROTATING_IN') ||
         (input.sector_state ?? '').toUpperCase() === 'HOT'
     ) {
-        pos.push(`Sector ${input.sector_state}`);
+        pos.push(zhSectorState(input.sector_state));
     }
     if ((input.taiwan_regime ?? '').toUpperCase().includes('RISK_ON')) {
-        pos.push(`Market ${input.taiwan_regime}`);
+        pos.push(zhRegime(input.taiwan_regime));
     }
     if (
         input.rank_change != null &&
         input.rank_change <= -cfg.rank_improve_min
     ) {
         pos.push(
-            `Rank ${input.rank_prev ?? '?'} → ${input.rank ?? '?'}`,
+            `排名上升 ${input.rank_prev ?? '?'} → ${input.rank ?? '?'}`,
         );
     }
 
@@ -297,33 +323,33 @@ function buildFactors(
         missing.push('即時買盤尚未確認');
         limiting.push(
             input.bp_score != null
-                ? `BP ${Math.round(input.bp_score)}`
-                : 'BP unavailable',
+                ? `買盤僅 ${Math.round(input.bp_score)}`
+                : '尚無買盤分數',
         );
     }
     if (input.rvol == null) {
-        missing.push('RVOL unavailable');
+        missing.push('尚無量比');
         limiting.push('量能確認不足');
     }
     if (
         (input.sector_state ?? '').toUpperCase().includes('ROTATING_OUT')
     ) {
-        limiting.push(`Sector ${input.sector_state}`);
+        limiting.push(zhSectorState(input.sector_state));
     }
     if ((input.taiwan_regime ?? '').toUpperCase().includes('RISK_OFF')) {
-        limiting.push(`Market ${input.taiwan_regime}`);
+        limiting.push(zhRegime(input.taiwan_regime));
     }
     if ((input.taiwan_regime ?? '').toUpperCase().includes('NEUTRAL')) {
-        limiting.push('Market Neutral');
+        limiting.push('大盤中性');
     }
 
     const chase = (input.chase_risk ?? '').toUpperCase();
-    if (chase === 'MEDIUM') risks.push('Chase Risk MEDIUM');
+    if (chase === 'MEDIUM') risks.push('追高風險中等');
     if (chase === 'HIGH' || chase === 'EXTREME') {
-        risks.push(`Chase Risk ${chase} — 強勢仍在，但價格已明顯延伸`);
+        risks.push('追高風險偏高 — 強勢仍在，但價格已明顯延伸');
     }
     if (input.data_stale || (input.data_health ?? '').toLowerCase() === 'stale') {
-        risks.push('資料品質問題：Data stale');
+        risks.push('資料偏舊，解讀需打折');
     }
     if (
         (input.taiwan_regime ?? '').toUpperCase().includes('RISK_OFF') &&

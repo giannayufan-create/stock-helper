@@ -66,11 +66,14 @@ export function registerAiInterpretationRoutes(
             ...result.interpretation,
             narrative: result.narrative.narrative,
             llm_available: result.narrative.llm_available,
-            llm_error: result.narrative.llm_error
-                ? 'AI 文字解讀暫時無法使用'
-                : null,
+            llm_error: null,
+            narrative_source: result.narrative.llm_available
+                ? 'gemini'
+                : 'rules',
             narrative_generated_at: result.narrative.generated_at,
-            note: 'AI 輔助解讀，不影響正式分數',
+            note: result.narrative.llm_available
+                ? 'AI 輔助解讀，不影響正式分數'
+                : '規則整理（雲端文字未使用），不影響正式分數',
         };
     });
 
@@ -125,11 +128,14 @@ export function registerAiInterpretationRoutes(
             ...result.interpretation,
             narrative: result.narrative.narrative,
             llm_available: result.narrative.llm_available,
-            llm_error: result.narrative.llm_error
-                ? 'AI 文字解讀暫時無法使用'
-                : null,
+            llm_error: null,
+            narrative_source: result.narrative.llm_available
+                ? 'gemini'
+                : 'rules',
             narrative_generated_at: result.narrative.generated_at,
-            note: 'AI 輔助解讀，不影響正式分數與雷達排序',
+            note: result.narrative.llm_available
+                ? 'AI 輔助解讀，不影響正式分數與雷達排序'
+                : '規則整理（雲端文字未使用），不影響正式分數與雷達排序',
         };
     });
 }

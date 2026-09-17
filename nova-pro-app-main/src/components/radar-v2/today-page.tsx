@@ -19,7 +19,9 @@ import {
     EXPIRY_PHASE_LABEL,
     fetchCalendarToday,
     type CalendarTodayDto,
+    type CorporateActionDto,
 } from '../../lib/calendar';
+import { displayIndustryName } from '../../lib/industry-names';
 import { vars } from '../../theme.css';
 import { ConfirmLayersRow } from './confirm-layers';
 import { FreshnessBadge } from './freshness-badge';
@@ -41,6 +43,91 @@ function dirArrow(d: string) {
     if (d === 'UP') return '↑';
     if (d === 'DOWN') return '↓';
     return '→';
+}
+
+function mdLabel(ymd: string) {
+    return ymd.slice(5).replace('-', '/');
+}
+
+function monthZh(ym: string | undefined, fallback: string) {
+    if (!ym || ym.length < 7) return fallback;
+    const n = Number(ym.slice(5, 7));
+    return Number.isFinite(n) ? `${n}月` : fallback;
+}
+
+function CorporateActionRows({
+    items,
+    onOpenSymbol,
+}: {
+    items: CorporateActionDto[];
+    onOpenSymbol: (symbol: string) => void;
+}) {
+    if (!items.length) {
+        return (
+            <div
+                style={{
+                    fontSize: 13,
+                    color: vars.color.mutedForeground,
+                    padding: '6px 0',
+                }}
+            >
+                此區間暫無除權息
+            </div>
+        );
+    }
+    return (
+        <>
+            {items.map((a) => (
+                <div
+                    key={`${a.symbol}-${a.action_date}`}
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        padding: '6px 0',
+                        minHeight: 40,
+                        alignItems: 'center',
+                    }}
+                >
+                    <button
+                        type="button"
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'inherit',
+                            font: 'inherit',
+                            textAlign: 'left',
+                            padding: 0,
+                            cursor: 'pointer',
+                            minWidth: 0,
+                        }}
+                        onClick={() => onOpenSymbol(a.symbol)}
+                    >
+                        <span
+                            style={{
+                                color: vars.color.mutedForeground,
+                                marginRight: 8,
+                                fontFamily: vars.font.mono,
+                                fontSize: 12,
+                            }}
+                        >
+                            {mdLabel(a.action_date)}
+                        </span>
+                        {a.symbol} {a.name}
+                    </button>
+                    <span
+                        style={{
+                            color: vars.color.mutedForeground,
+                            fontSize: 12,
+                            flexShrink: 0,
+                        }}
+                    >
+                        {ACTION_TYPE_LABEL[a.action_type] ?? a.action_type}
+                    </span>
+                </div>
+            ))}
+        </>
+    );
 }
 
 export function TodayPage({
@@ -76,7 +163,6 @@ export function TodayPage({
         'loading',
     );
     const [cal, setCal] = useState<CalendarTodayDto | null>(null);
-    const [calOpen, setCalOpen] = useState(false);
     const [events, setEvents] = useState<MarketEventDto[]>([]);
     const [eventExtra, setEventExtra] = useState<
         Record<
@@ -406,76 +492,109 @@ export function TodayPage({
             <div className={s.section}>
                 <div className={s.sectionRow}>
                     <div className={s.sectionTitle} style={{ marginBottom: 0 }}>
-                        資金關注度輪動
+                        哪個產業成交最熱
                     </div>
-                    <span
-                        style={{
-                            fontSize: 11,
-                            color: vars.color.mutedForeground,
-                        }}
-                    >
-                        非淨流入
-                    </span>
                 </div>
-                {(mc?.top_rotating ?? []).slice(0, 3).map((row) => (
-                    <div
-                        key={row.sector}
-                        className={s.glass}
-                        style={{ padding: 12, marginBottom: 8 }}
-                    >
+                <div
+                    style={{
+                        fontSize: 12,
+                        color: vars.color.mutedForeground,
+                        marginBottom: 10,
+                        lineHeight: 1.55,
+                    }}
+                >
+                    這不是外資買超，也不是淨流入。數字是這個產業今天成交金額佔全市場的比重。排名愈前面，盤面上愈多人在這類股票成交。
+                </div>
+                {(mc?.top_rotating ?? []).slice(0, 3).map((row) => {
+                    const leaders = (row.leaders ?? [])
+                        .slice(0, 3)
+                        .map((l) =>
+                            l.name ? `${l.symbol} ${l.name}` : l.symbol,
+                        )
+                        .join('、');
+                    const rankMove =
+                        row.sector_rank_change != null &&
+                        row.sector_rank_change !== 0
+                            ? row.sector_rank_change > 0
+                                ? `升 ${row.sector_rank_change}`
+                                : `降 ${Math.abs(row.sector_rank_change)}`
+                            : '持平';
+                    const shareDelta =
+                        row.turnover_share_delta != null &&
+                        Math.abs(row.turnover_share_delta) >= 0.0005
+                            ? `${row.turnover_share_delta >= 0 ? '+' : ''}${(row.turnover_share_delta * 100).toFixed(1)} 百分點`
+                            : null;
+                    return (
                         <div
-                            style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                gap: 8,
-                            }}
+                            key={row.sector}
+                            className={s.glass}
+                            style={{ padding: 12, marginBottom: 8 }}
                         >
-                            <strong style={{ fontSize: 14 }}>{row.sector}</strong>
-                            <span
+                            <div
                                 style={{
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    color: radarColor.heating,
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    gap: 8,
                                 }}
                             >
-                                {SECTOR_STATE_LABEL[row.state] ??
-                                    ROTATION_LABEL[row.state] ??
-                                    row.state}
-                            </span>
+                                <strong style={{ fontSize: 14 }}>
+                                    {displayIndustryName(row.sector)}
+                                </strong>
+                                <span
+                                    style={{
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        color: radarColor.heating,
+                                    }}
+                                >
+                                    {SECTOR_STATE_LABEL[row.state] ??
+                                        ROTATION_LABEL[row.state] ??
+                                        row.state}
+                                </span>
+                            </div>
+                            <div
+                                style={{
+                                    marginTop: 8,
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr 1fr',
+                                    gap: 6,
+                                    fontSize: 12,
+                                }}
+                            >
+                                <div>
+                                    <div className={s.cardMetaLab}>成交排名</div>
+                                    #{row.sector_rank ?? '—'} {rankMove}
+                                </div>
+                                <div>
+                                    <div className={s.cardMetaLab}>
+                                        佔全市場成交
+                                    </div>
+                                    {(row.turnover_share * 100).toFixed(1)}%
+                                    {shareDelta ? ` ${shareDelta}` : ''}
+                                </div>
+                                <div>
+                                    <div className={s.cardMetaLab}>
+                                        上漲家數占比
+                                    </div>
+                                    {row.breadth != null
+                                        ? `${(row.breadth * 100).toFixed(0)}%`
+                                        : '—'}
+                                </div>
+                            </div>
+                            {leaders ? (
+                                <div
+                                    style={{
+                                        marginTop: 8,
+                                        fontSize: 12,
+                                        color: vars.color.mutedForeground,
+                                    }}
+                                >
+                                    成交較多：{leaders}
+                                </div>
+                            ) : null}
                         </div>
-                        <div
-                            style={{
-                                marginTop: 8,
-                                display: 'grid',
-                                gridTemplateColumns: '1fr 1fr 1fr',
-                                gap: 6,
-                                fontSize: 12,
-                                fontFamily: vars.font.mono,
-                            }}
-                        >
-                            <div>
-                                <div className={s.cardMetaLab}>Rank</div>
-                                #{row.sector_rank ?? '—'}
-                                {row.sector_rank_change != null
-                                    ? ` (${row.sector_rank_change > 0 ? '+' : ''}${row.sector_rank_change})`
-                                    : ''}
-                            </div>
-                            <div>
-                                <div className={s.cardMetaLab}>Share</div>
-                                {(row.turnover_share * 100).toFixed(1)}%
-                                {row.turnover_share_delta != null
-                                    ? ` ${row.turnover_share_delta >= 0 ? '+' : ''}${(row.turnover_share_delta * 100).toFixed(1)}`
-                                    : ''}
-                            </div>
-                            <div>
-                                <div className={s.cardMetaLab}>Breadth</div>
-                                {row.breadth != null
-                                    ? `${(row.breadth * 100).toFixed(0)}%`
-                                    : '—'}
-                            </div>
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
                 {!mc?.top_rotating?.length && (
                     <div className={s.empty}>
                         {mcStatus === 'loading'
@@ -633,21 +752,10 @@ export function TodayPage({
 
             {/* 6 Market Calendar */}
             {cal && (
-                <button
-                    type="button"
-                    className={s.zoneBlock}
-                    style={{
-                        width: '100%',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        border: 'none',
-                        color: 'inherit',
-                    }}
-                    onClick={() => setCalOpen((v) => !v)}
-                >
+                <div className={s.zoneBlock}>
                     <div className={s.sectionRow}>
                         <div className={s.zoneTitle} style={{ marginBottom: 0 }}>
-                            今日重要日曆
+                            重要日曆
                         </div>
                         <span
                             style={{
@@ -687,8 +795,12 @@ export function TodayPage({
                                 color: vars.color.mutedForeground,
                             }}
                         >
-                            除權息 {cal.corporate_action_count} · 重大事件{' '}
-                            {cal.major_event_count}
+                            今日除權息 {cal.corporate_action_count} · 本月{' '}
+                            {cal.corporate_actions_this_month?.length ??
+                                cal.corporate_action_count}{' '}
+                            · 下月{' '}
+                            {cal.corporate_actions_next_month?.length ?? 0} ·
+                            重大事件 {cal.major_event_count}
                         </div>
                         <div
                             style={{
@@ -697,58 +809,61 @@ export function TodayPage({
                                 color: vars.color.mutedForeground,
                             }}
                         >
-                            （結算日非多空結論）
+                            （結算日、除權息不是多空結論，方便安排進出）
                         </div>
                     </div>
-                    {calOpen && (
+                    <div
+                        style={{
+                            marginTop: 12,
+                            paddingTop: 10,
+                            borderTop: `1px solid ${radarColor.glassBorder}`,
+                        }}
+                    >
                         <div
                             style={{
-                                marginTop: 12,
-                                paddingTop: 10,
-                                borderTop: `1px solid ${radarColor.glassBorder}`,
+                                fontSize: 13,
+                                fontWeight: 700,
+                                marginBottom: 4,
                             }}
-                            onClick={(e) => e.stopPropagation()}
                         >
-                            {cal.corporate_actions_today.slice(0, 10).map((a) => (
-                                <div
-                                    key={`${a.symbol}-${a.action_date}`}
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        padding: '6px 0',
-                                        minHeight: 44,
-                                        alignItems: 'center',
-                                    }}
-                                >
-                                    <button
-                                        type="button"
-                                        style={{
-                                            background: 'none',
-                                            border: 'none',
-                                            color: 'inherit',
-                                            font: 'inherit',
-                                            textAlign: 'left',
-                                            padding: 0,
-                                            cursor: 'pointer',
-                                        }}
-                                        onClick={() => onOpenSymbol(a.symbol)}
-                                    >
-                                        {a.symbol} {a.name}
-                                    </button>
-                                    <span
-                                        style={{
-                                            color: vars.color.mutedForeground,
-                                            fontSize: 12,
-                                        }}
-                                    >
-                                        {ACTION_TYPE_LABEL[a.action_type] ??
-                                            a.action_type}
-                                    </span>
-                                </div>
-                            ))}
+                            本月除權息（{monthZh(cal.this_month, '本月')}）
                         </div>
-                    )}
-                </button>
+                        <div
+                            style={{
+                                maxHeight: 220,
+                                overflowY: 'auto',
+                            }}
+                        >
+                            <CorporateActionRows
+                                items={
+                                    cal.corporate_actions_this_month ??
+                                    cal.corporate_actions_today
+                                }
+                                onOpenSymbol={onOpenSymbol}
+                            />
+                        </div>
+                        <div
+                            style={{
+                                fontSize: 13,
+                                fontWeight: 700,
+                                margin: '14px 0 4px',
+                            }}
+                        >
+                            下月除權息（{monthZh(cal.next_month, '下月')}）
+                        </div>
+                        <div
+                            style={{
+                                maxHeight: 220,
+                                overflowY: 'auto',
+                            }}
+                        >
+                            <CorporateActionRows
+                                items={cal.corporate_actions_next_month ?? []}
+                                onOpenSymbol={onOpenSymbol}
+                            />
+                        </div>
+                    </div>
+                </div>
             )}
 
             <div className={s.quickBar}>
