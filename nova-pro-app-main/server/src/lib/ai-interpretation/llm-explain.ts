@@ -58,34 +58,49 @@ async function callGemini(
     prompt: string,
     maxTokens: number,
 ): Promise<string> {
-    const url =
-        'https://generativelanguage.googleapis.com/v1beta/models/' +
-        `gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                temperature: 0.35,
-                maxOutputTokens: maxTokens,
-            },
-        }),
-        signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`Gemini HTTP ${res.status}: ${body.slice(0, 160)}`);
+    const models = [
+        'gemini-2.0-flash',
+        'gemini-2.5-flash',
+        'gemini-flash-latest',
+    ];
+    let lastErr = 'Gemini unavailable';
+    for (const model of models) {
+        const url =
+            'https://generativelanguage.googleapis.com/v1beta/models/' +
+            `${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 0.35,
+                        maxOutputTokens: maxTokens,
+                    },
+                }),
+                signal: AbortSignal.timeout(20000),
+            });
+            if (!res.ok) {
+                const body = await res.text().catch(() => '');
+                lastErr = `Gemini ${model} HTTP ${res.status}: ${body.slice(0, 120)}`;
+                continue;
+            }
+            const payload = (await res.json()) as {
+                candidates?: Array<{
+                    content?: { parts?: Array<{ text?: string }> };
+                }>;
+            };
+            const text =
+                payload.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ??
+                '';
+            if (text) return text;
+            lastErr = `Gemini ${model} empty response`;
+        } catch (e) {
+            lastErr = e instanceof Error ? e.message : String(e);
+        }
     }
-    const payload = (await res.json()) as {
-        candidates?: Array<{
-            content?: { parts?: Array<{ text?: string }> };
-        }>;
-    };
-    const text =
-        payload.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
-    return text || '（AI 無回覆）';
+    throw new Error(lastErr);
 }
 
 /** Deterministic fallback narrative when LLM unavailable. */

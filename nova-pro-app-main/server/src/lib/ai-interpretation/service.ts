@@ -61,9 +61,17 @@ export class AiInterpretationService {
     async buildStockInput(symbol: string): Promise<StockInterpretationInput | null> {
         await this.mapper.ensureLoaded().catch(() => undefined);
         const batch = this.intradayRank.getLastBatch();
-        const c = batch?.items.find((i) => i.symbol === symbol) ?? null;
-        if (!c) return null;
+        const fromBatch = batch?.items.find((i) => i.symbol === symbol) ?? null;
+        const fromSvc =
+            typeof this.intradayRank.getSymbol === 'function'
+                ? this.intradayRank.getSymbol(symbol)
+                : null;
+        const c = fromBatch ?? fromSvc ?? null;
         const bp = this.buyPressure?.getSymbol(symbol) ?? null;
+        // Allow BP-only / minimal input so AI works outside top Raw Rank batch.
+        if (!c && !bp) {
+            return this.buildMinimalStockInput(symbol);
+        }
         const ds = this.decisionSummary?.getSymbol(symbol) ?? null;
         const industry = this.mapper.industryOf(symbol)?.industry ?? null;
         const sectorRow = industry
@@ -91,39 +99,49 @@ export class AiInterpretationService {
             }
         }
 
-        const hasCa = Boolean(c.corporate_action?.has_action_today);
+        const hasCa = Boolean(c?.corporate_action?.has_action_today);
+        const metrics = c?.metrics as
+            | {
+                  vwap?: number | null;
+                  vwap_pos_pct?: number | null;
+                  rvol_same_time?: number | null;
+                  volume_acceleration?: number | null;
+                  trade_aggression_score?: number | null;
+              }
+            | undefined;
+
         return {
-            symbol: c.symbol,
-            name: c.name,
-            price: c.last_price,
+            symbol,
+            name: c?.name ?? bp?.name ?? symbol,
+            price: c?.last_price ?? bp?.last_price ?? null,
             change_pct: hasCa
-                ? (c.adjusted_change_pct ?? c.change_pct)
-                : c.change_pct,
-            adjusted_change_pct: c.adjusted_change_pct ?? null,
-            raw_change_pct: c.raw_change_pct ?? null,
+                ? (c?.adjusted_change_pct ?? c?.change_pct ?? bp?.change_pct)
+                : (c?.change_pct ?? bp?.change_pct ?? null),
+            adjusted_change_pct: c?.adjusted_change_pct ?? null,
+            raw_change_pct: c?.raw_change_pct ?? null,
             has_ca_today: hasCa,
-            c_score: c.intraday_score,
-            c_state: c.state,
+            c_score: c?.intraday_score ?? bp?.c_score ?? null,
+            c_state: c?.state ?? null,
             bp_score: bp?.buy_pressure_score ?? null,
             bp_states: bp?.states ?? [],
-            rank: c.rank,
-            rank_prev: c.rank_prev,
-            rank_change: c.rank_change,
-            rank_velocity: c.rank_velocity,
-            vwap: c.metrics.vwap,
+            rank: c?.rank ?? bp?.rank ?? null,
+            rank_prev: c?.rank_prev ?? bp?.rank_prev ?? null,
+            rank_change: c?.rank_change ?? null,
+            rank_velocity: c?.rank_velocity ?? bp?.rank_velocity ?? null,
+            vwap: metrics?.vwap ?? null,
             vwap_pos_pct:
-                bp?.distance_from_vwap_pct ?? c.metrics.vwap_pos_pct ?? null,
-            rvol: bp?.rvol ?? c.metrics.rvol_same_time ?? null,
+                bp?.distance_from_vwap_pct ?? metrics?.vwap_pos_pct ?? null,
+            rvol: bp?.rvol ?? metrics?.rvol_same_time ?? null,
             volume_acceleration:
                 bp?.volume_acceleration ??
-                c.metrics.volume_acceleration ??
+                metrics?.volume_acceleration ??
                 null,
             trade_aggression:
                 bp?.trade_aggression ??
-                c.metrics.trade_aggression_score ??
+                metrics?.trade_aggression_score ??
                 null,
-            heat_score: c.heat_score,
-            chase_risk: bp?.chase_risk ?? c.risk.chase_risk ?? null,
+            heat_score: c?.heat_score ?? bp?.heat_score ?? null,
+            chase_risk: bp?.chase_risk ?? c?.risk?.chase_risk ?? null,
             decision_status: ds?.status ?? null,
             context_alignment: ds?.context_alignment ?? null,
             sector: industry,
@@ -145,17 +163,81 @@ export class AiInterpretationService {
             institutional_is_proxy: Boolean(
                 overview?.institutional_risk_proxy?.proxy,
             ),
-            data_health: bp?.data_health ?? c.data_health,
+            data_health: bp?.data_health ?? c?.data_health ?? 'partial',
             data_stale:
                 Boolean(bp?.data_stale) ||
-                c.data_health === 'stale' ||
-                c.data_health === 'disconnected',
-            data_blocked: c.data_blocked,
-            feature_coverage_pct: c.score_coverage_pct ?? null,
+                c?.data_health === 'stale' ||
+                c?.data_health === 'disconnected',
+            data_blocked: Boolean(c?.data_blocked),
+            feature_coverage_pct:
+                c?.score_coverage_pct ?? (bp ? 45 : 25),
             context_coverage_pct: ds?.data_coverage_pct ?? null,
-            freshness: c.data_health,
+            freshness: c?.data_health ?? bp?.data_health ?? 'partial',
             cash_session_closed: cashClosed,
-            last_updated_at: batch?.as_of ?? null,
+            last_updated_at: batch?.as_of ?? bp?.updated_at ?? null,
+        };
+    }
+
+    /** Last-resort input when symbol is outside C/BP pools. */
+    private buildMinimalStockInput(symbol: string): StockInterpretationInput {
+        const overview = this.marketContext?.getOverview() ?? null;
+        const session = resolveTradingSession(Date.now());
+        const cashClosed =
+            session === 'NIGHT_LIVE' ||
+            session === 'WEEKEND' ||
+            session === 'CLOSE_AUCTION';
+        return {
+            symbol,
+            name: symbol,
+            price: null,
+            change_pct: null,
+            adjusted_change_pct: null,
+            raw_change_pct: null,
+            has_ca_today: false,
+            c_score: null,
+            c_state: null,
+            bp_score: null,
+            bp_states: [],
+            rank: null,
+            rank_prev: null,
+            rank_change: null,
+            rank_velocity: null,
+            vwap: null,
+            vwap_pos_pct: null,
+            rvol: null,
+            volume_acceleration: null,
+            trade_aggression: null,
+            heat_score: null,
+            chase_risk: null,
+            decision_status: 'NOT_READY',
+            context_alignment: 'INSUFFICIENT_DATA',
+            sector: null,
+            sector_state: null,
+            sector_rank: null,
+            sector_rank_velocity: null,
+            sector_breadth: null,
+            sector_rs: null,
+            leader_concentration: null,
+            sector_coverage_pct: null,
+            taiwan_regime: overview?.taiwan_regime?.state ?? null,
+            market_breadth: overview?.breadth?.advance_pct ?? null,
+            overnight_bias: null,
+            preopen_confirmation: null,
+            event_state: null,
+            event_confirmation: null,
+            institutional_realtime_level:
+                overview?.institutional_eod?.realtime_level ?? null,
+            institutional_is_proxy: Boolean(
+                overview?.institutional_risk_proxy?.proxy,
+            ),
+            data_health: 'partial',
+            data_stale: false,
+            data_blocked: false,
+            feature_coverage_pct: 15,
+            context_coverage_pct: null,
+            freshness: 'partial',
+            cash_session_closed: cashClosed,
+            last_updated_at: null,
         };
     }
 
