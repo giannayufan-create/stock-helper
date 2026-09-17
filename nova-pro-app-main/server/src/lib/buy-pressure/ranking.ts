@@ -1,6 +1,7 @@
 // server/src/lib/buy-pressure/ranking.ts
 // Radar sort only — never writes back to C score / Heat / Rank.
-// OVERHEATED is a label — never excludes or demotes by default.
+// OVERHEATED and chase risk demote radar_rank_score but never exclude;
+// buy_pressure_score stays the unadjusted measurement.
 
 import type { BuyPressureConfig } from './config.ts';
 import type {
@@ -13,6 +14,7 @@ export type BpChaseRisk = 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
 
 export type BpSortMode =
     | 'strongest'
+    | 'raw_strength'
     | 'early'
     | 'rank_surge'
     | 'volume_surge'
@@ -65,8 +67,8 @@ export function computeBpChaseRisk(
 }
 
 /**
- * Default radar strength — Buy Pressure + velocity/accel/aggression/freshness.
- * Does NOT subtract for OVERHEATED or chase risk.
+ * Default radar strength — Buy Pressure + velocity/accel/aggression/freshness,
+ * minus chase-risk and OVERHEATED deductions.
  */
 export function computeRadarRankScore(input: {
     buy_pressure_score: number;
@@ -117,9 +119,23 @@ export function computeRadarRankScore(input: {
         // HIGH/EXTREME: no bonus — still not excluded
     }
 
+    const CHASE_STEPS: Record<string, number> = {
+        LOW: 0,
+        MEDIUM: 1,
+        HIGH: 2,
+        EXTREME: 3,
+    };
+    const chaseKey = (input.chase_risk ?? 'LOW').toUpperCase();
+    let penalty =
+        (CHASE_STEPS[chaseKey] ?? 0) * cfg.ranking.chase_penalty_scale;
+    if (input.states.includes('OVERHEATED')) {
+        penalty += cfg.ranking.overheated_penalty;
+    }
+    score -= penalty;
+
     return {
-        radar_rank_score: Math.round(score * 10) / 10,
-        chase_penalty: 0,
+        radar_rank_score: Math.max(0, Math.round(score * 10) / 10),
+        chase_penalty: Math.round(penalty * 10) / 10,
     };
 }
 
@@ -180,12 +196,21 @@ export function sortBuyPressureItems(
             return copy
                 .filter((i) => isOverheatedStrong(i))
                 .sort((a, b) => b.buy_pressure_score - a.buy_pressure_score);
+        case 'raw_strength':
+            // Pure buy pressure, no risk deductions — kept for comparison.
+            return copy.sort(
+                (a, b) =>
+                    b.buy_pressure_score - a.buy_pressure_score ||
+                    b.radar_rank_score - a.radar_rank_score,
+            );
         case 'strongest':
         default:
-            // Pure strength — OVERHEATED may rank #1
+            // Risk-adjusted: overheated / chase deductions are already in
+            // radar_rank_score, so a parabolic move no longer ranks #1 by default.
             return copy.sort(
-                (a, b) => b.buy_pressure_score - a.buy_pressure_score ||
-                    b.radar_rank_score - a.radar_rank_score,
+                (a, b) =>
+                    b.radar_rank_score - a.radar_rank_score ||
+                    b.buy_pressure_score - a.buy_pressure_score,
             );
     }
 }

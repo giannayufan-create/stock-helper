@@ -53,6 +53,15 @@ export interface IntradayRankConfig {
     };
     b_pass_confidence_bonus: number;
     b_watch_confidence_bonus: number;
+    /** Fake-breakout / fade deductions. Set max to 0 to disable entirely. */
+    trap_penalties: {
+        FADE_FROM_HIGH: number;
+        FAILED_BREAKOUT: number;
+        THIN_BREAKOUT: number;
+        NEAR_LIMIT_UP: number;
+        UPPER_WICK: number;
+        max_total: number;
+    };
     event_cooldowns_sec: Record<string, number>;
     eligibility: {
         max_spread_pct: number;
@@ -105,6 +114,14 @@ export const DEFAULT_INTRADAY_RANK_CONFIG: IntradayRankConfig = {
     chase_penalties: { low: 0, medium: 4, high: 10, extreme: 18 },
     b_pass_confidence_bonus: 3,
     b_watch_confidence_bonus: 1,
+    trap_penalties: {
+        FADE_FROM_HIGH: 10,
+        FAILED_BREAKOUT: 12,
+        THIN_BREAKOUT: 8,
+        NEAR_LIMIT_UP: 6,
+        UPPER_WICK: 6,
+        max_total: 24,
+    },
     event_cooldowns_sec: {
         SURGE: 180,
         BREAKOUT: 120,

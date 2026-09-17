@@ -18,6 +18,7 @@ import {
 } from './config.ts';
 import {
     detectAskConsumption,
+    detectBidCancel,
     detectBuySurge,
     detectCooling,
     detectEarly,
@@ -515,6 +516,27 @@ export class BuyPressureService {
                 askExecuted = atAsk > 0 ? atAsk : 0;
             }
         }
+        // Mirror of askExecuted: how much of a shrinking bid was actually
+        // sold into, so a withdrawn buy wall can be told from a filled one.
+        let bidExecuted = 0;
+        if (prev && st.best_bid > 0) {
+            const volDelta = Math.max(0, st.total_volume - prev.total_volume);
+            if (
+                st.last_price > 0 &&
+                Math.abs(st.last_price - st.best_bid) / st.best_bid < 0.003
+            ) {
+                bidExecuted = volDelta;
+            } else if (prev.best_bid === st.best_bid && volDelta > 0) {
+                const atBid = (st.recent_prices ?? [])
+                    .filter(
+                        (p) =>
+                            Math.abs(p.p - st.best_bid) / st.best_bid < 0.003 &&
+                            p.t >= prev.t,
+                    )
+                    .reduce((a, p) => a + (p.v ?? 0), 0);
+                bidExecuted = atBid > 0 ? atBid : 0;
+            }
+        }
         const bidLevels =
             st.bid_levels && st.bid_levels.length
                 ? [...st.bid_levels]
@@ -554,6 +576,7 @@ export class BuyPressureService {
             last_price: st.last_price || 0,
             total_volume: st.total_volume || 0,
             ask_executed_delta: askExecuted,
+            bid_executed_delta: bidExecuted,
             bid_levels: bidLevels,
             ask_levels: askLevels,
             bid_qty: bidQty,
@@ -643,6 +666,7 @@ export class BuyPressureService {
     private buildItem(row: IntradayRankItem, inCTop: boolean): BuyPressureItem {
         const features = this.buildFeatures(row);
         const scored = computeBuyPressureScore(features, this.cfg);
+        const baseScore = scored.buy_pressure_score;
         const nowMs = this.runtime.now().getTime();
         const windowMs = this.cfg.slope_window_ms || DEFAULT_SLOPE_WINDOW_MS;
         const featHist = this.featureHistory.push(row.symbol, {
@@ -660,8 +684,19 @@ export class BuyPressureService {
 
         const hist = this.bidAskHistory.get(row.symbol) ?? [];
         const ask = detectAskConsumption(hist, this.cfg);
-        const large = detectLargeBid(hist, this.cfg);
+        const bidCancel = detectBidCancel(hist, this.cfg);
+        const largeRaw = detectLargeBid(hist, this.cfg);
+        // A buy wall that was pulled is not buying interest — drop the tag.
+        const large = bidCancel.cancel
+            ? { hit: false, note: null as string | null }
+            : largeRaw;
         const overheated = detectOverheated(features, this.cfg);
+        if (bidCancel.cancel) {
+            scored.buy_pressure_score = Math.max(
+                0,
+                baseScore - this.cfg.bid_cancel.score_penalty,
+            );
+        }
         const early = detectEarly(features, this.cfg, slopes);
         let buySurge = detectBuySurge(
             features,
@@ -820,6 +855,11 @@ export class BuyPressureService {
             pushEv('ASK_CANCEL', ask.note, false, [
                 ask.note ?? 'ASK_CANCEL',
             ]);
+        if (bidCancel.cancel)
+            pushEv('BID_CANCEL', bidCancel.note, false, [
+                bidCancel.note ?? 'BID_CANCEL',
+                `可信度 ${bidCancel.confidence}`,
+            ]);
         if (volBreak.hit && !features.data_stale)
             pushEv(
                 'VOLUME_BREAKOUT',
@@ -878,7 +918,7 @@ export class BuyPressureService {
             momentum_acceleration: features.momentum_acceleration.value,
             vwap_bucket: features.vwap_bucket,
             distance_from_vwap_pct: features.distance_from_vwap_pct,
-            chase_penalty: 0,
+            chase_penalty: rankOut.chase_penalty,
             chase_risk: bpChase,
             overheated,
             overheated_note: overheated ? '買盤強，短線延伸較大' : null,

@@ -28,10 +28,9 @@ import {
     regimeMeta,
     sortHeating,
     sortPullback,
-    sortStrong,
 } from './helpers';
 import * as s from './radar.css';
-import { CompactStockRow, MiniHeatCard, MiniPullbackCard } from './stock-cards';
+import { MiniHeatCard, MiniPullbackCard } from './stock-cards';
 import { TodayDecisionBoard } from './today-decision-board';
 import { radarColor } from './tokens';
 import { SECTOR_STATE_LABEL } from './ui-context';
@@ -61,7 +60,6 @@ export function TodayPage({
     onGoIntel?: () => void;
 }) {
     const regime = regimeMeta(feed.marketRegime, feed.marketScore);
-    const top = sortStrong(feed.items).slice(0, 5);
     const heating = sortHeating(feed.items)
         .filter(
             (i) =>
@@ -161,24 +159,6 @@ export function TodayPage({
     }, []);
 
     const tw = mc?.taiwan_regime;
-    const hasMarketConfirmed = Object.values(eventExtra).some(
-        (v) => v.confirmation?.status === 'EVENT_MARKET_CONFIRMED',
-    );
-
-    const enrichFor = (symbol: string) => {
-        const sec = feed.sectorBySymbol[symbol];
-        const rot = mc?.top_rotating?.find((r) => r.sector === sec?.name);
-        return {
-            bp: feed.bpBySymbol[symbol] ?? null,
-            sectorName: sec?.name ?? null,
-            sectorRank: sec?.rank ?? rot?.sector_rank ?? null,
-            sectorState: rot?.state ?? null,
-            sectorHeat: sec?.heat ?? null,
-            taiwanRegime: tw?.state ?? null,
-            eventConfirmed: hasMarketConfirmed && Boolean(sec),
-            decision: feed.dsBySymbol[symbol] ?? null,
-        };
-    };
 
     return (
         <>
@@ -189,7 +169,7 @@ export function TodayPage({
             <div className={s.healthStrip}>
                 <div>
                     <div style={{ fontSize: 12, color: vars.color.mutedForeground }}>
-                        Market Status
+                        盤中狀態
                     </div>
                     <div
                         style={{
@@ -500,11 +480,11 @@ export function TodayPage({
                 )}
             </div>
 
-            {/* 4 Top Stocks Now */}
+            {/* 4 Heating / pullback — not a second ranked buy list */}
             <div className={s.section}>
                 <div className={s.sectionRow}>
                     <div className={s.sectionTitle} style={{ marginBottom: 0 }}>
-                        現在最值得看
+                        盤中熱度（僅供參考）
                     </div>
                     <button
                         type="button"
@@ -514,16 +494,15 @@ export function TodayPage({
                         雷達 ›
                     </button>
                 </div>
-                {top.map((item, i) => (
-                    <CompactStockRow
-                        key={item.symbol}
-                        item={item}
-                        rank={i + 1}
-                        selected={selectedSymbol === item.symbol}
-                        onOpen={onOpenSymbol}
-                        enrich={enrichFor(item.symbol)}
-                    />
-                ))}
+                <div
+                    style={{
+                        fontSize: 12,
+                        color: vars.color.mutedForeground,
+                        marginBottom: 8,
+                    }}
+                >
+                    要買哪檔請看最上方「今天看這幾支」，這裡只是熱度變化。
+                </div>
                 {heating.length > 0 && (
                     <>
                         <div

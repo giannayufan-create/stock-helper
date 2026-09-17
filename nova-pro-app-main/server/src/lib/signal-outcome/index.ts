@@ -12,6 +12,12 @@ export {
     type BucketStats,
     type SignalTypeStats,
 } from './analytics.ts';
+export {
+    LiveOutcomeTracker,
+    loadLiveOutcomeTrackerConfig,
+    type LiveOutcomeTrackerConfig,
+    type LiveOutcomeTrackerHealth,
+} from './live-tracker.ts';
 export { calculateOutcome, priceAtOrAfter } from './outcome-calculator.ts';
 export {
     JsonlSignalOutcomeRepository,

@@ -53,6 +53,14 @@ chase_penalties:
 b_pass_confidence_bonus: 3
 b_watch_confidence_bonus: 1
 
+trap_penalties:
+  FADE_FROM_HIGH: 10
+  FAILED_BREAKOUT: 12
+  THIN_BREAKOUT: 8
+  NEAR_LIMIT_UP: 6
+  UPPER_WICK: 6
+  max_total: 24
+
 event_cooldowns_sec:
   SURGE: 180
   BREAKOUT: 120

@@ -445,6 +445,8 @@ export interface IntradayRankItemDto {
     risk: {
         chase_risk: string;
         invalid_price: number | null;
+        trap_flags?: string[];
+        trap_penalty?: number;
     };
     events: string[];
     reasons: string[];

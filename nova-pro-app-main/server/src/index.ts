@@ -38,6 +38,7 @@ import { SessionAutonomyService } from './lib/session-autonomy/index.ts';
 import { AiInterpretationService } from './lib/ai-interpretation/index.ts';
 import { RadarQualityService } from './lib/radar-quality/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
+import { LiveOutcomeTracker } from './lib/signal-outcome/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
 loadEnvFile();
@@ -173,6 +174,18 @@ async function main(): Promise<void> {
         universe_source: 'live_scanner',
         learning_eligible: true,
     });
+
+    // Research only: samples forward price path so signals get measured
+    // win-rate instead of staying unverified. Never feeds back into B/C.
+    const outcomeTracker = new LiveOutcomeTracker(
+        { getState: (s) => marketRuntime.getState(s) },
+        researchRepos.outcomes,
+    );
+    signalBridge.onSignalCreated((sig) => outcomeTracker.track(sig));
+    outcomeTracker.start();
+    console.log(
+        `signal-outcome: live tracker on interval=${outcomeTracker.cfg.sample_interval_sec}s max_track=${outcomeTracker.cfg.max_track_minutes}min`,
+    );
 
     const openGateV2 = new OpenGateV2Service(
         manager,
@@ -350,6 +363,7 @@ async function main(): Promise<void> {
         sessionAutonomy,
         aiInterpretation,
         radarQuality,
+        outcomeTracker,
         startedAt: Date.now(),
     };
     const liveAcceptance = new LiveAcceptanceService(ctx, dataDir);

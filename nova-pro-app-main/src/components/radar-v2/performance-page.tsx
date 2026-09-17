@@ -9,11 +9,28 @@ import {
     type CohortStatDto,
     type ContextOverviewDto,
 } from '../../lib/context-research';
+import {
+    fetchOutcomeSummary,
+    numLabel,
+    pctLabel,
+    weightedRate,
+    type OutcomeSummaryDto,
+} from '../../lib/outcomes';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 
 type PerfTab = 'signals' | 'shadow' | 'context' | 'history';
 type ContextSub = 'market' | 'sector' | 'events' | 'combo';
+
+const SIGNAL_TYPE_LABEL: Record<string, string> = {
+    OPEN_PASS: '開盤通過',
+    STRONG_ENTER: '強勢進場',
+    SURGE: '急漲',
+    BREAKOUT: '突破',
+    REBREAK: '再突破',
+    RANK_JUMP: '排名躍升',
+    PULLBACK_READY: '回踩就緒',
+};
 
 /** 績效頁 — 訊號／影子／Context Lab／歷史 */
 export function PerformancePage() {
@@ -22,6 +39,27 @@ export function PerformancePage() {
     const [overview, setOverview] = useState<ContextOverviewDto | null>(null);
     const [rows, setRows] = useState<CohortStatDto[]>([]);
     const [signalType, setSignalType] = useState('SURGE');
+    const [outcomes, setOutcomes] = useState<OutcomeSummaryDto | null>(null);
+    const [outcomesErr, setOutcomesErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (tab !== 'signals') return;
+        let cancelled = false;
+        void fetchOutcomeSummary()
+            .then((d) => {
+                if (cancelled) return;
+                setOutcomes(d);
+                setOutcomesErr(null);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setOutcomes(null);
+                setOutcomesErr('績效資料暫時無法載入');
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [tab]);
 
     useEffect(() => {
         if (tab !== 'context') return;
@@ -56,6 +94,25 @@ export function PerformancePage() {
         };
     }, [tab, ctxSub, signalType]);
 
+    const pos15 = weightedRate(
+        (outcomes?.by_signal_type ?? []).map((r) => ({
+            count: r.count,
+            value: r.positive_15m_rate,
+        })),
+    );
+    const mfe = weightedRate(
+        (outcomes?.by_signal_type ?? []).map((r) => ({
+            count: r.count,
+            value: r.avg_MFE_15m,
+        })),
+    );
+    const mae = weightedRate(
+        (outcomes?.by_signal_type ?? []).map((r) => ({
+            count: r.count,
+            value: r.avg_MAE_15m,
+        })),
+    );
+
     return (
         <>
             <div className={s.sectionTitle}>訊號驗證</div>
@@ -82,24 +139,175 @@ export function PerformancePage() {
             {tab === 'signals' && (
                 <div className={s.glass} style={{ padding: 16 }}>
                     <div style={{ fontSize: 14, color: vars.color.mutedForeground }}>
-                        過去 30 日訊號結果（後續接線）
+                        過去 30 日訊號後的市場路徑
+                        {outcomes?.window
+                            ? `（${outcomes.window.from} ～ ${outcomes.window.to}）`
+                            : ''}
                     </div>
                     <div className={s.twoCol} style={{ marginTop: 14 }}>
-                        <Metric lab="訊號數" val="—" />
-                        <Metric lab="15 分正向率" val="—" />
-                        <Metric lab="平均有利波動" val="—" />
-                        <Metric lab="平均不利波動" val="—" />
+                        <Metric
+                            lab="訊號數"
+                            val={
+                                outcomes
+                                    ? String(outcomes.coverage.signals)
+                                    : '—'
+                            }
+                        />
+                        <Metric lab="15 分正向率" val={pctLabel(pos15, 1)} />
+                        <Metric lab="平均有利波動" val={numLabel(mfe)} />
+                        <Metric lab="平均不利波動" val={numLabel(mae)} />
                     </div>
+                    {outcomesErr && (
+                        <p
+                            style={{
+                                marginTop: 12,
+                                fontSize: 13,
+                                color: '#fca5a5',
+                            }}
+                        >
+                            {outcomesErr}
+                        </p>
+                    )}
+                    {outcomes && (
+                        <p
+                            style={{
+                                marginTop: 10,
+                                fontSize: 12,
+                                color: vars.color.mutedForeground,
+                                lineHeight: 1.5,
+                            }}
+                        >
+                            已量測 {outcomes.coverage.measured}／
+                            {outcomes.coverage.signals} 筆（覆蓋{' '}
+                            {outcomes.coverage.coverage_pct}%）
+                            {outcomes.tracker?.enabled
+                                ? ` · 追蹤中 ${outcomes.tracker.tracked} 檔`
+                                : ''}
+                            {outcomes.tracker?.last_error
+                                ? ` · 追蹤錯誤：${outcomes.tracker.last_error}`
+                                : ''}
+                        </p>
+                    )}
                     <p
                         style={{
-                            marginTop: 14,
+                            marginTop: 10,
                             fontSize: 13,
                             color: vars.color.mutedForeground,
                             lineHeight: 1.5,
                         }}
                     >
-                        顯示正向率與訊號結果，不顯示勝率或獲利率。
+                        {outcomes?.note ??
+                            '顯示正向率與訊號結果，不顯示勝率或獲利率。'}
                     </p>
+                    {outcomes && outcomes.by_signal_type.length > 0 && (
+                        <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                            {outcomes.by_signal_type.map((r) => (
+                                <div
+                                    key={r.signal_type}
+                                    className={s.glass}
+                                    style={{ padding: 12 }}
+                                >
+                                    <div style={{ fontWeight: 700 }}>
+                                        {SIGNAL_TYPE_LABEL[r.signal_type] ??
+                                            r.signal_type}
+                                        <span
+                                            style={{
+                                                marginLeft: 8,
+                                                fontSize: 12,
+                                                fontWeight: 500,
+                                                color: vars.color
+                                                    .mutedForeground,
+                                            }}
+                                        >
+                                            {r.count} 筆
+                                        </span>
+                                    </div>
+                                    <div
+                                        style={{
+                                            marginTop: 6,
+                                            fontSize: 12,
+                                            fontFamily: vars.font.mono,
+                                            color: vars.color.mutedForeground,
+                                        }}
+                                    >
+                                        15 分正向 {pctLabel(r.positive_15m_rate, 1)}
+                                        {' · '}有利 {numLabel(r.avg_MFE_15m)}
+                                        {' · '}不利 {numLabel(r.avg_MAE_15m)}
+                                        {' · '}15 分報酬{' '}
+                                        {numLabel(r.avg_forward_return_15m)}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {outcomes && outcomes.by_c_score.length > 0 && (
+                        <>
+                            <div
+                                style={{
+                                    marginTop: 16,
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                }}
+                            >
+                                依盤中排序分
+                            </div>
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gap: 8,
+                                    marginTop: 8,
+                                }}
+                            >
+                                {outcomes.by_c_score.map((r) => (
+                                    <div
+                                        key={r.bucket}
+                                        className={s.glass}
+                                        style={{ padding: 12 }}
+                                    >
+                                        <div style={{ fontWeight: 700 }}>
+                                            {r.bucket}
+                                            <span
+                                                style={{
+                                                    marginLeft: 8,
+                                                    fontSize: 12,
+                                                    fontWeight: 500,
+                                                    color: vars.color
+                                                        .mutedForeground,
+                                                }}
+                                            >
+                                                {r.count} 筆
+                                            </span>
+                                        </div>
+                                        <div
+                                            style={{
+                                                marginTop: 6,
+                                                fontSize: 12,
+                                                fontFamily: vars.font.mono,
+                                                color: vars.color
+                                                    .mutedForeground,
+                                            }}
+                                        >
+                                            15 分正向{' '}
+                                            {pctLabel(r.positive_15m_rate, 1)}
+                                            {' · '}報酬 {numLabel(r.avg_return_15m)}
+                                            {' · '}有利 {numLabel(r.avg_MFE_15m)}
+                                            {' · '}不利 {numLabel(r.avg_MAE_15m)}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                    {outcomes &&
+                        outcomes.coverage.signals === 0 &&
+                        !outcomesErr && (
+                            <div
+                                className={s.empty}
+                                style={{ marginTop: 12, padding: 8 }}
+                            >
+                                尚無已量測訊號。追蹤啟動後，盤中訊號才會累積到這裡。
+                            </div>
+                        )}
                 </div>
             )}
 
@@ -166,7 +374,7 @@ export function PerformancePage() {
                                 'PULLBACK_READY',
                             ].map((t) => (
                                 <option key={t} value={t}>
-                                    {t}
+                                    {SIGNAL_TYPE_LABEL[t] ?? t}
                                 </option>
                             ))}
                         </select>
@@ -197,14 +405,14 @@ export function PerformancePage() {
                                 marginBottom: 10,
                             }}
                         >
-                            Signals {overview.signal_count}
+                            訊號 {overview.signal_count}
                             {overview.daily?.context_coverage_pct != null
-                                ? ` · Coverage ${overview.daily.context_coverage_pct}%`
+                                ? ` · 覆蓋 ${overview.daily.context_coverage_pct}%`
                                 : ''}
-                            {' · '}Aligned {overview.daily?.market_aligned ?? 0}
-                            {' · '}ROTATING_IN{' '}
+                            {' · '}同向 {overview.daily?.market_aligned ?? 0}
+                            {' · '}輪入{' '}
                             {overview.daily?.sector_rotating_in ?? 0}
-                            {' · '}Event Confirmed{' '}
+                            {' · '}事件確認{' '}
                             {overview.daily?.event_confirmed ?? 0}
                         </div>
                     )}
@@ -225,15 +433,15 @@ export function PerformancePage() {
                                     }}
                                 >
                                     n={r.n} · {r.sample_guard}
-                                    {' · '}15m Pos{' '}
+                                    {' · '}15 分正向{' '}
                                     {r.positive_15m_rate != null
                                         ? `${r.positive_15m_rate}%`
                                         : '—'}
-                                    {' · '}Med Ret{' '}
+                                    {' · '}中位報酬{' '}
                                     {r.median_forward_return_15m ?? '—'}
-                                    {' · '}MFE {r.median_mfe_15m ?? '—'}
-                                    {' · '}MAE {r.median_mae_15m ?? '—'}
-                                    {' · '}Inv{' '}
+                                    {' · '}有利 {r.median_mfe_15m ?? '—'}
+                                    {' · '}不利 {r.median_mae_15m ?? '—'}
+                                    {' · '}失效{' '}
                                     {r.invalid_hit_rate != null
                                         ? `${r.invalid_hit_rate}%`
                                         : '—'}

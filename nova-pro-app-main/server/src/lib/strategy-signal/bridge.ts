@@ -38,6 +38,7 @@ export class StrategySignalBridge {
     readonly repo: StrategySignalRepository;
     readonly factory: StrategySignalFactory;
     readonly created: StrategySignal[] = [];
+    private listeners: Array<(sig: StrategySignal) => void> = [];
     private ctx: BridgeContext = {
         source_mode: 'live',
         data_resolution: 'tick',
@@ -64,6 +65,23 @@ export class StrategySignalBridge {
         this.ctx = { ...this.ctx, ...ctx };
     }
 
+    /** Observers only — must never mutate the signal or throw into B/C. */
+    onSignalCreated(fn: (sig: StrategySignal) => void): void {
+        this.listeners.push(fn);
+    }
+
+    private emitCreated(sigs: StrategySignal[]): void {
+        for (const sig of sigs) {
+            for (const fn of this.listeners) {
+                try {
+                    fn(sig);
+                } catch {
+                    // observer failure must not break B/C evaluation
+                }
+            }
+        }
+    }
+
     onBResult(
         prev: OpenConfirmResult | null,
         next: OpenConfirmResult,
@@ -88,7 +106,10 @@ export class StrategySignalBridge {
             },
             ref,
         );
-        if (sig) this.created.push(sig);
+        if (sig) {
+            this.created.push(sig);
+            this.emitCreated([sig]);
+        }
         return sig;
     }
 
@@ -119,6 +140,7 @@ export class StrategySignalBridge {
             eventCooldowns,
         );
         this.created.push(...sigs);
+        this.emitCreated(sigs);
         return sigs;
     }
 

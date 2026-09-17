@@ -21,6 +21,7 @@ import {
 } from './helpers';
 import { ConfirmLayersRow } from './confirm-layers';
 import { FreshnessBadge } from './freshness-badge';
+import { RegulatoryChip, RiskLines, TrapChips } from './stock-flags';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 import {
@@ -151,6 +152,11 @@ export function CompactStockRow({
                         >
                             {item.name}
                         </span>
+                        <RegulatoryChip symbol={item.symbol} />
+                        <TrapChips
+                            flags={item.risk?.trap_flags}
+                            penalty={item.risk?.trap_penalty}
+                        />
                         {ca?.has_action_today && ca.badge ? (
                             <span
                                 style={{
@@ -194,6 +200,7 @@ export function CompactStockRow({
                             ? ` · ${continuationShort(quality.institutional.continuation)}`
                             : ''}
                     </div>
+                    <RiskLines risks={item.risks} />
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     {price != null && price > 0 ? (
@@ -286,7 +293,7 @@ export function CompactStockRow({
                     </div>
                 </div>
                 <div className={s.cardMetaCell}>
-                    <div className={s.cardMetaLab}>Chase</div>
+                    <div className={s.cardMetaLab}>追價</div>
                     <div className={s.cardMetaVal}>{chaseLabel(chase)}</div>
                 </div>
             </div>

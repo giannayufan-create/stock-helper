@@ -42,6 +42,7 @@ export type BpInternalEvent =
     | 'BUY_SURGE'
     | 'ASK_EATING'
     | 'ASK_CANCEL'
+    | 'BID_CANCEL'
     | 'VOLUME_BREAKOUT'
     | 'LARGE_BID_APPEAR'
     | 'RANK_ACCELERATION'
@@ -62,6 +63,8 @@ export interface BidAskSnap {
     last_price: number;
     total_volume: number;
     ask_executed_delta: number;
+    /** Volume traded at the bid since the previous snapshot. */
+    bid_executed_delta?: number;
     /** Full available levels from provider (may be length 1 = best-only). */
     bid_levels: number[];
     ask_levels: number[];
@@ -195,6 +198,7 @@ export interface BuyPressureQuery {
     overheated?: boolean;
     sort?:
         | 'strongest'
+        | 'raw_strength'
         | 'early'
         | 'rank_surge'
         | 'volume_surge'

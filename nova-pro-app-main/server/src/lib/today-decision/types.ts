@@ -42,6 +42,8 @@ export interface TodayDecisionItem {
     conviction: number;
     why: string[];
     risk: string[];
+    trap_flags: string[];
+    trap_penalty: number;
     next_check: string | null;
     sources: TodaySourceTrace;
     data_confidence: 'HIGH' | 'MEDIUM' | 'LOW';
@@ -99,6 +101,8 @@ export interface TodayInputItem {
     events: string[];
     c_reasons: string[];
     c_risks: string[];
+    trap_flags: string[];
+    trap_penalty: number;
     data_blocked: boolean;
     data_health: string | null;
     score_coverage_pct: number | null;

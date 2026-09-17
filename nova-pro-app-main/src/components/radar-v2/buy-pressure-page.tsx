@@ -9,6 +9,7 @@ import {
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
+import { BP_EVENT_LABEL, RegulatoryChip } from './stock-flags';
 
 type PricePreset =
     | 'ALL'
@@ -186,7 +187,7 @@ export function BuyPressurePage({
                                 : radarColor.live,
                         }}
                     >
-                        {staleGlobal ? '⚠ DATA STALE' : '● LIVE'}
+                        {staleGlobal ? '⚠ 資料過舊' : '● 即時'}
                     </span>
                     {onBack && (
                         <button
@@ -443,7 +444,7 @@ export function BuyPressurePage({
                         marginBottom: 8,
                     }}
                 >
-                    Last Updated{' '}
+                    更新時間{' '}
                     {new Date(asOf).toLocaleTimeString('zh-TW', {
                         hour: '2-digit',
                         minute: '2-digit',
@@ -486,12 +487,20 @@ export function BuyPressurePage({
                                 gap: 8,
                             }}
                         >
-                            <strong>
+                            <strong
+                                style={{
+                                    display: 'inline-flex',
+                                    gap: 6,
+                                    alignItems: 'center',
+                                    flexWrap: 'wrap',
+                                }}
+                            >
                                 {it.symbol} {it.name}
+                                <RegulatoryChip symbol={it.symbol} />
                             </strong>
                             {it.data_stale && (
                                 <span style={{ color: '#fcd34d', fontSize: 12 }}>
-                                    ⚠ STALE
+                                    ⚠ 資料過舊
                                 </span>
                             )}
                         </div>
@@ -531,7 +540,7 @@ export function BuyPressurePage({
                                             color: '#fcd34d',
                                         }}
                                     >
-                                        ⚠ OVERHEATED
+                                        ⚠ 過熱
                                     </span>
                                 )}
                         </div>
@@ -552,24 +561,31 @@ export function BuyPressurePage({
                             style={{ marginTop: 10, fontSize: 13 }}
                         >
                             <div>
-                                <span className={s.metricLab}>Buy Pressure</span>
+                                <span className={s.metricLab}>買盤</span>
                                 {Math.round(it.buy_pressure_score)}
                             </div>
                             <div>
-                                <span className={s.metricLab}>C Score</span>
+                                <span className={s.metricLab}>排序分</span>
+                                {Math.round(it.radar_rank_score)}
+                            </div>
+                            <div>
+                                <span className={s.metricLab}>盤中</span>
                                 {it.c_score != null
                                     ? Math.round(it.c_score)
                                     : '—'}
                             </div>
                             <div>
-                                <span className={s.metricLab}>Heat</span>
+                                <span className={s.metricLab}>熱度</span>
                                 {it.heat_score != null
                                     ? Math.round(it.heat_score)
                                     : '—'}
                             </div>
                             <div>
-                                <span className={s.metricLab}>Chase Risk</span>
+                                <span className={s.metricLab}>追價風險</span>
                                 {it.chase_risk ?? '—'}
+                                {it.chase_penalty > 0
+                                    ? ` −${it.chase_penalty}`
+                                    : ''}
                             </div>
                             <div>
                                 <span className={s.metricLab}>3分量</span>
@@ -649,58 +665,71 @@ function DetailView({
                     opacity: item.data_stale ? 0.55 : 1,
                 }}
             >
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>
+                <div
+                    style={{
+                        fontWeight: 700,
+                        marginBottom: 8,
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                    }}
+                >
                     {meta.icon} {meta.label}
+                    <RegulatoryChip symbol={item.symbol} />
                 </div>
                 <div className={s.metricGrid} style={{ fontSize: 14 }}>
                     <div>
-                        <span className={s.metricLab}>Buy Pressure</span>
+                        <span className={s.metricLab}>買盤</span>
                         {Math.round(item.buy_pressure_score)}
                     </div>
                     <div>
-                        <span className={s.metricLab}>C Score</span>
+                        <span className={s.metricLab}>排序分</span>
                         {item.c_score != null ? Math.round(item.c_score) : '—'}
                     </div>
                     <div>
-                        <span className={s.metricLab}>Heat</span>
+                        <span className={s.metricLab}>熱度</span>
                         {item.heat_score != null
                             ? Math.round(item.heat_score)
                             : '—'}
                     </div>
                     <div>
-                        <span className={s.metricLab}>Volume Accel</span>
+                        <span className={s.metricLab}>量能加速</span>
                         {fmtNum(item.volume_acceleration, 0)}
                     </div>
                     <div>
-                        <span className={s.metricLab}>RVOL</span>
+                        <span className={s.metricLab}>相對量</span>
                         {item.rvol != null ? `${fmtNum(item.rvol)}x` : '—'}
                     </div>
                     <div>
-                        <span className={s.metricLab}>Aggression</span>
+                        <span className={s.metricLab}>主動買</span>
                         {fmtNum(item.trade_aggression, 0)}
                     </div>
                     <div>
-                        <span className={s.metricLab}>BidAsk Imb</span>
+                        <span className={s.metricLab}>委買委賣</span>
                         {fmtNum(item.bidask_imbalance, 2)}
                     </div>
                     <div>
-                        <span className={s.metricLab}>VWAP</span>
+                        <span className={s.metricLab}>均價</span>
                         {item.vwap_bucket ?? '—'}{' '}
                         {item.distance_from_vwap_pct != null
                             ? fmtPct(item.distance_from_vwap_pct)
                             : ''}
                     </div>
                     <div>
-                        <span className={s.metricLab}>Rank Vel</span>
+                        <span className={s.metricLab}>排名變化</span>
                         {fmtNum(item.rank_velocity, 0)}
                     </div>
                     <div>
-                        <span className={s.metricLab}>Momentum Accel</span>
+                        <span className={s.metricLab}>動能加速</span>
                         {fmtNum(item.momentum_acceleration, 0)}
                     </div>
                     <div>
-                        <span className={s.metricLab}>Chase Risk</span>
+                        <span className={s.metricLab}>追價風險</span>
                         {item.chase_risk ?? '—'}
+                        {item.chase_penalty > 0
+                            ? ` −${item.chase_penalty}`
+                            : ''}
                     </div>
                 </div>
                 {item.overheated && (
@@ -711,13 +740,13 @@ function DetailView({
                             color: '#fcd34d',
                         }}
                     >
-                        ⚠ OVERHEATED ·{' '}
+                        ⚠ 過熱 ·{' '}
                         {item.overheated_note ?? '買盤強，但短線延伸較大'}
                     </div>
                 )}
                 {item.data_stale && (
                     <div style={{ marginTop: 10, color: '#fcd34d', fontSize: 13 }}>
-                        ⚠ DATA STALE · Last Updated{' '}
+                        ⚠ 資料過舊 · 更新於{' '}
                         {new Date(item.last_updated).toLocaleTimeString('zh-TW', {
                             hour: '2-digit',
                             minute: '2-digit',
@@ -749,7 +778,8 @@ function DetailView({
                                             hour12: false,
                                         },
                                     )}{' '}
-                                    {ev.event_type}
+                                    {BP_EVENT_LABEL[ev.event_type] ??
+                                        ev.event_type}
                                 </div>
                                 {ev.note && (
                                     <div

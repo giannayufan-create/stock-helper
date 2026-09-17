@@ -70,6 +70,7 @@ export function registerBuyPressureRoutes(
             overheated: parseBool(q.overheated),
             sort: (q.sort as
                 | 'strongest'
+                | 'raw_strength'
                 | 'early'
                 | 'rank_surge'
                 | 'volume_surge'

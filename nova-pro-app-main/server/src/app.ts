@@ -28,6 +28,7 @@ import { registerSessionAutonomyRoutes } from './routes/session-autonomy.ts';
 import { registerAiInterpretationRoutes } from './routes/ai-interpretation.ts';
 import { registerRadarQualityRoutes } from './routes/radar-quality.ts';
 import { registerTodayRoutes } from './routes/today.ts';
+import { registerOutcomeRoutes } from './routes/outcomes.ts';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const app = Fastify({ logger: { level: 'warn' } });
@@ -65,6 +66,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerAiInterpretationRoutes(app, ctx);
     registerRadarQualityRoutes(app, ctx);
     registerTodayRoutes(app, ctx);
+    registerOutcomeRoutes(app, ctx);
 
     // provider events → SSE fan-out
     ctx.market.onTick((channel, tick) => ctx.hub.broadcast(channel, tick));

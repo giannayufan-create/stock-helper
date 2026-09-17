@@ -170,7 +170,8 @@ export function RadarApp({
     const closeDetail = () => setDetailSymbol(null);
 
     const statusLabel: LiveStatus = feed.liveStatus;
-    const isSim = provider === 'mock' || provider == null;
+    const isSim = provider === 'mock';
+    const isLiveFeed = provider === 'shioaji' || provider === 'fugle';
 
     const mainContent = (
         <>
@@ -317,9 +318,9 @@ export function RadarApp({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span
-                    className={`${s.simBadge} ${!isSim ? s.liveBadge : ''}`}
+                    className={`${s.simBadge} ${isLiveFeed ? s.liveBadge : ''}`}
                 >
-                    {isSim ? '模擬' : '即時'}
+                    {provider == null ? '連線中' : isSim ? '模擬' : '即時'}
                 </span>
                 <div
                     className={`${s.statusPill} ${s.liveVariants[statusLabel]}`}
@@ -370,6 +371,12 @@ export function RadarApp({
             </div>
         </header>
     );
+
+    const mockBanner = isSim ? (
+        <div className={`${s.banner} ${s.bannerBad}`}>
+            目前是模擬／備援資料，不是真實盤中報價。畫面可對，但不要當盤中訊號。
+        </div>
+    ) : null;
 
     const healthBanner =
         feed.healthNote && (
@@ -444,6 +451,7 @@ export function RadarApp({
                 </aside>
                 <div className={s.desktopMain}>
                     {headerBlock}
+                    {mockBanner}
                     {healthBanner}
                     <div className={s.page}>{mainContent}</div>
                 </div>
@@ -498,6 +506,7 @@ export function RadarApp({
             {notifChrome}
         <div className={s.shell}>
             {headerBlock}
+            {mockBanner}
             {healthBanner}
             <div className={s.page}>{mainContent}</div>
             <nav className={s.dock} aria-label="主導覽">
@@ -556,10 +565,10 @@ function stubRankItem(symbol: string, name?: string): IntradayRankItemDto {
             pullback_quality_score: 0,
             pullback_state: '',
         },
-        risk: { chase_risk: 'LOW', invalid_price: null },
+        risk: { chase_risk: '', invalid_price: null },
         events: [],
-        reasons: [],
-        risks: [],
+        reasons: ['尚無盤中即時資料'],
+        risks: ['資料尚未載入，勿當即時訊號'],
         data_health: 'ok',
         data_blocked: false,
         updated_at: new Date().toISOString(),
@@ -603,8 +612,13 @@ function buyPressureToRankItem(bp: BuyPressureItemDto): IntradayRankItemDto {
             invalid_price: null,
         },
         events: (bp.events ?? []).map((e) => e.event_type),
-        reasons: [],
-        risks: bp.overheated_note ? [bp.overheated_note] : [],
+        reasons: bp.discovery_reason ? [bp.discovery_reason] : [],
+        risks: [
+            ...(bp.overheated_note ? [bp.overheated_note] : []),
+            ...(bp.events ?? []).some((e) => e.event_type === 'BID_CANCEL')
+                ? ['買單抽單（誘多）']
+                : [],
+        ],
         data_health: bp.data_health || 'ok',
         data_blocked: false,
         updated_at: bp.updated_at || bp.last_updated,

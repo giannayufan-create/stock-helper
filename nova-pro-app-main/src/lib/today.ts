@@ -23,6 +23,8 @@ export interface TodayDecisionItemDto {
     conviction: number;
     why: string[];
     risk: string[];
+    trap_flags?: string[];
+    trap_penalty?: number;
     next_check: string | null;
     sources: {
         c_score: number | null;

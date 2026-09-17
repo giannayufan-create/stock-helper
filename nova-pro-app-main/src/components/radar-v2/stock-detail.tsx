@@ -38,6 +38,7 @@ import {
     type CorporateActionSymbolDto,
 } from '../../lib/calendar';
 import { fmtPct, fmtPrice } from '../../lib/utils/format';
+import { RegulatoryChip, RiskLines, TrapChips } from './stock-flags';
 import { vars } from '../../theme.css';
 import { ConfirmLayersRow } from './confirm-layers';
 import { toggleFavorite } from './favorites';
@@ -346,6 +347,20 @@ export function StockDetailPage({
                         {item.symbol}{' '}
                         <span className={s.symName}>{item.name}</span>
                     </div>
+                    <div
+                        style={{
+                            display: 'flex',
+                            gap: 6,
+                            flexWrap: 'wrap',
+                            marginTop: 4,
+                        }}
+                    >
+                        <RegulatoryChip symbol={item.symbol} />
+                        <TrapChips
+                            flags={item.risk?.trap_flags}
+                            penalty={item.risk?.trap_penalty}
+                        />
+                    </div>
                 </div>
                 <button
                     type="button"
@@ -538,6 +553,12 @@ export function StockDetailPage({
                             <li key={r}>{r}</li>
                         ))}
                     </ul>
+                    {(item.risks?.length ?? 0) > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                            <div className={s.zoneTitle}>風險／騙線</div>
+                            <RiskLines risks={item.risks} />
+                        </div>
+                    )}
                     <div style={{ marginTop: 12 }}>
                         <ConfirmLayersRow layers={confirmLayers} />
                     </div>
@@ -826,7 +847,7 @@ export function StockDetailPage({
                             }
                         />
                         <Metric
-                            lab="Chase"
+                            lab="追價風險"
                             val={chaseLabel(item.risk?.chase_risk)}
                         />
                         <Metric
@@ -1039,7 +1060,7 @@ function MarketIntelBlock({ symbol }: { symbol: string }) {
                         {data.sector.heat != null && (
                             <>
                                 {' '}
-                                · 產業 Heat {Math.round(data.sector.heat)}{' '}
+                                · 產業熱度 {Math.round(data.sector.heat)}{' '}
                                 {data.sector.trend ?? ''}
                                 {data.sector.rank != null &&
                                     ` · #${data.sector.rank}`}

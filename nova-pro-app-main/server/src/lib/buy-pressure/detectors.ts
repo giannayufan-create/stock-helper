@@ -142,6 +142,79 @@ export function detectLargeBid(
     };
 }
 
+export type BidCancelConfidence = AskEatingConfidence;
+
+/**
+ * Bid-side mirror of detectAskConsumption: a large buy wall that shrinks
+ * without matching trades at that price was pulled, not filled — the classic
+ * spoof that makes LARGE_BID look bullish.
+ */
+export function detectBidCancel(
+    history: BidAskSnap[],
+    cfg: BuyPressureConfig,
+): {
+    cancel: boolean;
+    note: string | null;
+    bid_price: number | null;
+    confidence: BidCancelConfidence;
+} {
+    const empty = {
+        cancel: false,
+        note: null as string | null,
+        bid_price: null as number | null,
+        confidence: 'none' as BidCancelConfidence,
+    };
+    if (history.length < cfg.bid_cancel.min_snapshots) return empty;
+
+    const recent = history.slice(-cfg.bid_cancel.min_snapshots);
+    const first = recent[0]!;
+    const last = recent[recent.length - 1]!;
+    if (first.best_bid <= 0 || last.best_bid <= 0) return empty;
+
+    const bidPx = first.best_bid;
+    const sameLevel = recent.every(
+        (s) =>
+            Math.abs(s.best_bid - bidPx) / bidPx < 0.002 || s.best_bid === bidPx,
+    );
+    if (!sameLevel) return { ...empty, bid_price: bidPx };
+
+    const levelBidQty = (s: BidAskSnap): number => {
+        if (s.bid_levels.length > 1 && s.bid_qty.length === s.bid_levels.length) {
+            const idx = s.bid_levels.findIndex(
+                (p) => Math.abs(p - bidPx) / bidPx < 0.002 || p === bidPx,
+            );
+            if (idx >= 0) return s.bid_qty[idx] ?? s.bid_volume;
+        }
+        return s.bid_volume;
+    };
+    const firstQty = levelBidQty(first);
+    const lastQty = levelBidQty(last);
+    if (firstQty <= 0) return { ...empty, bid_price: bidPx };
+
+    const drop = firstQty - lastQty;
+    if (drop / firstQty < cfg.bid_cancel.min_bid_drop_pct) {
+        return { ...empty, bid_price: bidPx };
+    }
+    const executed = recent.reduce(
+        (a, s) => a + Math.max(0, s.bid_executed_delta ?? 0),
+        0,
+    );
+    const ratio = drop > 0 ? executed / drop : 0;
+    if (ratio > cfg.bid_cancel.max_executed_ratio) {
+        return { ...empty, bid_price: bidPx };
+    }
+    const depth = Math.max(
+        ...recent.map((s) => s.orderbook_depth_available),
+        0,
+    );
+    return {
+        cancel: true,
+        note: `BID_CANCEL @ ${bidPx}（委買抽單，非成交）`,
+        bid_price: bidPx,
+        confidence: depth >= 5 ? 'high' : depth >= 2 ? 'medium' : 'low',
+    };
+}
+
 export function detectOverheated(
     f: BuyPressureFeatures,
     cfg: BuyPressureConfig,

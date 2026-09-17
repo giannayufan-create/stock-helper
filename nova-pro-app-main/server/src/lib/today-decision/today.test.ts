@@ -33,6 +33,8 @@ function item(p: Partial<TodayInputItem> & { symbol: string }): TodayInputItem {
         events: p.events ?? [],
         c_reasons: p.c_reasons ?? ['量能放大'],
         c_risks: p.c_risks ?? [],
+        trap_flags: p.trap_flags ?? [],
+        trap_penalty: p.trap_penalty ?? 0,
         data_blocked: p.data_blocked ?? false,
         data_health: p.data_health ?? 'ok',
         score_coverage_pct: p.score_coverage_pct ?? 90,
@@ -268,6 +270,70 @@ function board(items: TodayInputItem[], mode: 'INTRADAY' | 'PREOPEN' = 'INTRADAY
     );
     assert.ok(b.items[0]!.why.some((w) => w.includes('前一日選股分數')));
     pass('T11 — 盤前用 A 分數排序，不會全部同分');
+}
+
+// ---- T12 開高走低 / 假突破 → AVOID ----
+{
+    const fade = board([
+        item({
+            symbol: '6505',
+            c_score: 88,
+            bp_score: 80,
+            decision_status: 'CONFIRMED_STRENGTH',
+            momentum_state: 'ACTIVE',
+            trap_flags: ['FADE_FROM_HIGH'],
+        }),
+    ]);
+    assert.equal(fade.items[0]!.action, 'AVOID');
+    assert.ok(fade.items[0]!.action_hint.includes('開高走低') || fade.items[0]!.action_hint.includes('假突破'));
+    pass('T12 — 開高走低 → 不要追');
+
+    const brk = board([
+        item({
+            symbol: '2609',
+            c_score: 88,
+            bp_score: 80,
+            decision_status: 'CONFIRMED_STRENGTH',
+            momentum_state: 'ACTIVE',
+            trap_flags: ['FAILED_BREAKOUT'],
+        }),
+    ]);
+    assert.equal(brk.items[0]!.action, 'AVOID');
+    pass('T12b — 假突破 → 不要追');
+}
+
+// ---- T13 處置股 → AVOID ----
+{
+    const b = board([
+        item({
+            symbol: '2618',
+            c_score: 90,
+            bp_score: 85,
+            decision_status: 'CONFIRMED_STRENGTH',
+            momentum_state: 'ACTIVE',
+            c_risks: ['處置股'],
+        }),
+    ]);
+    assert.equal(b.items[0]!.action, 'AVOID');
+    pass('T13 — 處置股 → 不要當沖');
+}
+
+// ---- T14 注意股 cannot be ACTIONABLE ----
+{
+    const b = board([
+        item({
+            symbol: '2408',
+            c_score: 88,
+            bp_score: 80,
+            decision_status: 'CONFIRMED_STRENGTH',
+            momentum_state: 'ACTIVE',
+            chase_risk: 'LOW',
+            c_risks: ['注意股'],
+        }),
+    ]);
+    assert.notEqual(b.items[0]!.action, 'ACTIONABLE');
+    assert.equal(b.items[0]!.action, 'WATCH');
+    pass('T14 — 注意股最多觀察，不能當正式進場');
 }
 
 console.log(`\ntoday.test.ts ${passed} passed`);

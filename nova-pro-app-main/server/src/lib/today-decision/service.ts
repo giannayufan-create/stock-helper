@@ -86,6 +86,8 @@ function emptyInput(symbol: string, name: string): TodayInputItem {
         events: [],
         c_reasons: [],
         c_risks: [],
+        trap_flags: [],
+        trap_penalty: 0,
         data_blocked: false,
         data_health: null,
         score_coverage_pct: null,
@@ -129,6 +131,9 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         (ctx.openGateV2.getLastBatch()?.items ?? []).map((r) => [r.symbol, r]),
     );
 
+    const aPool = new Map(
+        ctx.openGateV2.candidates.list().map((a) => [a.symbol, a]),
+    );
     const rankItems = ctx.intradayRank.getLastBatch()?.items ?? [];
 
     // Pre-open / after-hours: no live C batch yet. Show the prepared A pool
@@ -151,6 +156,8 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
                         ...(a.warning_status ? ['注意股'] : []),
                         ...(a.disposition_status ? ['處置股'] : []),
                     ],
+                    trap_flags: [],
+                    trap_penalty: 0,
                 };
             });
     }
@@ -160,6 +167,7 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         const rq = rqItems.get(c.symbol) ?? null;
         const ds = dsItems.get(c.symbol) ?? null;
         const og = openItems.get(c.symbol) ?? null;
+        const a = aPool.get(c.symbol) ?? null;
         return {
             symbol: c.symbol,
             name: c.name,
@@ -177,7 +185,13 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             pullback_state: c.metrics.pullback_state,
             events: c.events,
             c_reasons: c.reasons,
-            c_risks: c.risks,
+            c_risks: [
+                ...(c.risks ?? []),
+                ...(a?.warning_status ? ['注意股'] : []),
+                ...(a?.disposition_status ? ['處置股'] : []),
+            ],
+            trap_flags: c.risk.trap_flags ?? [],
+            trap_penalty: c.risk.trap_penalty ?? 0,
             data_blocked: c.data_blocked,
             data_health: c.data_health,
             score_coverage_pct: c.score_coverage_pct ?? null,

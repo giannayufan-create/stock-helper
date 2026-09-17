@@ -36,6 +36,17 @@ export function runLiquidityGate(opts: {
         risks.push('處置／交易限制');
     }
 
+    // Attention stocks stay tradeable but never reach pass on their own.
+    if (candidate.warning_status && !candidate.disposition_status) {
+        if (cfg.hard_reject.attention_only_soft) {
+            soft = true;
+            risks.push('注意股（僅可 watch）');
+        } else {
+            hard = true;
+            risks.push('注意股（設定為硬拒絕）');
+        }
+    }
+
     if (
         cfg.hard_reject.missing_essential_data &&
         (!state || state.last_price <= 0)

@@ -513,7 +513,7 @@ export function useNotificationToasts(
                             {rankDelta != null
                                 ? ` · Rank ${rankDelta > 0 ? `↑${rankDelta}` : rankDelta < 0 ? `↓${Math.abs(rankDelta)}` : '—'}`
                                 : ''}
-                            {n.chase_risk ? ` · Chase ${n.chase_risk}` : ''}
+                            {n.chase_risk ? ` · 追價 ${n.chase_risk}` : ''}
                         </div>
                         <div
                             style={{

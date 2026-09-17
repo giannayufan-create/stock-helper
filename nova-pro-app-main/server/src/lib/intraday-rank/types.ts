@@ -99,6 +99,10 @@ export interface IntradayRisk {
     chase_risk: ChaseRisk;
     invalid_price: number | null;
     invalid_reason: string | null;
+    /** Fake-breakout / fade patterns detected on the same snapshot. */
+    trap_flags?: import('./trap-detector.ts').TrapFlag[];
+    /** Score already deducted for those traps. */
+    trap_penalty?: number;
 }
 
 export interface IntradayRankItem {

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_BP_CONFIG } from './config.ts';
 import {
     detectAskConsumption,
+    detectBidCancel,
     detectBuySurge,
     detectEarly,
     detectOverheated,
@@ -62,6 +63,7 @@ function snap(
         last_price: partial.last_price ?? 69,
         total_volume: partial.total_volume ?? 1000,
         ask_executed_delta: partial.ask_executed_delta,
+        bid_executed_delta: partial.bid_executed_delta ?? 0,
         bid_levels: [bid],
         ask_levels: [ask],
         bid_qty: [bidVol],
@@ -181,9 +183,12 @@ function pass(name: string) {
         trade_aggression: 70,
         cfg: DEFAULT_BP_CONFIG,
     });
-    assert.equal(hotRank.radar_rank_score, coolRank.radar_rank_score);
-    assert.equal(hotRank.chase_penalty, 0);
-    pass('Test E — OVERHEATED does not demote score/rank');
+    assert.equal(
+        hotRank.radar_rank_score,
+        Math.round((coolRank.radar_rank_score - DEFAULT_BP_CONFIG.ranking.overheated_penalty) * 10) / 10,
+    );
+    assert.equal(hotRank.chase_penalty, DEFAULT_BP_CONFIG.ranking.overheated_penalty);
+    pass('Test E — OVERHEATED demotes radar rank, not BP score');
 }
 
 // ---- TEST F / default ALL ----
@@ -460,7 +465,6 @@ function stubItem(
     ];
     const sorted = sortBuyPressureItems(items, 'strongest');
     assert.ok(sorted.some((i) => i.symbol === 'HOT'));
-    assert.equal(sorted[0]!.symbol, 'HOT');
     pass('Test O — OVERHEATED remains on radar');
 }
 
@@ -481,6 +485,7 @@ function stubItem(
         stubItem({
             symbol: 'A',
             buy_pressure_score: 95,
+            radar_rank_score: 89,
             heat_score: 97,
             overheated: true,
             states: ['BUY_SURGE', 'OVERHEATED'],
@@ -488,13 +493,15 @@ function stubItem(
         stubItem({
             symbol: 'B',
             buy_pressure_score: 82,
+            radar_rank_score: 90,
             heat_score: 65,
             overheated: false,
         }),
     ];
     const sorted = sortBuyPressureItems(items, 'strongest');
-    assert.equal(sorted[0]!.symbol, 'A');
-    pass('Test Q — strongest allows OVERHEATED first');
+    assert.equal(sorted[0]!.symbol, 'B');
+    assert.ok(sorted.some((i) => i.symbol === 'A'));
+    pass('Test Q — strongest prefers risk-adjusted radar rank');
 }
 
 // ---- TEST R: early sort prefers EARLY over OVERHEATED ----
@@ -587,6 +594,65 @@ function stubItem(
     );
     assert.ok(chase === 'HIGH' || chase === 'EXTREME');
     pass('Chase Risk independent helper');
+}
+
+// ---- TEST U: BID_CANCEL is a withdrawn buy wall, not a fill ----
+{
+    const hist = [
+        snap({
+            best_bid: 68.9,
+            bid_volume: 800,
+            ask_volume: 100,
+            ask_executed_delta: 0,
+            bid_executed_delta: 0,
+        }),
+        snap({
+            best_bid: 68.9,
+            bid_volume: 500,
+            ask_volume: 100,
+            ask_executed_delta: 0,
+            bid_executed_delta: 10,
+        }),
+        snap({
+            best_bid: 68.9,
+            bid_volume: 200,
+            ask_volume: 100,
+            ask_executed_delta: 0,
+            bid_executed_delta: 5,
+        }),
+    ];
+    const r = detectBidCancel(hist, DEFAULT_BP_CONFIG);
+    assert.equal(r.cancel, true);
+    pass('Test U — BID_CANCEL without fill');
+}
+
+{
+    const hist = [
+        snap({
+            best_bid: 68.9,
+            bid_volume: 800,
+            ask_volume: 100,
+            ask_executed_delta: 0,
+            bid_executed_delta: 0,
+        }),
+        snap({
+            best_bid: 68.9,
+            bid_volume: 500,
+            ask_volume: 100,
+            ask_executed_delta: 0,
+            bid_executed_delta: 280,
+        }),
+        snap({
+            best_bid: 68.9,
+            bid_volume: 200,
+            ask_volume: 100,
+            ask_executed_delta: 0,
+            bid_executed_delta: 320,
+        }),
+    ];
+    const r = detectBidCancel(hist, DEFAULT_BP_CONFIG);
+    assert.equal(r.cancel, false);
+    pass('Test U2 — shrinking bid with fills is not BID_CANCEL');
 }
 
 console.log(`\nbp.test.ts ${passed} passed`);

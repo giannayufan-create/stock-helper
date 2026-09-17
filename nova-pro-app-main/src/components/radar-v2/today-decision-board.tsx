@@ -10,6 +10,7 @@ import {
 } from '../../lib/today';
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
+import { RegulatoryChip, TrapChips } from './stock-flags';
 
 const CONFIDENCE_LABEL: Record<'HIGH' | 'MEDIUM' | 'LOW', string> = {
     HIGH: '資料完整',
@@ -100,6 +101,11 @@ function DecisionRow({
                 >
                     {item.name}
                 </span>
+                <RegulatoryChip symbol={item.symbol} />
+                <TrapChips
+                    flags={item.trap_flags}
+                    penalty={item.trap_penalty}
+                />
                 <span
                     style={{
                         fontSize: 14,

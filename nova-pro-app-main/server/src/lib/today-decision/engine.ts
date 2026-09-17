@@ -125,6 +125,15 @@ function resolveAction(
     if (it.c_state === 'INVALID' || it.momentum_state === 'INVALID') {
         return { action: 'AVOID', hint: '結構已破壞，不要進場' };
     }
+    if (it.c_risks.includes('處置股')) {
+        return { action: 'AVOID', hint: '處置股流動性差，不要當沖' };
+    }
+    if (
+        it.trap_flags.includes('FADE_FROM_HIGH') ||
+        it.trap_flags.includes('FAILED_BREAKOUT')
+    ) {
+        return { action: 'AVOID', hint: '疑似開高走低或假突破，先避開' };
+    }
     if ((it.chase_risk ?? '').toUpperCase() === 'EXTREME') {
         return { action: 'AVOID', hint: '追高風險極高，現在進場位置太差' };
     }
@@ -144,6 +153,18 @@ function resolveAction(
         !isHighChase(it.chase_risk);
 
     if (confirmed) {
+        if (it.c_risks.includes('注意股')) {
+            return {
+                action: 'WATCH',
+                hint: '注意股最多觀察，不要當正式進場',
+            };
+        }
+        if (it.trap_flags.length) {
+            return {
+                action: 'WATCH',
+                hint: '條件有了但有騙線疑慮，先等確認',
+            };
+        }
         return {
             action: 'ACTIONABLE',
             hint: it.tradeable_candidate
@@ -299,6 +320,8 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
             conviction: conviction(it, action),
             why: buildWhy(it),
             risk: buildRisk(it),
+            trap_flags: it.trap_flags,
+            trap_penalty: it.trap_penalty,
             next_check:
                 it.decision_next[0] ?? it.decision_missing[0] ?? null,
             sources: {

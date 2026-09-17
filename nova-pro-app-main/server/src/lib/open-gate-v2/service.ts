@@ -303,9 +303,9 @@ export class OpenGateV2Service {
                             close != null && chg != null ? close - chg : null,
                         avg_volume_20d: null,
                         avg_amount_20d: null,
-                        sector: null,
-                        warning_status: false,
-                        disposition_status: false,
+                        sector: it.factors?.industry ?? null,
+                        warning_status: Boolean(it.factors?.attention),
+                        disposition_status: Boolean(it.factors?.punished),
                         source: 'eod_a' as const,
                         lite: true,
                     };

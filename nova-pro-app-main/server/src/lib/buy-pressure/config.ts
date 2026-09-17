@@ -47,6 +47,13 @@ export interface BuyPressureConfig {
         min_multiple_of_avg: number;
         min_history: number;
     };
+    bid_cancel: {
+        min_bid_drop_pct: number;
+        max_executed_ratio: number;
+        min_snapshots: number;
+        /** Deduction applied to the BP score when a spoofed bid is seen. */
+        score_penalty: number;
+    };
     volume_breakout: {
         min_volume_accel: number;
         min_aggression: number;
@@ -66,8 +73,9 @@ export interface BuyPressureConfig {
         early_bonus: number;
         rank_velocity_bonus_scale: number;
         fresh_accel_bonus_scale: number;
-        /** Kept for config compat; default ranking does NOT apply chase/overheated penalties. */
+        /** Per chase-risk step (LOW=0 … EXTREME=3) deducted from radar_rank_score. */
         chase_penalty_scale: number;
+        /** Flat deduction from radar_rank_score when OVERHEATED is present. */
         overheated_penalty: number;
     };
     notification_cooldown_sec: number;
@@ -125,6 +133,12 @@ export const DEFAULT_BP_CONFIG: BuyPressureConfig = {
         min_multiple_of_avg: 2.5,
         min_history: 4,
     },
+    bid_cancel: {
+        min_bid_drop_pct: 0.4,
+        max_executed_ratio: 0.15,
+        min_snapshots: 3,
+        score_penalty: 8,
+    },
     volume_breakout: {
         min_volume_accel: 30,
         min_aggression: 50,
@@ -144,8 +158,8 @@ export const DEFAULT_BP_CONFIG: BuyPressureConfig = {
         early_bonus: 12,
         rank_velocity_bonus_scale: 0.35,
         fresh_accel_bonus_scale: 0.12,
-        chase_penalty_scale: 0,
-        overheated_penalty: 0,
+        chase_penalty_scale: 3,
+        overheated_penalty: 6,
     },
     notification_cooldown_sec: 90,
     stale_block_states: true,

@@ -17,6 +17,7 @@ import {
     computeVwapStructure,
     rankAtLookback,
 } from './metric-engines.ts';
+import { detectIntradayTraps } from './trap-detector.ts';
 import type {
     DiscoveryItem,
     IntradayRankItem,
@@ -326,8 +327,17 @@ export function scoreIntradaySymbol(opts: {
     }
 
     const chasePenalty = cfg.chase_penalties[chase] ?? 0;
+    const traps = detectIntradayTraps({
+        state,
+        breakoutType: br.type,
+        volumeAcceleration: vol.volume_acceleration,
+        rvolSameTime,
+        dayChangePct: dayChg,
+        penalties: cfg.trap_penalties,
+        maxPenalty: cfg.trap_penalties.max_total,
+    });
     const intraday_score = Math.round(
-        clamp(raw + bBonus - chasePenalty, 0, 100),
+        clamp(raw + bBonus - chasePenalty - traps.penalty, 0, 100),
     );
 
     const invalid_price =
@@ -379,6 +389,7 @@ export function scoreIntradaySymbol(opts: {
     if (chase === 'high' || chase === 'extreme') {
         risks.push(`追價風險 ${chase}`);
     }
+    for (const label of traps.labels) risks.push(label);
     if (vw.vwap_pos_pct != null && vw.vwap_pos_pct > 2) {
         risks.push(`距VWAP ${vw.vwap_pos_pct.toFixed(1)}%`);
     }
@@ -486,6 +497,8 @@ export function scoreIntradaySymbol(opts: {
             chase_risk: chase,
             invalid_price,
             invalid_reason: invalid_price != null ? '跌破開盤／結構參考' : null,
+            trap_flags: traps.flags,
+            trap_penalty: traps.penalty,
         },
         events: [],
         reasons: [...new Set(reasons)].slice(0, 8),
