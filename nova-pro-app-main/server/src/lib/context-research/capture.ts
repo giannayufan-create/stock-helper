@@ -137,10 +137,7 @@ export function buildContextBundle(input: CaptureInput): ContextBundle {
 
     // Replay without reconstructable context → available=false (no future leak)
     if (input.sourceMode === 'replay' && !input.overrideSnapshot) {
-        // Keep empty availabilities unless override provided
-        if (input.overrideSnapshot) {
-            snap = { ...snap, ...input.overrideSnapshot, captured_at };
-        }
+        // Keep empty availabilities
     } else if (input.overrideSnapshot) {
         snap = {
             ...snap,

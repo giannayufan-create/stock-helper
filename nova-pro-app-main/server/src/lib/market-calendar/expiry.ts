@@ -82,7 +82,12 @@ export function resolveMonthlyExpiry(opts: {
     }
     const cmNext = `${nextY}${String(nextM).padStart(2, '0')}`;
 
-    let chosen: OfficialExpiryEntry | null = null;
+    let chosen: {
+        date: string;
+        contract_month: string;
+        source: string;
+        confidence: ConfidenceLevel;
+    } | null = null;
     let source = 'rule_third_wednesday_adjusted';
     let confidence: ConfidenceLevel = 'MEDIUM';
 

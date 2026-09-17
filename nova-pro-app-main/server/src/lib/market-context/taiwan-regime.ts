@@ -28,7 +28,6 @@ export function avgChangePct(
     const xs = quotes.filter(pred);
     if (!xs.length) return null;
     const sum = xs.reduce((a, q) => {
-        const pct = q.close > 0 ? (q.change / (q.close - q.change || q.close)) * 100 : 0;
         // Prefer change relative to prior close
         const prior = q.close - q.change;
         const p = prior > 0 ? (q.change / prior) * 100 : 0;

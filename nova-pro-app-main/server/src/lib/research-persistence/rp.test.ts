@@ -3,7 +3,7 @@
 // Acceptance P1–P14 — uses Memory (Firestore semantics) + JSONL dual; no secrets.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,6 @@ import type { SignalOutcome } from '../signal-outcome/types.ts';
 import { MemoryStrategySignalRepository } from './memory-signal-repository.ts';
 import { MemorySignalOutcomeRepository } from './memory-outcome-repository.ts';
 import { FirestoreStrategySignalRepository } from './firestore-signal-repository.ts';
-import { DualStrategySignalRepository } from './dual-repository.ts';
 import { signalsContentEqual, signalIdentityHash } from './hash.ts';
 import { filterEventsPointInTime } from '../context-research/capture.ts';
 import { cohortStats, joinWithContext } from '../context-research/analytics.ts';

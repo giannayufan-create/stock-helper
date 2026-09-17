@@ -29,7 +29,7 @@ COPY . .
 RUN grep -n "npx tsx" /app/start-cloud.sh && \
       (echo "FATAL: start-cloud.sh still contains npx tsx" && exit 1) || \
       echo "start-cloud.sh ok (no npx tsx)"
-RUN grep -q "start-cloud.sh v2" /app/start-cloud.sh \
+RUN grep -q "start-cloud.sh v3" /app/start-cloud.sh \
     && echo "start-cloud marker ok"
 
 # Install server deps AFTER COPY so nothing can wipe/replace them later
@@ -53,7 +53,7 @@ ENV PORT=8080
 ENV SHIOAJI_BRIDGE_PORT=18080
 ENV SHIOAJI_BRIDGE_URL=http://127.0.0.1:18080
 ENV SHIOAJI_PRODUCTION=true
-ENV START_CLOUD_MARKER=v2-no-npx
+ENV START_CLOUD_MARKER=v3-node-first
 EXPOSE 8080
 
 WORKDIR /app/server

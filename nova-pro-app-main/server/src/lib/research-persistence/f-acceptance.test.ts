@@ -26,7 +26,6 @@ import {
 } from './admin.ts';
 import {
     hasPrimaryFirebaseCredentials,
-    loadResearchPersistenceConfig,
 } from './config.ts';
 import { createResearchRepositories } from './factory.ts';
 import { signalsContentEqual } from './hash.ts';

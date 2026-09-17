@@ -2,7 +2,6 @@
 // Single Firebase Admin app — never initialize a second instance.
 
 import { createRequire } from 'node:module';
-import type { App } from 'firebase-admin/app';
 import type { Firestore } from 'firebase-admin/firestore';
 import { hasPrimaryFirebaseCredentials } from './config.ts';
 import {
@@ -14,7 +13,6 @@ export type { FirebaseAdminStatus } from './types.ts';
 
 const require = createRequire(import.meta.url);
 
-let app: App | null = null;
 let db: Firestore | null = null;
 let initError: string | null = null;
 let tried = false;
@@ -90,7 +88,6 @@ export function getResearchFirestore(): Firestore | null {
     try {
         const admin = require('firebase-admin') as typeof import('firebase-admin');
         if (admin.apps.length > 0) {
-            app = admin.apps[0]!;
             db = admin.firestore();
             initPath = 'existing_app';
             resolvedProjectId =
@@ -114,7 +111,7 @@ export function getResearchFirestore(): Firestore | null {
 
         // Prefer explicit Render env credentials
         if (clientEmail && privateKey && projectId) {
-            app = admin.initializeApp({
+            admin.initializeApp({
                 credential: admin.credential.cert({
                     projectId,
                     clientEmail,
@@ -125,7 +122,7 @@ export function getResearchFirestore(): Firestore | null {
             initPath = 'cert_env';
             resolvedProjectId = projectId;
         } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-            app = admin.initializeApp({
+            admin.initializeApp({
                 credential: admin.credential.applicationDefault(),
                 projectId: projectId || undefined,
             });
@@ -192,7 +189,6 @@ export async function verifyFirestoreConnectivity(): Promise<boolean> {
 
 /** Test-only reset. */
 export function __resetAdminForTests(): void {
-    app = null;
     db = null;
     initError = null;
     tried = false;

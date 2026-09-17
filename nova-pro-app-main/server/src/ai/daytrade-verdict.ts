@@ -440,7 +440,8 @@ export function buildDaytradeVerdict(input: {
     // TW+US market regime (always soft; heavier overnight)
     const regime = input.regime;
     if (regime) {
-        const w = overnightMode || phase === '尾盤' || phase === '盤外' ? 1 : 0.55;
+        // overnightMode already covers phase === '盤外'
+        const w = overnightMode || phase === '尾盤' ? 1 : 0.55;
         const regimeAdj = Math.round(regime.scoreAdj * w);
         if (regimeAdj) {
             scoreAdj += regimeAdj;

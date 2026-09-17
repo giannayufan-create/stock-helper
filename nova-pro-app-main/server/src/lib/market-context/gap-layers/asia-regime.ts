@@ -36,7 +36,7 @@ export function evaluateAsiaRegime(
             intraday_trend: trend(pct),
             freshness: a?.freshness ?? 'unknown',
             realtime_level: 'DELAYED',
-            available: Boolean(a && a.status === 'OK' && pct != null),
+            available: Boolean(a && a.status === 'HEALTHY' && pct != null),
         };
     });
 

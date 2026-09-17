@@ -119,6 +119,8 @@ async function testLifecycleDedupe(): Promise<void> {
         rank_1m_ago: null,
         rank_5m_ago: null,
         rank_velocity: 25,
+        last_price: 100,
+        change_pct: 1.5,
         intraday_score: 85,
         raw_intraday_score: 85,
         heat_score: 90,

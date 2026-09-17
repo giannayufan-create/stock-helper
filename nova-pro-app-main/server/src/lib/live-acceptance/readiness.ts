@@ -31,7 +31,7 @@ function setOnce(
     at?: string,
 ): void {
     if (markers[key] != null) return;
-    (markers as Record<string, string | null>)[key] = at ?? nowIso();
+    markers[key] = at ?? nowIso();
     recompute();
 }
 
@@ -78,7 +78,7 @@ export const ReadinessTracker = {
     /** Test helper */
     _resetForTest(): void {
         for (const k of Object.keys(markers) as (keyof ReadinessTimeline)[]) {
-            (markers as Record<string, unknown>)[k] = null;
+            markers[k] = null;
         }
     },
 };

@@ -67,7 +67,7 @@ console.log('gap-layers tests');
                 timestamp: null,
                 source: 'yahoo',
                 freshness: 'delayed',
-                status: 'OK',
+                status: 'HEALTHY',
             },
             {
                 id: 'kospi',
@@ -78,7 +78,7 @@ console.log('gap-layers tests');
                 timestamp: null,
                 source: 'yahoo',
                 freshness: 'delayed',
-                status: 'OK',
+                status: 'HEALTHY',
             },
             {
                 id: 'hsi',
@@ -89,7 +89,7 @@ console.log('gap-layers tests');
                 timestamp: null,
                 source: 'yahoo',
                 freshness: 'delayed',
-                status: 'OK',
+                status: 'HEALTHY',
             },
         ],
         'RISK_ON_BROAD',

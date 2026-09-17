@@ -185,10 +185,11 @@ console.log('=== Market Calendar Tests A–H ===');
     const ctx = svc.getCorporateActionContext('2330', '2026-09-16');
     assert.equal(ctx.has_action_today, true);
     assert.equal(ctx.action_type, 'EX_DIVIDEND');
+    const actionType: string | null = ctx.action_type;
     const badge =
-        ctx.action_type === 'EX_RIGHT'
+        actionType === 'EX_RIGHT'
             ? 'EX-RIGHT'
-            : ctx.action_type === 'EX_RIGHT_DIVIDEND'
+            : actionType === 'EX_RIGHT_DIVIDEND'
               ? 'EX-RIGHT-DIV'
               : 'EX-DIV';
     assert.equal(badge, 'EX-DIV');

@@ -45,7 +45,6 @@ function makeSignal(
         universe_source: 'historical_A',
         score_confidence: 'high',
         market_regime: 'bull',
-        feature_snapshot: {},
         ...partial,
         feature_snapshot: {
             final_open_score: 80,

@@ -370,7 +370,7 @@ function gateC(): void {
         last_bidask_at: null,
         vwap_num: 0,
         vwap_den: 0,
-        vwap_source: 'none',
+        vwap_source: 'fallback',
         vwap_valid: false,
         vwap_available: false,
         recent_prices: [],
@@ -409,7 +409,7 @@ function gateC(): void {
         state,
         vwapInfo: {
             vwap: null,
-            source: 'none',
+            source: 'fallback',
             valid: false,
             available: false,
             confidence: 'none',

@@ -48,8 +48,8 @@ function pass(name: string) {
     );
     const b = computeMarketBreadth(quotes, DEFAULT_MC_CONFIG);
     assert.equal(b.uses_active_watch_pool, false);
-    assert.ok(b.universe_size === 500);
-    assert.ok(b.universe_size !== 80);
+    assert.equal(b.universe_size, 500);
+    assert.ok(b.universe_size > 80);
     assert.ok(b.coverage_pct > 0);
     pass('TEST A — breadth not active-80 pool');
 }

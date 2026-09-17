@@ -182,8 +182,8 @@ async function main(): Promise<void> {
     );
     openGateV2.start();
     const openGateRuntime = new OpenGateRuntimeCoordinator(openGateV2);
-    // Explicit restart recovery path (boot hydrate also runs inside start())
-    await openGateRuntime.onBoot();
+    // Do NOT await onBoot before listen — ensureAPoolHeadless may run a
+    // full screener / activatePool and block Render port detection (502).
     const intradayRank = new IntradayRankService(
         manager,
         marketRuntime,
@@ -360,11 +360,22 @@ async function main(): Promise<void> {
     });
 
     const app = await buildApp(ctx);
+    console.log(
+        `binding HTTP on ${config.host}:${config.port} (PORT env=${process.env.PORT ?? 'unset'})`,
+    );
     await app.listen({ port: config.port, host: config.host });
     console.log(
         `nova-pro-server listening on http://${config.host}:${config.port}` +
             ` (market=${manager.name()}, trade=${config.tradeProvider})`,
     );
+
+    // After port is open — headless A-pool hydrate / screener (may take minutes)
+    void openGateRuntime.onBoot().catch((err) => {
+        console.warn(
+            '[open-gate-runtime] boot ensure failed:',
+            err instanceof Error ? err.message : String(err),
+        );
+    });
 }
 
 main().catch((err) => {

@@ -32,6 +32,7 @@ import {
 } from './helpers';
 import * as s from './radar.css';
 import { CompactStockRow, MiniHeatCard, MiniPullbackCard } from './stock-cards';
+import { TodayDecisionBoard } from './today-decision-board';
 import { radarColor } from './tokens';
 import { SECTOR_STATE_LABEL } from './ui-context';
 import type { RadarFeed } from './use-radar-feed';
@@ -181,6 +182,9 @@ export function TodayPage({
 
     return (
         <>
+            {/* 0 One merged answer — read this first */}
+            <TodayDecisionBoard onOpenSymbol={onOpenSymbol} />
+
             {/* 1 Market Status / Data Health */}
             <div className={s.healthStrip}>
                 <div>

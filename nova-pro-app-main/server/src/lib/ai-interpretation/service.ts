@@ -349,7 +349,7 @@ export class AiInterpretationService {
                     bp?.distance_from_vwap_pct ??
                     c.metrics.vwap_pos_pct ??
                     null,
-                rvol: bp?.rvol ?? c.metrics.rvol_same_time ?? null,
+                rvol: bp?.rvol ?? null,
                 volume_acceleration:
                     bp?.volume_acceleration ??
                     c.metrics.volume_acceleration ??

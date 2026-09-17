@@ -20,6 +20,12 @@ import {
     overnightEdgeForCode,
 } from '../ai/overnight-edge.ts';
 import {
+    finalizeScore,
+    scoreBars,
+    type AiBar,
+    type AnalyzeCore,
+} from '../ai/score.ts';
+import {
     analyzeSymbolSnapshot,
     type SymbolAnalyzeInput,
 } from '../ai/symbol-analyze.ts';

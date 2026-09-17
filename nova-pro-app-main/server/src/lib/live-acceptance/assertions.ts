@@ -169,16 +169,7 @@ export function assertCorporateActionNormalization(): LiveGateResult {
 }
 
 export function assertFreshnessLabelingCode(): LiveGateResult {
-    // Institutional must be PREVIOUS_DAY by type contract
-    const level = 'PREVIOUS_DAY' as const;
-    if (level === 'REALTIME') {
-        return {
-            id: 'LIVE12',
-            status: 'FAIL',
-            detail: 'institutional labeled REALTIME',
-            mode: 'offline',
-        };
-    }
+    // Institutional must be PREVIOUS_DAY by type contract (never REALTIME).
     return {
         id: 'LIVE12',
         status: 'PASS',

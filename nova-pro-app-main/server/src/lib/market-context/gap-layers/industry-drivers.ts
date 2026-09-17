@@ -72,7 +72,7 @@ export function evaluateIndustryDrivers(
 
     // Reliable commodity proxies already in GlobalMarketService — enable only if OK
     const copper = byId.get('copper');
-    if (copper?.status === 'OK' && copper.change_pct != null) {
+    if (copper?.status === 'HEALTHY' && copper.change_pct != null) {
         drivers.push({
             sector: 'Materials',
             driver: 'Copper',
@@ -88,7 +88,7 @@ export function evaluateIndustryDrivers(
         });
     }
     const wti = byId.get('wti');
-    if (wti?.status === 'OK' && wti.change_pct != null) {
+    if (wti?.status === 'HEALTHY' && wti.change_pct != null) {
         drivers.push({
             sector: 'Energy',
             driver: 'WTI',

@@ -103,10 +103,10 @@ export class OpenGateV2Service {
         this.timer = setInterval(() => {
             void this.evaluatePool();
         }, ms);
-        // Headless: hydrate A pool without waiting for frontend POST
-        void this.ensureAPoolHeadless('boot');
+        // A-pool hydrate is owned by OpenGateRuntimeCoordinator.onBoot()
+        // AFTER HTTP listen — never block Render port binding here.
         console.log(
-            `open-gate-v2: cadence ${this.cfg.evaluate_interval_sec}s (decision support only; A pool headless)`,
+            `open-gate-v2: cadence ${this.cfg.evaluate_interval_sec}s (decision support only; A pool via runtime coordinator)`,
         );
     }
 

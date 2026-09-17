@@ -98,12 +98,12 @@ async function localHarness(): Promise<{
     const upstream: string[] = [];
     const unsub: string[] = [];
     const seed = ['2330', '2317', '2454', '2881', '2303'];
-    await sm.acquireMany(seed, 'C_RANK', async (syms) => {
+    await sm.acquireMany(seed, 'INTRADAY_RANK', async (syms) => {
         upstream.push(...syms);
     });
     const before = Object.keys(sm.snapshot()).length;
     let peak = before;
-    console.log(`Local harness before=${before} (seeded C_RANK)`);
+    console.log(`Local harness before=${before} (seeded INTRADAY_RANK)`);
 
     const t0 = Date.now();
     let i = 0;

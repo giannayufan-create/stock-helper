@@ -384,19 +384,27 @@ export function resolveStates(input: {
         return { primary: 'COOLING', states: ['COOLING'] };
     }
 
-    const priority: BuyPressureState[] = [
+    const actionPriority: Array<
+        Exclude<BuyPressureState, 'OVERHEATED' | 'COOLING'>
+    > = [
         'VOLUME_BREAKOUT',
         'ASK_EATING',
         'BUY_SURGE',
         'LARGE_BID',
         'EARLY',
+    ];
+    const fallbackPriority: BuyPressureState[] = [
+        ...actionPriority,
         'OVERHEATED',
         'COOLING',
     ];
-    const action = states.filter((s) => s !== 'OVERHEATED' && s !== 'COOLING');
+    const action = states.filter(
+        (s): s is Exclude<BuyPressureState, 'OVERHEATED' | 'COOLING'> =>
+            s !== 'OVERHEATED' && s !== 'COOLING',
+    );
     const primary =
         (action.length
-            ? priority.find((p) => action.includes(p))
-            : priority.find((p) => states.includes(p))) ?? states[0]!;
+            ? actionPriority.find((p) => action.includes(p))
+            : fallbackPriority.find((p) => states.includes(p))) ?? states[0]!;
     return { primary, states };
 }
