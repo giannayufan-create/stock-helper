@@ -59,7 +59,7 @@ async function testA_unavailable(): Promise<void> {
     const b = await p.getBranchTrading('2367');
     assert.equal(b.available, false);
     assert.equal(b.rows.length, 0);
-    assert.ok(b.error?.includes('尚未接入'));
+    assert.ok(b.error && b.error.length > 0);
     console.log('PASS Test A (unavailable no fake names)');
 }
 
@@ -209,6 +209,79 @@ async function testMemoryProvider(): Promise<void> {
     assert.equal(t.available, true);
     assert.equal(t.rows[0]!.broker_name.length > 0, true);
     console.log('PASS memory provider smoke');
+}
+
+{
+    const { splitTraderName, rowsFromFinMind } = await import(
+        './finmind-provider.ts'
+    );
+    const names = splitTraderName('富邦-新店');
+    assert.equal(names.broker_name, '富邦');
+    assert.equal(names.branch_name, '富邦-新店');
+    const rows = rowsFromFinMind('2330', '2026-09-16', [
+        {
+            securities_trader_id: '1020',
+            securities_trader: '元大-南京',
+            date: '2026-09-16',
+            buy_volume: 20000,
+            sell_volume: 5000,
+            buy_price: 100,
+            sell_price: 99,
+        },
+        {
+            securities_trader_id: '1020',
+            securities_trader: '元大-南京',
+            date: '2026-09-16',
+            buy: 1000,
+            sell: 0,
+            price: 101,
+        },
+    ]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.branch_id, '1020');
+    assert.equal(rows[0]!.buy_volume, 21);
+    assert.equal(rows[0]!.sell_volume, 5);
+    assert.equal(rows[0]!.net_volume, 16);
+    assert.equal(rows[0]!.freshness, 'EOD');
+    console.log('PASS FinMind row aggregation (shares→張, no fake names)');
+}
+
+{
+    const { createBrokerBranchProvider, FinMindBrokerBranchProvider } =
+        await import('./finmind-provider.ts');
+    const empty = createBrokerBranchProvider('');
+    assert.equal(empty.id, 'unavailable');
+    const fakeFetch = async (url: string) => {
+        const u = String(url);
+        assert.ok(u.includes('taiwan_stock_trading_daily_report_secid_agg'));
+        assert.ok(u.includes('data_id=2330'));
+        return new Response(
+            JSON.stringify({
+                status: 200,
+                msg: 'success',
+                data: [
+                    {
+                        securities_trader_id: '5850',
+                        securities_trader: '統一-仁愛',
+                        stock_id: '2330',
+                        date: '2026-09-16',
+                        buy_volume: 8000,
+                        sell_volume: 1000,
+                        buy_price: 1200,
+                        sell_price: 1190,
+                    },
+                ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+    };
+    const p = new FinMindBrokerBranchProvider('test-token', fakeFetch);
+    const day = await p.getBranchTrading('2330', '2026-09-16');
+    assert.equal(day.available, true);
+    assert.equal(day.source, 'finmind');
+    assert.equal(day.rows[0]!.branch_name, '統一-仁愛');
+    assert.equal(day.rows[0]!.net_volume, 7);
+    console.log('PASS FinMind provider mock fetch');
 }
 
 await testA_unavailable();

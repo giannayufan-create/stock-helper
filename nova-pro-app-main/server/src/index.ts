@@ -21,7 +21,10 @@ import { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import { OpenGateRuntimeCoordinator } from './lib/open-gate-v2/open-gate-runtime-coordinator.ts';
 import { IntradayRankService } from './lib/intraday-rank/service.ts';
 import { MarketIntelligenceService } from './lib/market-intelligence/index.ts';
-import { BrokerIntelligenceService } from './lib/broker-intelligence/index.ts';
+import {
+    BrokerIntelligenceService,
+    createBrokerBranchProvider,
+} from './lib/broker-intelligence/index.ts';
 import { BuyPressureService } from './lib/buy-pressure/index.ts';
 import { WebNotificationService } from './lib/web-notifications/index.ts';
 import { MarketContextRuntime } from './lib/market-context/index.ts';
@@ -225,7 +228,10 @@ async function main(): Promise<void> {
     );
     marketIntelligence.start();
 
-    const brokerIntelligence = new BrokerIntelligenceService(intradayRank);
+    const brokerIntelligence = new BrokerIntelligenceService(
+        intradayRank,
+        createBrokerBranchProvider(config.finmindToken),
+    );
     console.log(
         `broker-intelligence: ${brokerIntelligence.getHealth().status} provider=${brokerIntelligence.getProvider().id}`,
     );

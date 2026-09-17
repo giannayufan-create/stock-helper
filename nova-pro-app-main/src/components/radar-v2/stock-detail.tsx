@@ -1335,19 +1335,7 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                     }}
                 >
                     <div style={{ fontWeight: 700 }}>券商分點</div>
-                    <span
-                        title="盤中 Proxy，不代表即時外資實際買賣"
-                        style={{ display: 'inline-flex' }}
-                    >
-                        <FreshnessBadge
-                            level={
-                                branchIsProxy
-                                    ? 'NEAR_REALTIME'
-                                    : 'PREVIOUS_DAY'
-                            }
-                            compact
-                        />
-                    </span>
+                    <FreshnessBadge level="PREVIOUS_DAY" compact />
                 </div>
                 {branchIsProxy && (
                     <div
@@ -1370,7 +1358,7 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                 )}
                 {!data.branch_available ? (
                     <div style={{ color: radarColor.healthWarn, fontSize: 13 }}>
-                        目前還沒有券商分點資料，所以還不能用。
+                        目前還沒有券商分點資料。
                         <div
                             style={{
                                 color: vars.color.mutedForeground,
@@ -1379,7 +1367,8 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                                 lineHeight: 1.5,
                             }}
                         >
-                            Shioaji、Fugle、證交所公開資料都沒有分點買賣超。要另外接「券商分點」付費來源後，這裡才會出現券商名稱與買賣超。現有報價推不出分點身份。
+                            {data.unavailable_reason ??
+                                '後端尚未設定 FINMIND_TOKEN。資料為盤後分點，不是即時主力。'}
                         </div>
                     </div>
                 ) : (
@@ -1391,7 +1380,9 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                                 marginBottom: 6,
                             }}
                         >
-                            {data.trade_date ? `交易日 ${data.trade_date}` : ''}
+                            {data.trade_date
+                                ? `交易日 ${data.trade_date} · 盤後分點，非即時`
+                                : '盤後分點，非即時'}
                         </div>
                         <div>
                             Top3 集中度{' '}
@@ -1416,7 +1407,7 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                         </div>
                         {data.top_buy_branches.slice(0, 3).map((b, i) => (
                             <div key={i} style={{ marginTop: 4 }}>
-                                {b.broker_name} {b.branch_name}{' '}
+                                {b.branch_name}{' '}
                                 {fmtLotsShares(b.net_volume * 1000)}
                             </div>
                         ))}

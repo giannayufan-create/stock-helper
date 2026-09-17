@@ -47,6 +47,14 @@ export const PROVIDER_CAPABILITY_AUDIT: Record<
         amount_fields: false,
         notes: 'Shioaji bridge: ticks/quotes/kbars; no 券商分點 endpoint wired',
     },
+    finmind: {
+        provider_id: 'finmind',
+        branch_trading: true,
+        branch_history: true,
+        intraday: false,
+        amount_fields: true,
+        notes: 'FinMind TaiwanStockTradingDailyReportSecIdAgg — EOD after ~21:00',
+    },
     twse: {
         provider_id: 'twse',
         branch_trading: false,
