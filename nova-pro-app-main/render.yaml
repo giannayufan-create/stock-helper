@@ -24,4 +24,4 @@ services:
       - key: SHIOAJI_PRODUCTION
         value: "true"
       # Set secrets in Render Dashboard (do not commit):
-      # SHIOAJI_API_KEY, SHIOAJI_SECRET_KEY, FIREBASE_*, FINMIND_TOKEN, etc.
+      # SHIOAJI_API_KEY, SHIOAJI_SECRET_KEY, FIREBASE_*, FINMIND_KEY, etc.

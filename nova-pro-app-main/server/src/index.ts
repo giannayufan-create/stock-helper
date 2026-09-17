@@ -230,7 +230,7 @@ async function main(): Promise<void> {
 
     const brokerIntelligence = new BrokerIntelligenceService(
         intradayRank,
-        createBrokerBranchProvider(config.finmindToken),
+        createBrokerBranchProvider(config.finmindKey),
     );
     console.log(
         `broker-intelligence: ${brokerIntelligence.getHealth().status} provider=${brokerIntelligence.getProvider().id}`,

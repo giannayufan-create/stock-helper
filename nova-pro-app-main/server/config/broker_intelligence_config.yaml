@@ -3,7 +3,7 @@
 enabled: true
 version: bi_v1
 
-# Wired at runtime if FINMIND_TOKEN is set; otherwise stays unavailable.
+# Wired at runtime if FINMIND_KEY is set; otherwise stays unavailable.
 provider: unavailable
 
 cache:

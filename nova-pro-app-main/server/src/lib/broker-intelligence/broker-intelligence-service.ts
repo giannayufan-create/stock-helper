@@ -87,7 +87,7 @@ export class BrokerIntelligenceService {
             status: available ? 'PARTIAL' : 'UNAVAILABLE',
             error: available
                 ? null
-                : '尚未設定 FINMIND_TOKEN，無法載入券商分點',
+                : '尚未設定 FINMIND_KEY，無法載入券商分點',
             capability: cap,
         };
     }
@@ -99,7 +99,7 @@ export class BrokerIntelligenceService {
             wired_capability: this.provider.capability(),
             market_providers: PROVIDER_CAPABILITY_AUDIT,
             note:
-                '券商分點來自 FinMind（若已設 FINMIND_TOKEN）。' +
+                '券商分點來自 FinMind（若已設 FINMIND_KEY）。' +
                 'Fugle/Shioaji/TWSE/TPEx 沒有分點。Trade Aggression ≠ 分點身份。',
         };
     }

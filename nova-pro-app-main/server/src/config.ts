@@ -16,7 +16,7 @@ export interface Config {
     shioajiBridgeUrl: string;
     geminiApiKey: string;
     analyzerUrl: string;
-    finmindToken: string;
+    finmindKey: string;
     broker: {
         idNo: string;
         password: string;
@@ -90,7 +90,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             'http://127.0.0.1:18080',
         geminiApiKey: env.GEMINI_API_KEY ?? '',
         analyzerUrl: (env.ANALYZER_URL ?? '').replace(/\/$/, ''),
-        finmindToken: (env.FINMIND_TOKEN ?? env.FINMIND_API_TOKEN ?? '').trim(),
+        finmindKey: (
+            env.FINMIND_KEY ??
+            env.FINMIND_TOKEN ??
+            env.FINMIND_API_TOKEN ??
+            ''
+        ).trim(),
         broker: {
             idNo: env.BROKER_ID_NO ?? '',
             password: env.BROKER_PASSWORD ?? '',

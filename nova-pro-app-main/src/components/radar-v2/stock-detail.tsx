@@ -1368,7 +1368,7 @@ function BrokerChipBlock({ symbol }: { symbol: string }) {
                             }}
                         >
                             {data.unavailable_reason ??
-                                '後端尚未設定 FINMIND_TOKEN。資料為盤後分點，不是即時主力。'}
+                                '後端尚未設定 FINMIND_KEY。資料為盤後分點，不是即時主力。'}
                         </div>
                     </div>
                 ) : (
