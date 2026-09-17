@@ -62,7 +62,10 @@ function item(p: Partial<TodayInputItem> & { symbol: string }): TodayInputItem {
 
 const now = new Date('2026-09-17T02:00:00.000Z'); // 10:00 Taipei
 
-function board(items: TodayInputItem[], mode: 'INTRADAY' | 'PREOPEN' = 'INTRADAY') {
+function board(
+    items: TodayInputItem[],
+    mode: 'INTRADAY' | 'PREOPEN' | 'OPENING' = 'INTRADAY',
+) {
     return buildTodayBoard({
         now,
         mode,
@@ -417,6 +420,52 @@ function board(items: TodayInputItem[], mode: 'INTRADAY' | 'PREOPEN' = 'INTRADAY
         b.items[0]!.risk.every((r) => !r.includes('INSTITUTIONAL_RISK_PROXY')),
     );
     pass('T17 — INSTITUTIONAL_RISK_PROXY 不進決策板');
+}
+
+// ---- T18 OPENING uses open_confirm, not leftover C WAIT ----
+{
+    const passedOpen = board(
+        [
+            item({
+                symbol: '2454',
+                open_confirm: 'early_pass',
+                c_score: null,
+                decision_status: null,
+                momentum_state: null,
+                bp_score: null,
+            }),
+        ],
+        'OPENING',
+    );
+    assert.equal(passedOpen.items[0]!.action, 'WATCH');
+    assert.ok(passedOpen.items[0]!.action_hint.includes('開盤'));
+    assert.ok(passedOpen.headline.includes('開盤確認中'));
+
+    const rej = board(
+        [item({ symbol: '2618', open_confirm: 'reject' })],
+        'OPENING',
+    );
+    assert.equal(rej.items[0]!.action, 'AVOID');
+
+    const prov = board(
+        [item({ symbol: '2330', open_confirm: 'provisional' })],
+        'OPENING',
+    );
+    assert.equal(prov.items[0]!.action, 'WAIT');
+    assert.ok(prov.items[0]!.action_hint.includes('09:03'));
+
+    const trap = board(
+        [
+            item({
+                symbol: '2603',
+                open_confirm: 'pass',
+                trap_flags: ['FADE_FROM_HIGH'],
+            }),
+        ],
+        'OPENING',
+    );
+    assert.equal(trap.items[0]!.action, 'AVOID');
+    pass('T18 — 開盤用 B 確認：通過觀察、未過避開、試算等待、騙線仍避開');
 }
 
 console.log(`\ntoday.test.ts ${passed} passed`);

@@ -190,6 +190,22 @@ function buildOvernightBrief(ctx: AppContext): TodayOvernightBrief {
     };
 }
 
+function runtimeQuote(
+    ctx: AppContext,
+    symbol: string,
+): { last_price: number | null; change_pct: number | null } {
+    const st = ctx.marketRuntime.getState(symbol);
+    if (!st || !(st.last_price > 0)) {
+        return { last_price: null, change_pct: null };
+    }
+    const prev = st.prev_close > 0 ? st.prev_close : null;
+    return {
+        last_price: st.last_price,
+        change_pct:
+            prev != null ? ((st.last_price - prev) / prev) * 100 : null,
+    };
+}
+
 function emptyInput(symbol: string, name: string): TodayInputItem {
     return {
         symbol,
@@ -259,33 +275,7 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
     );
     const rankItems = ctx.intradayRank.getLastBatch()?.items ?? [];
 
-    // After hours / preopen: never reuse a dead C batch (C=0, no last price)
-    // as "today look at these". A-pool is tomorrow/open prep only.
-    if (mode === 'PREOPEN' || mode === 'AFTER_HOURS') {
-        return ctx.openGateV2.candidates
-            .list()
-            .slice()
-            .sort((a, b) => (b.a_score ?? 0) - (a.a_score ?? 0))
-            .slice(0, 20)
-            .map((a) => {
-                const og = openItems.get(a.symbol) ?? null;
-                return {
-                    ...emptyInput(a.symbol, a.name),
-                    open_confirm: og?.open_confirm ?? null,
-                    open_score: og?.final_open_score ?? null,
-                    a_score: a.a_score,
-                    c_reasons: a.sector ? [`族群：${a.sector}`] : [],
-                    c_risks: [
-                        ...(a.warning_status ? ['注意股'] : []),
-                        ...(a.disposition_status ? ['處置股'] : []),
-                    ],
-                    trap_flags: [],
-                    trap_penalty: 0,
-                };
-            });
-    }
-
-    return rankItems.map((c) => {
+    const fromRank = (c: (typeof rankItems)[number]): TodayInputItem => {
         const bp = bpItems.get(c.symbol) ?? null;
         const rq = rqItems.get(c.symbol) ?? null;
         const ds = dsItems.get(c.symbol) ?? null;
@@ -336,7 +326,90 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             tradeable_candidate: og?.tradeable_candidate ?? false,
             a_score: c.a_score,
         };
-    });
+    };
+
+    const fromOpenOrA = (symbol: string): TodayInputItem => {
+        const og = openItems.get(symbol) ?? null;
+        const a = aPool.get(symbol) ?? null;
+        const q = runtimeQuote(ctx, symbol);
+        return {
+            ...emptyInput(symbol, a?.name ?? og?.name ?? symbol),
+            last_price: q.last_price,
+            change_pct: q.change_pct,
+            open_confirm: og?.open_confirm ?? null,
+            open_score: og?.final_open_score ?? null,
+            tradeable_candidate: og?.tradeable_candidate ?? false,
+            a_score: a?.a_score ?? og?.a_score ?? null,
+            data_blocked: og?.data_blocked ?? false,
+            chase_risk: og?.risk.chase_risk ?? null,
+            vwap_pos_pct: og?.metrics.vwap_pos_pct ?? null,
+            c_reasons: [
+                ...(og?.reasons ?? []),
+                ...(a?.sector ? [`族群：${a.sector}`] : []),
+            ],
+            c_risks: [
+                ...(og?.risks ?? []),
+                ...(a?.warning_status ? ['注意股'] : []),
+                ...(a?.disposition_status ? ['處置股'] : []),
+            ],
+            score_coverage_pct: og?.score_coverage_pct ?? null,
+        };
+    };
+
+    // After hours / preopen: never reuse a dead C batch (C=0, no last price)
+    // as "today look at these". A-pool is tomorrow/open prep only.
+    if (mode === 'PREOPEN' || mode === 'AFTER_HOURS') {
+        return ctx.openGateV2.candidates
+            .list()
+            .slice()
+            .sort((a, b) => (b.a_score ?? 0) - (a.a_score ?? 0))
+            .slice(0, 20)
+            .map((a) => fromOpenOrA(a.symbol));
+    }
+
+    // Opening: B already evaluates A-pool every 3s. Don't wait for C.
+    if (mode === 'OPENING') {
+        const confirmOrder = (s: string | null | undefined) => {
+            switch ((s ?? '').toLowerCase()) {
+                case 'pass':
+                    return 0;
+                case 'early_pass':
+                    return 1;
+                case 'watch':
+                    return 2;
+                case 'provisional':
+                    return 3;
+                case 'reject':
+                    return 4;
+                default:
+                    return 5;
+            }
+        };
+        const rankBy = new Map(rankItems.map((c) => [c.symbol, c]));
+        const seen = new Set<string>();
+        const out: TodayInputItem[] = [];
+        const take = (symbol: string) => {
+            if (seen.has(symbol)) return;
+            seen.add(symbol);
+            const c = rankBy.get(symbol);
+            out.push(c ? fromRank(c) : fromOpenOrA(symbol));
+        };
+        const bList = [...openItems.values()].sort((a, b) => {
+            const by = confirmOrder(a.open_confirm) - confirmOrder(b.open_confirm);
+            if (by !== 0) return by;
+            return (b.final_open_score ?? 0) - (a.final_open_score ?? 0);
+        });
+        for (const b of bList) take(b.symbol);
+        for (const a of [...aPool.values()].sort(
+            (x, y) => (y.a_score ?? 0) - (x.a_score ?? 0),
+        )) {
+            take(a.symbol);
+        }
+        for (const c of rankItems) take(c.symbol);
+        return out.slice(0, 20);
+    }
+
+    return rankItems.map(fromRank);
 }
 
 export function buildTodayDecision(

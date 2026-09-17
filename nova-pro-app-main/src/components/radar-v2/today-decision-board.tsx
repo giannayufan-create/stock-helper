@@ -11,10 +11,11 @@ import {
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { RegulatoryChip, TrapChips } from './stock-flags';
+import { openConfirmLabel } from './helpers';
 
 const BOARD_TITLE: Record<string, string> = {
     PREOPEN: '盤前預備名單',
-    OPENING: '今天看這幾支',
+    OPENING: '開盤看這幾支',
     INTRADAY: '今天看這幾支',
     CLOSING: '今天看這幾支',
     AFTER_HOURS: '夜盤與明日預備',
@@ -235,6 +236,17 @@ function DecisionRow({
                 </span>
                 <ActionChip item={item} />
             </div>
+            {item.sources.open_confirm && (
+                <div
+                    style={{
+                        marginTop: 4,
+                        fontSize: 11,
+                        color: vars.color.mutedForeground,
+                    }}
+                >
+                    開盤確認：{openConfirmLabel(item.sources.open_confirm)}
+                </div>
+            )}
 
             <div
                 style={{
@@ -349,7 +361,7 @@ export function TodayDecisionBoard({
                     setError(e instanceof Error ? e.message : '連線失敗');
                 });
         load();
-        const t = setInterval(load, 10_000);
+        const t = setInterval(load, 5_000);
         return () => {
             cancelled = true;
             clearInterval(t);
@@ -416,6 +428,15 @@ export function TodayDecisionBoard({
                 >
                     {board.mode === 'AFTER_HOURS' || board.mode === 'PREOPEN' ? (
                         <span>明日預備 {board.items.length} 檔</span>
+                    ) : board.mode === 'OPENING' ? (
+                        <>
+                            {board.counts.actionable > 0 ? (
+                                <span>可進場 {board.counts.actionable}</span>
+                            ) : null}
+                            <span>開盤觀察 {board.counts.watch}</span>
+                            <span>尚未確認 {board.counts.wait}</span>
+                            <span>避開 {board.counts.avoid}</span>
+                        </>
                     ) : (
                         <>
                             <span>可進場 {board.counts.actionable}</span>

@@ -358,35 +358,35 @@ export function TodayPage({
                         }}
                     >
                         <div>
-                            Asia{' '}
+                            亞洲{' '}
                             {mc.gap_layers.asia_regime?.data?.state ?? '—'}
                             {mc.gap_layers.asia_regime?.data?.vs_taiwan
                                 ? ` · ${mc.gap_layers.asia_regime.data.vs_taiwan}`
                                 : ''}
                         </div>
                         <div>
-                            Conc.{' '}
+                            集中度{' '}
                             {mc.gap_layers.index_concentration?.data?.state ??
                                 '—'}
                             {mc.gap_layers.index_concentration?.proxy
-                                ? ' (PROXY)'
+                                ? '（代理）'
                                 : ''}
                         </div>
                         <div>
-                            Futures{' '}
+                            期貨領先{' '}
                             {mc.gap_layers.futures_lead?.data?.state ?? '—'}
                         </div>
                         <div>
-                            Crowding{' '}
+                            擁擠{' '}
                             {mc.gap_layers.crowding?.data?.state ?? '—'}
                         </div>
                         <div>
-                            Macro{' '}
+                            大事{' '}
                             {mc.gap_layers.macro_event_calendar?.data?.nearest
                                 ?.event_type ?? '—'}
                         </div>
                         <div>
-                            PreOpen{' '}
+                            盤前競價{' '}
                             {mc.gap_layers.preopen_auction?.data?.state ?? '—'}
                         </div>
                     </div>
@@ -397,7 +397,7 @@ export function TodayPage({
                             color: vars.color.mutedForeground,
                         }}
                     >
-                        Context only · 不修改 C / BP
+                        僅供情境，不改分數
                     </div>
                 </div>
             ) : null}

@@ -116,6 +116,8 @@ export function openConfirmLabel(v: string | null | undefined): string {
             return '提早通過';
         case 'watch':
             return '觀察中';
+        case 'provisional':
+            return '試算中';
         case 'fail':
         case 'reject':
             return '未通過';

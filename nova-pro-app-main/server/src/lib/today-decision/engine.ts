@@ -147,6 +147,38 @@ function resolveAction(
         return { action: 'WAIT', hint: '流動性或價差不符合條件' };
     }
 
+    if (mode === 'OPENING') {
+        const oc = (it.open_confirm ?? '').toLowerCase();
+        if (oc === 'reject' || oc === 'fail') {
+            return { action: 'AVOID', hint: '開盤確認未通過，不要追' };
+        }
+        if (oc === 'provisional') {
+            return {
+                action: 'WAIT',
+                hint: '09:03 前還在試算，先看不要動手',
+            };
+        }
+        if (oc === 'pass' || oc === 'early_pass') {
+            if (it.c_risks.includes('注意股')) {
+                return {
+                    action: 'WATCH',
+                    hint: '開盤通過但是注意股，只觀察',
+                };
+            }
+            return {
+                action: 'WATCH',
+                hint:
+                    oc === 'early_pass'
+                        ? '提早通過開盤確認，等結構再決定進場'
+                        : '開盤確認通過，等買盤與結構再決定進場',
+            };
+        }
+        if (oc === 'watch') {
+            return { action: 'WATCH', hint: '開盤還在觀察，不要急' };
+        }
+        return { action: 'WAIT', hint: '開盤確認尚未產出，稍候' };
+    }
+
     const confirmed =
         it.decision_status === 'CONFIRMED_STRENGTH' &&
         (it.momentum_state === 'ACTIVE' || it.focus_rank != null) &&
@@ -305,6 +337,17 @@ function buildHeadline(
             ? `目前非交易時段。${overnightHeadline}`
             : '目前非交易時段，等開盤後才有即時判斷';
     }
+    if (mode === 'OPENING') {
+        const watch = items.filter((i) => i.action === 'WATCH');
+        if (watch.length) {
+            const top = watch[0]!;
+            return `開盤確認中 ${watch.length} 檔值得看，最前面是 ${top.symbol} ${top.name}`;
+        }
+        if (items.length) {
+            return `開盤前 30 分鐘名單 ${items.length} 檔，先等確認不要急`;
+        }
+        return '開盤名單尚未就緒，稍候';
+    }
 
     const actionable = items.filter((i) => i.action === 'ACTIONABLE');
     if (actionable.length) {
@@ -406,7 +449,9 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
               ? '盤後先看夜盤；明日名單等盤前預備'
               : input.mode === 'PREOPEN'
                 ? '盤前名單尚未產生'
-                : '盤中批次尚未就緒，稍候再看',
+                : input.mode === 'OPENING'
+                  ? '開盤確認尚未產出，稍候再看'
+                  : '盤中批次尚未就緒，稍候再看',
         mutates_strategy: false,
         disclaimer: DISCLAIMER,
     };
