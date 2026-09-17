@@ -129,11 +129,31 @@ const base = item({ symbol: '6770', name: '力積電' });
     pass('N4 — sustained BUY_SURGE not re-notified');
 }
 
-// N5
+// N5 — third emit in window blocked by global throttle (max 2 / 10min)
 {
     const n5 = svc.tryEmit('ASK_EATING', base, new Date().toISOString());
-    assert.ok(n5);
-    pass('N5 — BUY_SURGE → ASK_EATING upgrade');
+    assert.equal(n5, null);
+    pass('N5 — 3rd emit blocked by global throttle (max 2 / 10min)');
+}
+
+// N5b — upgrade still allowed when under global max
+{
+    svc.__resetCooldowns();
+    svc.__repo().__clearNotifications();
+    const a = svc.tryEmit(
+        'EARLY_ENTER',
+        item({ symbol: 'UP1' }),
+        new Date().toISOString(),
+    );
+    const b = svc.tryEmit(
+        'BUY_SURGE',
+        item({ symbol: 'UP1' }),
+        new Date().toISOString(),
+    );
+    assert.ok(a);
+    assert.ok(b);
+    assert.equal(b!.event_type, 'BUY_SURGE');
+    pass('N5b — upgrade EARLY → BUY_SURGE allowed under throttle max');
 }
 
 // N6 ASK_CANCEL not toastable via map

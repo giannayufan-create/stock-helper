@@ -3,6 +3,8 @@
 // NEVER creates Shioaji upstream subscriptions.
 
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { BuyPressureItem } from '../buy-pressure/types.ts';
 import type { SseHub } from '../../sse/hub.ts';
 import {
@@ -30,6 +32,10 @@ const NOTIFYABLE = new Set<NotificationEventType>([
     'RANK_ACCELERATION',
 ]);
 
+/** Same symbol: max N emits in this window, regardless of upgrade. */
+const GLOBAL_THROTTLE_WINDOW_MS = 10 * 60 * 1000;
+const GLOBAL_THROTTLE_MAX = 2;
+
 function mapBpEvent(
     type: string,
     item: BuyPressureItem,
@@ -50,19 +56,26 @@ function mapBpEvent(
     return null;
 }
 
+type EmitStats = {
+    emitted: boolean;
+    suppressed_cooldown?: boolean;
+    suppressed_global_throttle?: boolean;
+    duplicate?: boolean;
+    priority?: 'HIGH' | 'MEDIUM' | 'INFO';
+};
+
 export class WebNotificationService {
     readonly cfg: WebNotificationConfig;
     private repo: NotificationRepository;
-    private lastEmit = new Map<string, { type: NotificationEventType; at: number }>();
+    private lastEmit = new Map<
+        string,
+        { type: NotificationEventType; at: number }
+    >();
+    private lastEmitAny = new Map<string, { timestamps: number[] }>();
     private lastTier = new Map<string, number>();
-    private onStats:
-        | ((opts: {
-              emitted: boolean;
-              suppressed_cooldown?: boolean;
-              duplicate?: boolean;
-              priority?: 'HIGH' | 'MEDIUM' | 'INFO';
-          }) => void)
-        | null = null;
+    private statePath: string;
+    private saveTimer: ReturnType<typeof setTimeout> | null = null;
+    private onStats: ((opts: EmitStats) => void) | null = null;
 
     constructor(
         filePath: string,
@@ -71,17 +84,15 @@ export class WebNotificationService {
     ) {
         this.cfg = cfg ?? loadWebNotificationConfig();
         this.repo = new NotificationRepository(filePath);
+        this.statePath = join(
+            dirname(filePath),
+            'notification-cooldown-state.json',
+        );
+        this.loadState();
     }
 
     /** Observe-only hook for Live Acceptance counters. */
-    setAcceptanceObserver(
-        fn: (opts: {
-            emitted: boolean;
-            suppressed_cooldown?: boolean;
-            duplicate?: boolean;
-            priority?: 'HIGH' | 'MEDIUM' | 'INFO';
-        }) => void,
-    ): void {
+    setAcceptanceObserver(fn: (opts: EmitStats) => void): void {
         this.onStats = fn;
     }
 
@@ -137,7 +148,7 @@ export class WebNotificationService {
 
     /**
      * Ingest candidates from a Buy Pressure evaluate cycle.
-     * Applies prefs, cooldown, upgrade rules, data-stale gate.
+     * Applies prefs, cooldown, upgrade rules, global throttle, data-stale gate.
      */
     ingestFromBuyPressure(items: BuyPressureItem[]): WebNotification[] {
         if (!this.cfg.enabled) return [];
@@ -146,7 +157,6 @@ export class WebNotificationService {
 
         for (const item of items) {
             if (item.data_stale) {
-                // No new hot notifications when stale
                 continue;
             }
             const candidates = item.events.filter((e) => e.cycle_fresh);
@@ -177,7 +187,6 @@ export class WebNotificationService {
                 if (n) created.push(n);
             }
 
-            // OVERHEATED_STRONG from tag even if event was notify=false
             if (
                 item.overheated &&
                 (item.heat_score ?? 0) >= 90 &&
@@ -202,20 +211,20 @@ export class WebNotificationService {
         eventAt: string,
         reasonOverride?: string[],
     ): WebNotification | null {
-        const key = item.symbol;
+        const symbol = item.symbol;
         const now = Date.now();
-        const last = this.lastEmit.get(key);
+        const last = this.lastEmit.get(symbol);
         const tier = EVENT_TIER[type];
         const cooldownMs = (this.cfg.cooldown_sec[type] ?? 300) * 1000;
 
         if (last) {
-            const lastCooldown =
+            const lastCooldownMs =
                 (this.cfg.cooldown_sec[last.type] ?? 300) * 1000;
             const sameTypeCooling =
                 last.type === type && now - last.at < cooldownMs;
             const upgrade = tier > EVENT_TIER[last.type];
             const lowerOrEqualCooling =
-                !upgrade && now - last.at < lastCooldown;
+                !upgrade && now - last.at < lastCooldownMs;
             if (sameTypeCooling || lowerOrEqualCooling) {
                 this.onStats?.({
                     emitted: false,
@@ -224,6 +233,19 @@ export class WebNotificationService {
                 });
                 return null;
             }
+        }
+
+        // Global throttle: same symbol, any type, max N in window.
+        // Keeps upgrade semantics but caps spam (e.g. RANK → OVERHEATED chain).
+        const recentTimestamps = (
+            this.lastEmitAny.get(symbol)?.timestamps ?? []
+        ).filter((t) => now - t < GLOBAL_THROTTLE_WINDOW_MS);
+        if (recentTimestamps.length >= GLOBAL_THROTTLE_MAX) {
+            this.onStats?.({
+                emitted: false,
+                suppressed_global_throttle: true,
+            });
+            return null;
         }
 
         const reasons =
@@ -251,8 +273,12 @@ export class WebNotificationService {
             event_at: eventAt,
         };
         this.repo.prepend(n, this.cfg.max_stored);
-        this.lastEmit.set(key, { type, at: now });
-        this.lastTier.set(key, Math.max(this.lastTier.get(key) ?? 0, tier));
+        this.lastEmit.set(symbol, { type, at: now });
+        this.lastEmitAny.set(symbol, {
+            timestamps: [...recentTimestamps, now],
+        });
+        this.lastTier.set(symbol, Math.max(this.lastTier.get(symbol) ?? 0, tier));
+        this.scheduleSave();
         this.hub?.broadcast('buy_pressure_notification', n);
         const rawPri = EVENT_PRIORITY[type] ?? 'MEDIUM';
         const pri =
@@ -289,9 +315,54 @@ export class WebNotificationService {
         }
     }
 
+    private loadState(): void {
+        try {
+            const raw = JSON.parse(
+                readFileSync(this.statePath, 'utf8'),
+            ) as {
+                lastEmit?: Array<[string, { type: NotificationEventType; at: number }]>;
+                lastEmitAny?: Array<[string, { timestamps: number[] }]>;
+                lastTier?: Array<[string, number]>;
+            };
+            this.lastEmit = new Map(raw.lastEmit ?? []);
+            this.lastEmitAny = new Map(raw.lastEmitAny ?? []);
+            this.lastTier = new Map(raw.lastTier ?? []);
+        } catch {
+            // Missing / corrupt state — start empty (do not fail boot).
+            this.lastEmit = new Map();
+            this.lastEmitAny = new Map();
+            this.lastTier = new Map();
+        }
+    }
+
+    private scheduleSave(): void {
+        if (this.saveTimer) return;
+        this.saveTimer = setTimeout(() => {
+            this.saveTimer = null;
+            try {
+                mkdirSync(dirname(this.statePath), { recursive: true });
+                writeFileSync(
+                    this.statePath,
+                    JSON.stringify({
+                        lastEmit: Array.from(this.lastEmit.entries()),
+                        lastEmitAny: Array.from(this.lastEmitAny.entries()),
+                        lastTier: Array.from(this.lastTier.entries()),
+                        saved_at: new Date().toISOString(),
+                    }),
+                );
+            } catch (e) {
+                console.error(
+                    '[web-notification-service] saveState failed:',
+                    e,
+                );
+            }
+        }, 500);
+    }
+
     /** Reset cooldown memory (tests). */
     __resetCooldowns(): void {
         this.lastEmit.clear();
+        this.lastEmitAny.clear();
         this.lastTier.clear();
     }
 
