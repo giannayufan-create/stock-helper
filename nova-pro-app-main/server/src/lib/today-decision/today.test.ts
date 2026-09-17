@@ -468,4 +468,39 @@ function board(
     pass('T18 — 開盤用 B 確認：通過觀察、未過避開、試算等待、騙線仍避開');
 }
 
+// ---- T19 after-hours prep list ignores leftover B reject / chase ----
+{
+    const b = buildTodayBoard({
+        now,
+        mode: 'AFTER_HOURS',
+        items: [
+            item({
+                symbol: '2303',
+                chase_risk: 'EXTREME',
+                open_confirm: 'reject',
+                c_risks: ['VWAP 不可靠（未假裝正常）'],
+                a_score: 91,
+                c_score: null,
+            }),
+        ],
+        taiwan_regime: 'RISK_ON_BROAD',
+        market_breadth_advance_pct: 62,
+        overnight: {
+            available: true,
+            session_date: '2026-09-17',
+            created_at: now.toISOString(),
+            us_overnight_bias: null,
+            headline: '夜盤期貨：那指期 +1.00%',
+            source: 'live',
+            assets: [{ id: 'nq_fut', name: '那指期', change_pct: 1 }],
+        },
+    });
+    assert.equal(b.items[0]!.action, 'WAIT');
+    assert.equal(b.items[0]!.action_label, '明日預備');
+    assert.equal(b.items[0]!.sources.open_confirm, null);
+    assert.ok(b.items[0]!.risk.every((r) => !r.includes('追高')));
+    assert.ok(b.items[0]!.risk.every((r) => !r.includes('VWAP')));
+    pass('T19 — 盤後預備名單不帶白天開盤 reject / 追高殘渣');
+}
+
 console.log(`\ntoday.test.ts ${passed} passed`);

@@ -313,6 +313,9 @@ async function main(): Promise<void> {
                 await openGateRuntime.onRestart();
             }
         },
+        onCashEnd: async () => {
+            outcomeTracker.settleAll();
+        },
     });
     sessionAutonomy.start(15_000);
     console.log(

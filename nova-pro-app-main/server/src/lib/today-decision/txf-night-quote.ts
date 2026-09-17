@@ -30,18 +30,20 @@ function pctFromSnap(s: Snapshot): number | null {
 export async function refreshTxfNightQuote(
     market: MarketManager,
 ): Promise<TxfNightQuote> {
-    if (cache && Date.now() - cache.at < 25_000) return cache;
+    if (cache && Date.now() - cache.at < (cache.pct != null ? 25_000 : 8_000)) {
+        return cache;
+    }
     if (inFlight) return inFlight;
     inFlight = (async () => {
         try {
-            const snaps = await market.snapshots([
-                {
-                    security_type: 'FUT',
-                    exchange: 'TAIFEX',
-                    code: 'TXFR1',
-                },
-            ]);
-            const s = snaps[0];
+            const snaps = await market.snapshots(
+                ['TXFR1', 'TXF'].map((code) => ({
+                    security_type: 'FUT' as const,
+                    exchange: 'TAIFEX' as const,
+                    code,
+                })),
+            );
+            const s = snaps.find((row) => row.close > 0) ?? snaps[0];
             cache = {
                 at: Date.now(),
                 pct: s ? pctFromSnap(s) : null,

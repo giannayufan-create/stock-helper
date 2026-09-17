@@ -23,6 +23,8 @@ export interface SessionAutonomyDeps {
     researchRepos?: ResearchRepositories | null;
     onCashLive?: () => void | Promise<void>;
     onPreopen?: () => void | Promise<void>;
+    /** Cash session ended — settle leftover outcome tracks. */
+    onCashEnd?: () => void | Promise<void>;
     getNotificationCandidateCount?: () => number;
     refreshTxfNight?: () => Promise<void>;
 }
@@ -146,6 +148,13 @@ export class SessionAutonomyService {
             await this.ensurePreopen(nowMs);
         }
         if (next === 'NIGHT_LIVE' || next === 'WEEKEND') {
+            if (from === 'CASH_LIVE' || from === 'CLOSE_AUCTION') {
+                try {
+                    await this.deps.onCashEnd?.();
+                } catch {
+                    /* settle is best-effort */
+                }
+            }
             await this.ensureOvernightLive(nowMs);
         }
 
@@ -178,6 +187,13 @@ export class SessionAutonomyService {
         }
         if (to === 'PREOPEN') await this.ensurePreopen(ms);
         if (to === 'NIGHT_LIVE' || to === 'WEEKEND') {
+            if (from === 'CASH_LIVE' || from === 'CLOSE_AUCTION') {
+                try {
+                    await this.deps.onCashEnd?.();
+                } catch {
+                    /* settle is best-effort */
+                }
+            }
             await this.ensureOvernightLive(ms);
         }
     }

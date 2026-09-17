@@ -328,6 +328,25 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         };
     };
 
+    const fromAPoolPrep = (symbol: string): TodayInputItem => {
+        const a = aPool.get(symbol) ?? null;
+        const q = runtimeQuote(ctx, symbol);
+        const sector = (a?.sector ?? '').trim();
+        const sectorWhy =
+            sector && !/^\d+$/.test(sector) ? [`族群：${sector}`] : [];
+        return {
+            ...emptyInput(symbol, a?.name ?? symbol),
+            last_price: q.last_price,
+            change_pct: q.change_pct,
+            a_score: a?.a_score ?? null,
+            c_reasons: sectorWhy,
+            c_risks: [
+                ...(a?.warning_status ? ['注意股'] : []),
+                ...(a?.disposition_status ? ['處置股'] : []),
+            ],
+        };
+    };
+
     const fromOpenOrA = (symbol: string): TodayInputItem => {
         const og = openItems.get(symbol) ?? null;
         const a = aPool.get(symbol) ?? null;
@@ -364,7 +383,7 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             .slice()
             .sort((a, b) => (b.a_score ?? 0) - (a.a_score ?? 0))
             .slice(0, 20)
-            .map((a) => fromOpenOrA(a.symbol));
+            .map((a) => fromAPoolPrep(a.symbol));
     }
 
     // Opening: B already evaluates A-pool every 3s. Don't wait for C.

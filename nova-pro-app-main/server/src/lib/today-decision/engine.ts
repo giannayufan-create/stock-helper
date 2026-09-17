@@ -271,7 +271,13 @@ function buildWhy(it: TodayInputItem): string[] {
     );
 }
 
-function buildRisk(it: TodayInputItem): string[] {
+function buildRisk(it: TodayInputItem, mode: TodayMode): string[] {
+    if (mode === 'PREOPEN' || mode === 'AFTER_HOURS') {
+        return dedupe(
+            it.c_risks.filter((r) => r === '注意股' || r === '處置股'),
+            2,
+        );
+    }
     const chase = (it.chase_risk ?? '').toUpperCase();
     const extras: string[] = [];
     if (chase === 'EXTREME') extras.push('追高風險極高');
@@ -381,7 +387,7 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
             action_hint: hint,
             conviction: conviction(it, action),
             why: buildWhy(it),
-            risk: buildRisk(it),
+            risk: buildRisk(it, input.mode),
             trap_flags: it.trap_flags,
             trap_penalty: it.trap_penalty,
             next_check:
@@ -394,7 +400,10 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
                 focus_rank: it.focus_rank,
                 decision_status: it.decision_status,
                 momentum_state: it.momentum_state,
-                open_confirm: it.open_confirm,
+                open_confirm:
+                    input.mode === 'PREOPEN' || input.mode === 'AFTER_HOURS'
+                        ? null
+                        : it.open_confirm,
                 a_score: it.a_score,
             },
             data_confidence: dataConfidence(it),
