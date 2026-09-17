@@ -18,6 +18,90 @@ const CONFIDENCE_LABEL: Record<'HIGH' | 'MEDIUM' | 'LOW', string> = {
     LOW: '資料不足',
 };
 
+function OvernightTape({
+    overnight,
+}: {
+    overnight: TodayDecisionBoardDto['overnight'];
+}) {
+    const assets = overnight?.assets ?? [];
+    return (
+        <div
+            style={{
+                marginTop: 10,
+                paddingTop: 10,
+                borderTop: `1px solid ${vars.color.border}`,
+            }}
+        >
+            <div
+                style={{
+                    fontSize: 12,
+                    fontWeight: 800,
+                    marginBottom: 6,
+                }}
+            >
+                夜盤動向
+            </div>
+            <div
+                style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    lineHeight: 1.5,
+                    color: overnight?.available
+                        ? vars.color.foreground
+                        : vars.color.mutedForeground,
+                }}
+            >
+                {overnight?.headline ?? '夜盤指數尚未就緒'}
+            </div>
+            {assets.length > 0 && (
+                <div
+                    style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        marginTop: 8,
+                    }}
+                >
+                    {assets.map((a) => {
+                        const up = (a.change_pct ?? 0) >= 0;
+                        return (
+                            <span
+                                key={a.id}
+                                style={{
+                                    fontSize: 12,
+                                    fontFamily: vars.font.mono,
+                                    color:
+                                        a.change_pct == null
+                                            ? vars.color.mutedForeground
+                                            : up
+                                              ? vars.color.up
+                                              : vars.color.down,
+                                }}
+                            >
+                                {a.name ?? a.id}{' '}
+                                {a.change_pct == null
+                                    ? '—'
+                                    : `${up ? '+' : ''}${a.change_pct.toFixed(2)}%`}
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
+            {overnight?.source === 'snapshot' && (
+                <div
+                    style={{
+                        marginTop: 6,
+                        fontSize: 11,
+                        color: vars.color.mutedForeground,
+                    }}
+                >
+                    來源：今早盤前快照
+                </div>
+            )}
+        </div>
+    );
+}
+
 function pct(v: number | null): string {
     if (v == null) return '—';
     return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
@@ -281,18 +365,7 @@ export function TodayDecisionBoard({
                 >
                     {board.market_note}
                 </div>
-                {board.overnight?.available && (
-                    <div
-                        style={{
-                            marginTop: 4,
-                            fontSize: 12,
-                            color: vars.color.mutedForeground,
-                            lineHeight: 1.6,
-                        }}
-                    >
-                        昨夜：{board.overnight.headline}
-                    </div>
-                )}
+                <OvernightTape overnight={board.overnight} />
                 <div
                     style={{
                         marginTop: 8,

@@ -18,9 +18,9 @@ export function summarizeUsOvernightBias(
         assets.find(
             (a) => a.id === id && a.status === 'HEALTHY' && a.change_pct != null,
         ) ?? null;
-    const nasdaq = pick('nasdaq');
+    const nasdaq = pick('nasdaq') ?? pick('nq_fut');
     const sox = pick('sox');
-    const spx = pick('spx');
+    const spx = pick('spx') ?? pick('es_fut');
     const known = [nasdaq, sox, spx].filter(
         (a): a is GlobalAssetQuote => a != null,
     );

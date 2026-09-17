@@ -2,6 +2,8 @@
 // Assembles the Today board from existing layer outputs. Read-only.
 
 import type { AppContext } from '../../context.ts';
+import { summarizeUsOvernightBias } from '../session-autonomy/overnight-snapshot.ts';
+import type { GlobalAssetQuote } from '../market-intelligence/types.ts';
 import { buildTodayBoard } from './engine.ts';
 import type {
     TodayDecisionBoard,
@@ -46,23 +48,132 @@ export function resolveTodayMode(ctx: AppContext, now: Date): TodayMode {
     return 'AFTER_HOURS';
 }
 
-function buildOvernightBrief(ctx: AppContext): TodayOvernightBrief | null {
+const OVERNIGHT_ASSET_LABEL: Record<string, string> = {
+    nasdaq: '那斯達克',
+    sox: '費半',
+    spx: '標普500',
+    dow: '道瓊',
+    vix: 'VIX',
+    nq_fut: '那指期',
+    es_fut: '標普期',
+    nikkei: '日經',
+    hsi: '恆生',
+    txf_night: '台指夜盤',
+};
+
+function runtimeChangePct(
+    ctx: AppContext,
+    codes: string[],
+): number | null {
+    for (const code of codes) {
+        const st = ctx.marketRuntime.getState(code);
+        if (!st || !(st.prev_close > 0) || !(st.last_price > 0)) continue;
+        return ((st.last_price - st.prev_close) / st.prev_close) * 100;
+    }
+    return null;
+}
+
+function asQuotes(
+    rows: Array<{
+        id: string;
+        name?: string;
+        change_pct?: number | null;
+        status?: string;
+    }>,
+): GlobalAssetQuote[] {
+    return rows
+        .filter(
+            (a) =>
+                a.change_pct != null &&
+                Number.isFinite(a.change_pct) &&
+                (a.status == null || a.status === 'HEALTHY'),
+        )
+        .map((a) => ({
+            id: a.id,
+            name: a.name ?? a.id,
+            value: null,
+            change: null,
+            change_pct: a.change_pct ?? null,
+            timestamp: null,
+            source: 'cache',
+            freshness: 'unknown',
+            status: 'HEALTHY',
+        }));
+}
+
+function buildOvernightBrief(ctx: AppContext): TodayOvernightBrief {
     const snap = ctx.sessionAutonomy?.getOvernightSnapshots().slice(-1)[0];
-    if (!snap) return null;
-    const wanted = ['nasdaq', 'sox', 'spx', 'vix'];
-    const assets = snap.global_assets
-        .filter((a) => wanted.includes(a.id) && a.available)
-        .map((a) => ({ id: a.id, change_pct: a.change_pct }));
+    const live = ctx.marketContext?.getGlobalAssets() ?? [];
+    const mi = ctx.marketIntelligence?.getSnapshot()?.global_markets ?? [];
+    const pool = live.length ? live : mi;
+    const source: TodayOvernightBrief['source'] = live.length
+        ? 'live'
+        : snap
+          ? 'snapshot'
+          : pool.length
+            ? 'live'
+            : 'none';
+
+    const byId = new Map<
+        string,
+        { id: string; name: string; change_pct: number | null }
+    >();
+    const ingest = (
+        id: string,
+        change_pct: number | null | undefined,
+        name?: string,
+    ) => {
+        if (!OVERNIGHT_ASSET_LABEL[id]) return;
+        if (change_pct == null || !Number.isFinite(change_pct)) return;
+        if (byId.has(id)) return;
+        byId.set(id, {
+            id,
+            name: OVERNIGHT_ASSET_LABEL[id] ?? name ?? id,
+            change_pct,
+        });
+    };
+
+    for (const a of pool) {
+        ingest(a.id, a.change_pct, a.name);
+    }
+    if (snap) {
+        for (const a of snap.global_assets) {
+            if (a.available) ingest(a.id, a.change_pct);
+        }
+    }
+    const txf = runtimeChangePct(ctx, ['TXFR1', 'TXF', 'TX']);
+    if (txf != null) ingest('txf_night', txf);
+
+    const assets = Object.keys(OVERNIGHT_ASSET_LABEL)
+        .map((id) => byId.get(id))
+        .filter((a): a is { id: string; name: string; change_pct: number | null } =>
+            Boolean(a),
+        );
+
+    const bias =
+        summarizeUsOvernightBias(asQuotes(pool)) ??
+        snap?.us_overnight_bias ??
+        null;
+
+    let headline = bias;
+    if (!headline && assets.length) {
+        headline = `夜盤：${assets
+            .slice(0, 4)
+            .map(
+                (a) =>
+                    `${a.name} ${a.change_pct != null && a.change_pct >= 0 ? '+' : ''}${a.change_pct?.toFixed(2)}%`,
+            )
+            .join('、')}`;
+    }
+    if (!headline) headline = '夜盤指數尚未就緒';
+
     return {
-        available: true,
-        session_date: snap.session_date,
-        created_at: snap.created_at,
-        us_overnight_bias: snap.us_overnight_bias,
-        headline:
-            snap.us_overnight_bias ??
-            (assets.length
-                ? '夜盤已擷取國際指數，但美股方向判讀不足'
-                : '夜盤快照缺少國際指數資料'),
+        available: assets.length > 0 || Boolean(bias),
+        session_date: snap?.session_date ?? null,
+        created_at: snap?.created_at ?? new Date().toISOString(),
+        us_overnight_bias: bias,
+        headline,
+        source,
         assets,
     };
 }

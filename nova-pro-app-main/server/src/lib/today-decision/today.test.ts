@@ -251,7 +251,48 @@ function board(items: TodayInputItem[], mode: 'INTRADAY' | 'PREOPEN' = 'INTRADAY
     assert.ok(label && label.includes('美股'));
     assert.ok(label.includes('SOX'));
     assert.equal(summarizeUsOvernightBias([]), null);
+    const futOnly = summarizeUsOvernightBias([
+        {
+            id: 'nq_fut',
+            name: '那指期',
+            value: 1,
+            change: 1,
+            change_pct: 0.8,
+            timestamp: null,
+            source: 'yahoo',
+            freshness: 'FRESH',
+            status: 'HEALTHY',
+        },
+    ]);
+    assert.ok(futOnly && futOnly.includes('美股'));
     pass('T10 — 夜盤美股偏向有實際內容（不再固定 null）');
+}
+
+// ---- T15 after-hours headline carries overnight tape ----
+{
+    const b = buildTodayBoard({
+        now,
+        mode: 'AFTER_HOURS',
+        items: [item({ symbol: '2330' })],
+        taiwan_regime: 'NEUTRAL',
+        market_breadth_advance_pct: null,
+        overnight: {
+            available: true,
+            session_date: '2026-09-17',
+            created_at: now.toISOString(),
+            us_overnight_bias: '美股偏多（NASDAQ +1.40%）',
+            headline: '美股偏多（NASDAQ +1.40%）',
+            source: 'live',
+            assets: [
+                { id: 'nasdaq', name: '那斯達克', change_pct: 1.4 },
+                { id: 'nq_fut', name: '那指期', change_pct: 0.5 },
+            ],
+        },
+    });
+    assert.ok(b.headline.includes('美股偏多'));
+    assert.equal(b.overnight?.source, 'live');
+    assert.equal(b.overnight?.assets[0]?.name, '那斯達克');
+    pass('T15 — 盤後標題帶入夜盤動向，不再空白');
 }
 
 // ---- T11 preopen keeps A-pool order when no C score exists ----

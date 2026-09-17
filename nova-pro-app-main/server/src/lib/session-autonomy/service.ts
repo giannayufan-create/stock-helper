@@ -38,6 +38,8 @@ export class SessionAutonomyService {
     private persistenceWrites = 0;
     private nowFn: NowFn = () => Date.now();
 
+    private lastLiveRefreshAt = 0;
+
     constructor(private deps: SessionAutonomyDeps) {
         this.state = resolveTradingSession(this.nowFn());
     }
@@ -103,6 +105,13 @@ export class SessionAutonomyService {
             if (next === 'CASH_LIVE' || next === 'CLOSE_AUCTION') {
                 await this.ensureCash(nowMs);
             }
+            if (
+                next === 'NIGHT_LIVE' ||
+                next === 'WEEKEND' ||
+                next === 'PREOPEN'
+            ) {
+                await this.ensureOvernightLive(nowMs);
+            }
             return null;
         }
 
@@ -135,6 +144,9 @@ export class SessionAutonomyService {
         if (next === 'PREOPEN') {
             await this.ensurePreopen(nowMs);
         }
+        if (next === 'NIGHT_LIVE' || next === 'WEEKEND') {
+            await this.ensureOvernightLive(nowMs);
+        }
 
         return tr;
     }
@@ -164,6 +176,19 @@ export class SessionAutonomyService {
             await this.ensureCash(ms);
         }
         if (to === 'PREOPEN') await this.ensurePreopen(ms);
+        if (to === 'NIGHT_LIVE' || to === 'WEEKEND') {
+            await this.ensureOvernightLive(ms);
+        }
+    }
+
+    private async ensureOvernightLive(nowMs: number): Promise<void> {
+        if (nowMs - this.lastLiveRefreshAt < 60_000) return;
+        this.lastLiveRefreshAt = nowMs;
+        try {
+            await this.deps.marketContext?.refreshGlobalAssets?.();
+        } catch {
+            /* soft — Today board still reads last cache */
+        }
     }
 
     private async createOvernightSnapshot(

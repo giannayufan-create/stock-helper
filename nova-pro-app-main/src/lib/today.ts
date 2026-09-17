@@ -46,7 +46,12 @@ export interface TodayOvernightBriefDto {
     created_at: string | null;
     us_overnight_bias: string | null;
     headline: string;
-    assets: Array<{ id: string; change_pct: number | null }>;
+    source?: 'live' | 'snapshot' | 'none';
+    assets: Array<{
+        id: string;
+        name?: string;
+        change_pct: number | null;
+    }>;
 }
 
 export interface TodayDecisionBoardDto {

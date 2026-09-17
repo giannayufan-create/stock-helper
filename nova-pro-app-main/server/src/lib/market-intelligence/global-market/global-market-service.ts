@@ -17,6 +17,8 @@ export const GLOBAL_ASSET_SPECS: GlobalAssetSpec[] = [
     { id: 'nasdaq', name: 'NASDAQ', yahoo: '^IXIC', group: 'us' },
     { id: 'dow', name: 'Dow Jones', yahoo: '^DJI', group: 'us' },
     { id: 'sox', name: 'SOX', yahoo: '^SOX', group: 'us' },
+    { id: 'nq_fut', name: '那指期', yahoo: 'NQ=F', group: 'us' },
+    { id: 'es_fut', name: '標普期', yahoo: 'ES=F', group: 'us' },
     { id: 'taiex', name: 'TAIEX', yahoo: '^TWII', group: 'taiwan' },
     { id: 'tpex', name: 'TPEx', yahoo: '^TWOII', group: 'taiwan' },
     { id: 'vix', name: 'VIX', yahoo: '^VIX', group: 'vol' },
@@ -175,7 +177,7 @@ export class GlobalMarketService {
             assets.find((a) => a.id === id && a.status === 'HEALTHY') ?? null;
         const pct = (id: string) => get(id)?.change_pct ?? null;
 
-        const nasdaq = pct('nasdaq');
+        const nasdaq = pct('nasdaq') ?? pct('nq_fut');
         const sox = pct('sox');
         const vix = pct('vix');
         const vixLevel = get('vix')?.value ?? null;
