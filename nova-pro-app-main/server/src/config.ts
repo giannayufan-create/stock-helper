@@ -17,6 +17,8 @@ export interface Config {
     geminiApiKey: string;
     analyzerUrl: string;
     finmindKey: string;
+    /** App cap under FinMind free 600/hour. Default 480. */
+    finmindMaxPerHour: number;
     broker: {
         idNo: string;
         password: string;
@@ -51,6 +53,12 @@ function truthy(v: string | undefined): boolean {
         s === 'on' ||
         s === 'shioaji' // allow SHIOAJI_ENABLED=shioaji
     );
+}
+
+function parseFinmindMaxPerHour(raw: string | undefined): number {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return Math.min(Math.floor(n), 600);
+    return 480;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -96,6 +104,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
             env.FINMIND_API_TOKEN ??
             ''
         ).trim(),
+        finmindMaxPerHour: parseFinmindMaxPerHour(env.FINMIND_MAX_PER_HOUR),
         broker: {
             idNo: env.BROKER_ID_NO ?? '',
             password: env.BROKER_PASSWORD ?? '',

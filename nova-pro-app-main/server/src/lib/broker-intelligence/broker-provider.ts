@@ -24,6 +24,14 @@ export interface BrokerBranchProvider {
         side: 'buy' | 'sell',
         limit?: number,
     ): Promise<BranchDayBundle>;
+    /** Optional: return memory cache only — no FinMind HTTP. */
+    peekCached?(symbol: string): BranchDayBundle | null;
+    getQuota?(): {
+        limit: number;
+        used: number;
+        remaining: number;
+        window_hours: number;
+    };
 }
 
 /** Capability audit result for currently wired market providers. */

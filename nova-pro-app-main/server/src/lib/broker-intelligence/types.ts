@@ -163,6 +163,12 @@ export interface BrokerIntelligenceHealth {
     status: BiHealthStatus;
     error: string | null;
     capability: BrokerProviderCapability;
+    quota?: {
+        limit: number;
+        used: number;
+        remaining: number;
+        window_hours: number;
+    } | null;
 }
 
 export interface RankingRow {

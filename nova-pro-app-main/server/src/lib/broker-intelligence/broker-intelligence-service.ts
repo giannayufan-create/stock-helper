@@ -89,6 +89,7 @@ export class BrokerIntelligenceService {
                 ? null
                 : '尚未設定 FINMIND_KEY，無法載入券商分點',
             capability: cap,
+            quota: this.provider.getQuota?.() ?? null,
         };
     }
 
@@ -221,14 +222,10 @@ export class BrokerIntelligenceService {
                 note: '目前尚未接入券商分點資料來源，無法產生主力集中排行',
             };
         }
-        // When a real provider exists: scan lastBatch symbols only (no new subscriptions)
-        const batch = this.intradayRank.getLastBatch();
-        const items: RankingRow[] = [];
-        for (const it of batch?.items ?? []) {
-            const s = await this.getSummary(it.symbol);
-            if (!s.branch_available) continue;
-            items.push(this.toRankingRow(s));
-        }
+        const opened = await this.openedSummariesForRanking();
+        const items = opened
+            .filter((s) => s.branch_available)
+            .map((s) => this.toRankingRow(s));
         items.sort(
             (a, b) => (b.main_force_score ?? 0) - (a.main_force_score ?? 0),
         );
@@ -237,7 +234,7 @@ export class BrokerIntelligenceService {
             items: items
                 .filter((x) => x.eligible_for_ranking)
                 .slice(0, limit),
-            note: '主力集中度為分點集中推估，非真實身份',
+            note: this.rankingQuotaNote('主力集中度為分點集中推估，非真實身份'),
         };
     }
 
@@ -249,13 +246,10 @@ export class BrokerIntelligenceService {
                 note: '目前尚未接入券商分點資料來源',
             };
         }
-        const batch = this.intradayRank.getLastBatch();
-        const items: RankingRow[] = [];
-        for (const it of batch?.items ?? []) {
-            const s = await this.getSummary(it.symbol);
-            if (!s.branch_available || !s.history_5d) continue;
-            items.push(this.toRankingRow(s));
-        }
+        const opened = await this.openedSummariesForRanking();
+        const items = opened
+            .filter((s) => s.branch_available && s.history_5d)
+            .map((s) => this.toRankingRow(s));
         items.sort(
             (a, b) =>
                 (b.consecutive_buy_days ?? 0) - (a.consecutive_buy_days ?? 0) ||
@@ -264,7 +258,7 @@ export class BrokerIntelligenceService {
         return {
             available: true,
             items: items.slice(0, limit),
-            note: '連續買進依分點歷史推估',
+            note: this.rankingQuotaNote('連續買進依分點歷史推估'),
         };
     }
 
@@ -276,18 +270,15 @@ export class BrokerIntelligenceService {
                 note: '目前尚未接入券商分點資料來源；盤中動能仍可於雷達查看，但不與分點共振',
             };
         }
-        const batch = this.intradayRank.getLastBatch();
-        const items: RankingRow[] = [];
-        for (const it of batch?.items ?? []) {
-            const s = await this.getSummary(it.symbol);
-            if (s.alignment !== 'BULLISH_ALIGNMENT') continue;
-            items.push(this.toRankingRow(s));
-        }
+        const opened = await this.openedSummariesForRanking();
+        const items = opened
+            .filter((s) => s.alignment === 'BULLISH_ALIGNMENT')
+            .map((s) => this.toRankingRow(s));
         items.sort((a, b) => (b.c_score ?? 0) - (a.c_score ?? 0));
         return {
             available: true,
             items: items.slice(0, limit),
-            note: '籌碼＋動能同向僅供觀察，非買進訊號',
+            note: this.rankingQuotaNote('籌碼＋動能同向僅供觀察，非買進訊號'),
         };
     }
 
@@ -306,6 +297,38 @@ export class BrokerIntelligenceService {
             freshness: summary.freshness,
             inferred: true as const,
         };
+    }
+
+    private rankingQuotaNote(base: string): string {
+        return `${base}。免費 600 次/小時：排行只含已開過個股分點的快取，不會對雷達全市場打 FinMind`;
+    }
+
+    /**
+     * Free-tier guard: never N+1 lastBatch through FinMind.
+     * Ranking may only read summaryCache or provider.peekCached (already fetched).
+     */
+    private async openedSummariesForRanking(): Promise<BrokerSymbolSummary[]> {
+        const ttlMs = this.cfg.cache.eod_ttl_sec * 1000;
+        const codes = new Set<string>();
+        for (const [code, cached] of this.summaryCache) {
+            if (Date.now() - cached.at < ttlMs) codes.add(code);
+        }
+        const batch = this.intradayRank.getLastBatch();
+        for (const it of batch?.items ?? []) {
+            if (this.provider.peekCached?.(it.symbol)) codes.add(it.symbol);
+        }
+        const out: BrokerSymbolSummary[] = [];
+        for (const code of codes) {
+            const cached = this.summaryCache.get(code);
+            if (cached && Date.now() - cached.at < ttlMs) {
+                out.push(cached.summary);
+                continue;
+            }
+            if (this.provider.peekCached?.(code)) {
+                out.push(await this.getSummary(code));
+            }
+        }
+        return out;
     }
 
     private toRankingRow(s: BrokerSymbolSummary): RankingRow {
@@ -356,6 +379,7 @@ export class BrokerIntelligenceService {
                 status: 'UNAVAILABLE',
                 error: bundle.error,
                 capability: cap,
+                quota: this.provider.getQuota?.() ?? null,
             };
         }
         return {
@@ -367,6 +391,7 @@ export class BrokerIntelligenceService {
             status: 'HEALTHY',
             error: null,
             capability: cap,
+            quota: this.provider.getQuota?.() ?? null,
         };
     }
 

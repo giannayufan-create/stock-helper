@@ -15,8 +15,12 @@ import {
 const FINMIND_BASE = 'https://api.finmindtrade.com/api/v4';
 const FRESHNESS: BranchFreshness = 'EOD';
 const SOURCE = 'finmind';
-const CACHE_MS = 30 * 60 * 1000;
-const LOOKBACK_CAL_DAYS = 14;
+/** Covers daily view + history windows (config lookback 20d × 1.6 ≈ 32d). */
+const LOOKBACK_CAL_DAYS = 36;
+const HOUR_MS = 60 * 60 * 1000;
+/** Leave headroom under FinMind free 600/hour. */
+export const DEFAULT_FINMIND_MAX_PER_HOUR = 480;
+const CACHE_MS = 12 * HOUR_MS;
 
 interface FinMindAggRow {
     securities_trader?: string;
@@ -183,18 +187,54 @@ function emptyBundle(
 
 function permissionHint(status: number, body: string): string | null {
     const t = body.toLowerCase();
+    if (status === 402) {
+        return 'FinMind 本小時次數已用完（免費 600 次/小時），稍後再看個股分點';
+    }
     if (status === 401 || status === 403) {
-        return 'FinMind token 無效或沒有分點資料權限（此資料集通常要 Sponsor）';
+        return 'FinMind token 無效或沒有分點資料權限（免費版通常沒有分點，需要 Sponsor）';
     }
     if (
         t.includes('sponsor') ||
         t.includes('permission') ||
         t.includes('upgrade') ||
-        t.includes('level')
+        t.includes('level') ||
+        t.includes('plan')
     ) {
-        return 'FinMind 帳號方案不足，分點資料需要 Sponsor（或以上）';
+        return 'FinMind 免費方案沒有券商分點資料集，需要 Sponsor（或以上）才會有分點名稱';
     }
     return null;
+}
+
+class HourlyBudget {
+    private hits: number[] = [];
+    constructor(readonly limit: number) {}
+    used(now = Date.now()): number {
+        const cut = now - HOUR_MS;
+        this.hits = this.hits.filter((t) => t > cut);
+        return this.hits.length;
+    }
+    remaining(now = Date.now()): number {
+        return Math.max(0, this.limit - this.used(now));
+    }
+    take(now = Date.now()): boolean {
+        if (this.remaining(now) <= 0) return false;
+        this.hits.push(now);
+        return true;
+    }
+    snapshot(now = Date.now()) {
+        const used = this.used(now);
+        return {
+            limit: this.limit,
+            used,
+            remaining: Math.max(0, this.limit - used),
+            window_hours: 1,
+        };
+    }
+}
+
+export interface FinMindProviderOpts {
+    fetcher?: FinMindFetch;
+    maxPerHour?: number;
 }
 
 export class FinMindBrokerBranchProvider implements BrokerBranchProvider {
@@ -203,11 +243,22 @@ export class FinMindBrokerBranchProvider implements BrokerBranchProvider {
         string,
         { at: number; start: string; end: string; byDate: Map<string, BranchTradeRow[]> }
     >();
+    private inflight = new Map<
+        string,
+        Promise<Map<string, BranchTradeRow[]>>
+    >();
+    private budget: HourlyBudget;
+    private planBlock: string | null = null;
+    private fetcher: FinMindFetch;
 
-    constructor(
-        private token: string,
-        private fetcher: FinMindFetch = fetch,
-    ) {}
+    constructor(private token: string, opts: FinMindProviderOpts = {}) {
+        this.fetcher = opts.fetcher ?? fetch;
+        this.budget = new HourlyBudget(
+            opts.maxPerHour && opts.maxPerHour > 0
+                ? Math.min(opts.maxPerHour, 600)
+                : DEFAULT_FINMIND_MAX_PER_HOUR,
+        );
+    }
 
     capability(): BrokerProviderCapability {
         return {
@@ -217,8 +268,34 @@ export class FinMindBrokerBranchProvider implements BrokerBranchProvider {
             intraday: false,
             amount_fields: true,
             notes:
-                'FinMind 分點為盤後資料（約 21:00 更新），不是盤中即時主力。',
+                'FinMind 分點為盤後資料。免費 600 次/小時：一檔一次、長快取、排名不掃全市場。分點資料集本身通常要 Sponsor。',
         };
+    }
+
+    getQuota() {
+        return this.budget.snapshot();
+    }
+
+    peekCached(symbol: string): BranchDayBundle | null {
+        const hit = this.cache.get(symbol.trim());
+        if (!hit) return null;
+        const end = taipeiYmd();
+        for (let i = 0; i <= LOOKBACK_CAL_DAYS; i++) {
+            const d = addDays(end, -i);
+            const rows = hit.byDate.get(d) ?? [];
+            if (rows.length) {
+                return {
+                    symbol: symbol.trim(),
+                    trade_date: d,
+                    freshness: FRESHNESS,
+                    source: SOURCE,
+                    rows,
+                    available: true,
+                    error: null,
+                };
+            }
+        }
+        return null;
     }
 
     async getBranchTrading(
@@ -335,6 +412,22 @@ export class FinMindBrokerBranchProvider implements BrokerBranchProvider {
         ) {
             return hit.byDate;
         }
+        const pending = this.inflight.get(symbol);
+        if (pending) return pending;
+        const run = this.loadRange(symbol, start, end);
+        this.inflight.set(symbol, run);
+        try {
+            return await run;
+        } finally {
+            this.inflight.delete(symbol);
+        }
+    }
+
+    private async loadRange(
+        symbol: string,
+        start: string,
+        end: string,
+    ): Promise<Map<string, BranchTradeRow[]>> {
         const rows = await this.fetchAgg(symbol, start, end);
         const byDate = new Map<string, BranchTradeRow[]>();
         const grouped = new Map<string, FinMindAggRow[]>();
@@ -357,6 +450,12 @@ export class FinMindBrokerBranchProvider implements BrokerBranchProvider {
         start: string,
         end: string,
     ): Promise<FinMindAggRow[]> {
+        if (this.planBlock) throw new Error(this.planBlock);
+        if (!this.budget.take()) {
+            throw new Error(
+                `FinMind 免費額度保護：本小時最多 ${this.budget.limit} 次（官方 600）。再開過的個股仍可用快取。`,
+            );
+        }
         const url =
             `${FINMIND_BASE}/taiwan_stock_trading_daily_report_secid_agg` +
             `?data_id=${encodeURIComponent(symbol)}` +
@@ -376,6 +475,7 @@ export class FinMindBrokerBranchProvider implements BrokerBranchProvider {
             payload = JSON.parse(text) as FinMindPayload;
         } catch {
             const hint = permissionHint(res.status, text);
+            if (hint) this.planBlock = hint;
             throw new Error(
                 hint ?? `FinMind 回應無法解析（HTTP ${res.status}）`,
             );
@@ -384,22 +484,32 @@ export class FinMindBrokerBranchProvider implements BrokerBranchProvider {
             res.status,
             `${payload.msg ?? ''} ${text.slice(0, 400)}`,
         );
+        if (hint && (res.status === 401 || res.status === 403 || res.status === 402)) {
+            if (res.status !== 402) this.planBlock = hint;
+            throw new Error(hint);
+        }
         if (!res.ok) {
             throw new Error(
                 hint ??
                     `FinMind HTTP ${res.status}${payload.msg ? `：${payload.msg}` : ''}`,
             );
         }
-        if (hint) throw new Error(hint);
+        if (hint) {
+            this.planBlock = hint;
+            throw new Error(hint);
+        }
         if (
             payload.status != null &&
             payload.status !== 200 &&
             payload.status !== 0
         ) {
-            throw new Error(
+            const msg =
                 permissionHint(payload.status, payload.msg ?? '') ??
-                    `FinMind：${payload.msg ?? `status ${payload.status}`}`,
-            );
+                `FinMind：${payload.msg ?? `status ${payload.status}`}`;
+            if (payload.status === 401 || payload.status === 403) {
+                this.planBlock = msg;
+            }
+            throw new Error(msg);
         }
         return Array.isArray(payload.data) ? payload.data : [];
     }
@@ -407,9 +517,9 @@ export class FinMindBrokerBranchProvider implements BrokerBranchProvider {
 
 export function createBrokerBranchProvider(
     token: string | undefined,
-    fetcher?: FinMindFetch,
+    opts?: FinMindProviderOpts,
 ): BrokerBranchProvider {
     const t = String(token ?? '').trim();
     if (!t) return new UnavailableBrokerBranchProvider();
-    return new FinMindBrokerBranchProvider(t, fetcher);
+    return new FinMindBrokerBranchProvider(t, opts);
 }

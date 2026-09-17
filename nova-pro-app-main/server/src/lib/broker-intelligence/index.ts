@@ -9,6 +9,7 @@ export {
 export {
     FinMindBrokerBranchProvider,
     createBrokerBranchProvider,
+    DEFAULT_FINMIND_MAX_PER_HOUR,
     rowsFromFinMind,
     splitTraderName,
 } from './finmind-provider.ts';

@@ -4,11 +4,12 @@ enabled: true
 version: bi_v1
 
 # Wired at runtime if FINMIND_KEY is set; otherwise stays unavailable.
+# Free FinMind 600/hour: ranking uses opened-stock cache only (no radar N+1).
 provider: unavailable
 
 cache:
-  eod_ttl_sec: 1800
-  ranking_ttl_sec: 300
+  eod_ttl_sec: 21600
+  ranking_ttl_sec: 1800
 
 history:
   max_lookback_days: 20

@@ -34,7 +34,7 @@ export const DEFAULT_BI_CONFIG: BrokerIntelligenceConfig = {
     enabled: true,
     version: BI_VERSION,
     provider: 'unavailable',
-    cache: { eod_ttl_sec: 1800, ranking_ttl_sec: 300 },
+    cache: { eod_ttl_sec: 21600, ranking_ttl_sec: 1800 },
     history: { max_lookback_days: 20, windows: [1, 3, 5, 10, 20] },
     main_force: {
         top3_weight: 0.35,

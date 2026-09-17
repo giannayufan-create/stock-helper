@@ -275,13 +275,66 @@ async function testMemoryProvider(): Promise<void> {
             { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
     };
-    const p = new FinMindBrokerBranchProvider('test-token', fakeFetch);
+    const p = new FinMindBrokerBranchProvider('test-token', {
+        fetcher: fakeFetch,
+    });
     const day = await p.getBranchTrading('2330', '2026-09-16');
     assert.equal(day.available, true);
     assert.equal(day.source, 'finmind');
     assert.equal(day.rows[0]!.branch_name, '統一-仁愛');
     assert.equal(day.rows[0]!.net_volume, 7);
     console.log('PASS FinMind provider mock fetch');
+}
+
+{
+    const { FinMindBrokerBranchProvider } = await import(
+        './finmind-provider.ts'
+    );
+    let calls = 0;
+    const fakeFetch = async (url: string) => {
+        calls += 1;
+        const u = String(url);
+        const id = /data_id=([^&]+)/.exec(u)?.[1] ?? 'x';
+        return new Response(
+            JSON.stringify({
+                status: 200,
+                msg: 'success',
+                data: [
+                    {
+                        securities_trader_id: '5850',
+                        securities_trader: '統一-仁愛',
+                        stock_id: id,
+                        date: '2026-09-16',
+                        buy_volume: 8000,
+                        sell_volume: 1000,
+                        buy_price: 1200,
+                        sell_price: 1190,
+                    },
+                ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+    };
+    const p = new FinMindBrokerBranchProvider('test-token', {
+        fetcher: fakeFetch,
+        maxPerHour: 2,
+    });
+    await p.getBranchTrading('2330', '2026-09-16');
+    await p.getBranchTrading('2330', '2026-09-16');
+    assert.equal(calls, 1, 'same symbol 12h cache = 1 HTTP');
+    assert.equal(p.getQuota().used, 1);
+    const [a, b] = await Promise.all([
+        p.getBranchTrading('2317', '2026-09-16'),
+        p.getBranchTrading('2317', '2026-09-16'),
+    ]);
+    assert.equal(a.available && b.available, true);
+    assert.equal(calls, 2, 'inflight coalesce + unique symbol');
+    const blocked = await p.getBranchTrading('2454', '2026-09-16');
+    assert.equal(calls, 2, '3rd unique symbol must not hit FinMind');
+    assert.equal(blocked.available, false);
+    assert.ok(String(blocked.error ?? '').includes('免費額度保護'));
+    assert.equal(p.peekCached('2330')?.available, true);
+    console.log('PASS FinMind free-tier cache + hourly budget');
 }
 
 await testA_unavailable();
