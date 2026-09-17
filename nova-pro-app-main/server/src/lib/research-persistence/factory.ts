@@ -10,14 +10,19 @@ import {
     missingFirebaseCredentialNames,
     type ResearchPersistenceConfig,
 } from './config.ts';
-import { getFirebaseProjectIdSafe, isFirebaseAdminReady } from './admin.ts';
+import {
+    getFirebaseProjectIdSafe,
+    getFirebaseStatus,
+    isFirebaseAdminReady,
+    verifyFirestoreConnectivity,
+} from './admin.ts';
 import { FirestoreStrategySignalRepository } from './firestore-signal-repository.ts';
 import { FirestoreSignalOutcomeRepository } from './firestore-outcome-repository.ts';
 import {
     DualSignalOutcomeRepository,
     DualStrategySignalRepository,
 } from './dual-repository.ts';
-import type { ResearchPersistenceHealth } from './types.ts';
+import type { HydrateStatus, ResearchPersistenceHealth } from './types.ts';
 
 export interface ResearchRepositories {
     configured_mode: ResearchPersistenceConfig['configured_mode'];
@@ -69,6 +74,8 @@ export function createResearchRepositories(
     if (effectiveCfg.mode === 'jsonl') {
         const signals = new JsonlStrategySignalRepository();
         const outcomes = new JsonlSignalOutcomeRepository();
+        let hydrate_status: HydrateStatus = 'IDLE';
+        let last_hydrate_at: string | null = null;
         return {
             configured_mode: cfg.configured_mode,
             mode: 'jsonl',
@@ -80,6 +87,8 @@ export function createResearchRepositories(
                 mode: 'jsonl',
                 configured_mode: cfg.configured_mode,
                 effective_mode: 'jsonl',
+                primary_repository: 'JSONL',
+                firebase_status: getFirebaseStatus(),
                 firestore_initialized: isFirebaseAdminReady(),
                 firestore_connected: false,
                 connected: true,
@@ -88,6 +97,7 @@ export function createResearchRepositories(
                 queue_pressure: 'NORMAL',
                 max_queue_depth: 0,
                 write_latency: emptyLatency(),
+                last_write_latency_ms: null,
                 last_signal_write_at: null,
                 last_outcome_write_at: null,
                 write_success_count: 0,
@@ -99,6 +109,8 @@ export function createResearchRepositories(
                         cfg.configured_mode !== 'jsonl'
                       ? `missing credentials: ${missingFirebaseCredentialNames().join(', ')}`
                       : null,
+                hydrate_status,
+                last_hydrate_at,
                 env_conflict: cfg.env_conflict,
                 status:
                     cfg.env_conflict || cfg.configured_mode !== 'jsonl'
@@ -108,7 +120,14 @@ export function createResearchRepositories(
                 creates_upstream_subscription: false,
             }),
             hydrate: async () => {
-                signals.hydrateKnownIds();
+                hydrate_status = 'RUNNING';
+                try {
+                    signals.hydrateKnownIds();
+                    hydrate_status = 'PASS';
+                    last_hydrate_at = new Date().toISOString();
+                } catch {
+                    hydrate_status = 'FAIL';
+                }
             },
             flush: async () => undefined,
         };
@@ -137,6 +156,8 @@ export function createResearchRepositories(
             cfg: effectiveCfg,
             getHealth: () => signals.getHealth(),
             hydrate: async () => {
+                // Connectivity probe first — CONNECTED only after live op
+                await verifyFirestoreConnectivity();
                 await signals.hydrateAsync(effectiveCfg.hydrate_lookback_days);
             },
             flush: async () => {
@@ -179,9 +200,11 @@ export function createResearchRepositories(
                 configured_mode: cfg.configured_mode,
                 effective_mode: 'dual',
                 mode: 'dual',
+                primary_repository: 'DUAL',
             };
         },
         hydrate: async () => {
+            await verifyFirestoreConnectivity();
             signals.hydrateKnownIds();
             await fsSignals.hydrateAsync(effectiveCfg.hydrate_lookback_days);
         },

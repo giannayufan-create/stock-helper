@@ -11,11 +11,13 @@ import {
     getAdminInitError,
     getFirebaseInitPath,
     getFirebaseProjectIdSafe,
+    getFirebaseStatus,
     getResearchFirestore,
     isFirebaseAdminReady,
+    verifyFirestoreConnectivity,
 } from '../lib/research-persistence/admin.ts';
 
-function main(): void {
+async function main(): Promise<void> {
     const cfg = loadResearchPersistenceConfig();
     const missing = missingFirebaseCredentialNames();
     const hasPrimary = hasPrimaryFirebaseCredentials();
@@ -33,6 +35,7 @@ function main(): void {
                 google_application_credentials_set: Boolean(
                     process.env.GOOGLE_APPLICATION_CREDENTIALS,
                 ),
+                firebase_status: getFirebaseStatus(),
                 cutover_gate:
                     hasPrimary && !cfg.env_conflict
                         ? 'READY_FOR_DUAL'
@@ -49,7 +52,7 @@ function main(): void {
         );
         for (const n of missing) console.log(`  - ${n}`);
         console.log(
-            'Set RESEARCH_REPOSITORY=dual only after credentials are configured.',
+            'Set RESEARCH_REPOSITORY_MODE=dual|firestore only after credentials are configured.',
         );
         process.exitCode = 2;
         return;
@@ -57,11 +60,14 @@ function main(): void {
 
     // Attempt init (no secret logging)
     const db = getResearchFirestore();
+    const connected = db ? await verifyFirestoreConnectivity() : false;
     console.log(
         JSON.stringify(
             {
                 firestore_initialized: isFirebaseAdminReady(),
                 firestore_reachable_attempt: db != null,
+                firestore_connected: connected,
+                firebase_status: getFirebaseStatus(),
                 project_id: getFirebaseProjectIdSafe(),
                 init_path: getFirebaseInitPath(),
                 init_error: getAdminInitError(),
@@ -70,6 +76,10 @@ function main(): void {
             2,
         ),
     );
+    if (!connected) process.exitCode = 1;
 }
 
-main();
+main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+});

@@ -9,10 +9,14 @@ export {
     missingFirebaseCredentialNames,
     hasPrimaryFirebaseCredentials,
 } from './config.ts';
+export type { FirebaseAdminStatus } from './types.ts';
 export {
     getResearchFirestore,
     isFirebaseAdminReady,
     getFirebaseProjectIdSafe,
+    getFirebaseStatus,
+    getAdminInitError,
+    verifyFirestoreConnectivity,
 } from './admin.ts';
 export { MemoryStrategySignalRepository } from './memory-signal-repository.ts';
 export { MemorySignalOutcomeRepository } from './memory-outcome-repository.ts';

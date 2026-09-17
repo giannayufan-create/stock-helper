@@ -4,7 +4,13 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import type { SignalType, StrategySignal } from '../strategy-signal/types.ts';
 import type { StrategySignalRepository } from '../strategy-signal/repository.ts';
-import { getResearchFirestore, getAdminInitError } from './admin.ts';
+import {
+    getResearchFirestore,
+    getAdminInitError,
+    getFirebaseStatus,
+    markFirestoreOpFailure,
+    markFirestoreOpSuccess,
+} from './admin.ts';
 import {
     firestoreDocToSignal,
     signalToFirestoreDoc,
@@ -48,7 +54,8 @@ export class FirestoreStrategySignalRepository
     ) {
         this.cfg = cfg;
         this.db = db === undefined ? getResearchFirestore() : db;
-        this.health.connected = this.db != null;
+        // connected only after a successful Firestore op — not SDK import alone
+        this.health.connected = false;
         this.health.initialized = this.db != null;
         if (!this.db) {
             this.health.last_error =
@@ -62,6 +69,7 @@ export class FirestoreStrategySignalRepository
     }
 
     getHealth(): ResearchPersistenceHealth {
+        const latency = this.queue.latencyStats();
         return this.health.snapshot({
             provider: 'FIRESTORE',
             configured_mode: this.cfg.configured_mode,
@@ -70,9 +78,12 @@ export class FirestoreStrategySignalRepository
             queue_depth: this.queue.depth,
             queue_pressure: this.queue.pressure(),
             max_queue_depth: this.queue.maxQueueDepth,
-            write_latency: this.queue.latencyStats(),
+            write_latency: latency,
+            last_write_latency_ms:
+                this.health.last_write_latency_ms ?? latency.max_ms,
             env_conflict: this.cfg.env_conflict,
             firestore_initialized: this.health.initialized,
+            firebase_status: getFirebaseStatus(),
         });
     }
 
@@ -143,6 +154,8 @@ export class FirestoreStrategySignalRepository
                 if (signalsContentEqual(remote, signal)) {
                     this.lastPersistResult = 'SKIP_IDEMPOTENT';
                     this.health.write_success_count += 1;
+                    this.health.connected = true;
+                    markFirestoreOpSuccess();
                     return;
                 }
                 this.lastPersistResult = 'CONFLICT';
@@ -161,11 +174,13 @@ export class FirestoreStrategySignalRepository
             this.health.write_success_count += 1;
             this.health.last_signal_write_at = new Date().toISOString();
             this.health.connected = true;
+            markFirestoreOpSuccess();
         } catch (err) {
             this.health.write_failure_count += 1;
             this.health.last_error =
                 err instanceof Error ? err.message : String(err);
             this.health.connected = false;
+            markFirestoreOpFailure(this.health.last_error);
         }
     }
 
@@ -243,11 +258,13 @@ export class FirestoreStrategySignalRepository
                 out.push(s);
             }
             this.health.connected = true;
+            markFirestoreOpSuccess();
             return out;
         } catch (err) {
             this.health.last_error =
                 err instanceof Error ? err.message : String(err);
             this.health.connected = false;
+            markFirestoreOpFailure(this.health.last_error);
             return this.listRange(fromYmd, toYmd);
         }
     }
@@ -261,12 +278,24 @@ export class FirestoreStrategySignalRepository
     }
 
     async hydrateAsync(lookbackDays = 30): Promise<void> {
-        if (!this.db) return;
-        const to = new Date();
-        const from = new Date(to.getTime() - lookbackDays * 86400_000);
-        const fromYmd = taipeiYmd(from.toISOString());
-        const toYmd = taipeiYmd(to.toISOString());
-        await this.listRangeAsync(fromYmd, toYmd, { limit: 500 });
+        this.health.hydrate_status = 'RUNNING';
+        if (!this.db) {
+            this.health.hydrate_status = 'SKIPPED';
+            return;
+        }
+        try {
+            const to = new Date();
+            const from = new Date(to.getTime() - lookbackDays * 86400_000);
+            const fromYmd = taipeiYmd(from.toISOString());
+            const toYmd = taipeiYmd(to.toISOString());
+            await this.listRangeAsync(fromYmd, toYmd, { limit: 500 });
+            this.health.hydrate_status = 'PASS';
+            this.health.last_hydrate_at = new Date().toISOString();
+        } catch (err) {
+            this.health.hydrate_status = 'FAIL';
+            this.health.last_error =
+                err instanceof Error ? err.message : String(err);
+        }
     }
 
     async flush(): Promise<void> {

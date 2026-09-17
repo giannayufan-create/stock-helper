@@ -6,6 +6,7 @@ import {
     loadResearchPersistenceConfig,
     missingFirebaseCredentialNames,
 } from './config.ts';
+import { __resetAdminForTests, getFirebaseStatus } from './admin.ts';
 
 let passed = 0;
 function pass(name: string) {
@@ -51,6 +52,12 @@ function pass(name: string) {
     assert.ok(missing.includes('FIREBASE_CLIENT_EMAIL'));
     assert.ok(missing.includes('FIREBASE_PRIVATE_KEY'));
     pass('CUT-env — missing credential names listed (no values)');
+}
+
+{
+    __resetAdminForTests();
+    assert.equal(getFirebaseStatus(), 'FIREBASE_NOT_CONFIGURED');
+    pass('CUT-admin — status NOT_CONFIGURED before credentials');
 }
 
 console.log(`\ncutover.test.ts ${passed} passed`);

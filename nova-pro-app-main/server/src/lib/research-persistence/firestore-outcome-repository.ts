@@ -5,7 +5,13 @@ import type { Firestore } from 'firebase-admin/firestore';
 import type { SignalType } from '../strategy-signal/types.ts';
 import type { SignalOutcome } from '../signal-outcome/types.ts';
 import type { SignalOutcomeRepository } from '../signal-outcome/repository.ts';
-import { getResearchFirestore, getAdminInitError } from './admin.ts';
+import {
+    getResearchFirestore,
+    getAdminInitError,
+    getFirebaseStatus,
+    markFirestoreOpFailure,
+    markFirestoreOpSuccess,
+} from './admin.ts';
 import {
     firestoreDocToOutcome,
     outcomeToFirestoreDoc,
@@ -44,7 +50,7 @@ export class FirestoreSignalOutcomeRepository
     ) {
         this.cfg = cfg;
         this.db = db === undefined ? getResearchFirestore() : db;
-        this.health.connected = this.db != null;
+        this.health.connected = false;
         this.health.initialized = this.db != null;
         if (!this.db) {
             this.health.last_error =
@@ -58,6 +64,7 @@ export class FirestoreSignalOutcomeRepository
     }
 
     getHealth(): ResearchPersistenceHealth {
+        const latency = this.queue.latencyStats();
         return this.health.snapshot({
             provider: 'FIRESTORE',
             configured_mode: this.cfg.configured_mode,
@@ -66,9 +73,12 @@ export class FirestoreSignalOutcomeRepository
             queue_depth: this.queue.depth,
             queue_pressure: this.queue.pressure(),
             max_queue_depth: this.queue.maxQueueDepth,
-            write_latency: this.queue.latencyStats(),
+            write_latency: latency,
+            last_write_latency_ms:
+                this.health.last_write_latency_ms ?? latency.max_ms,
             env_conflict: this.cfg.env_conflict,
             firestore_initialized: this.health.initialized,
+            firebase_status: getFirebaseStatus(),
         });
     }
 
@@ -90,11 +100,13 @@ export class FirestoreSignalOutcomeRepository
                 this.health.write_success_count += 1;
                 this.health.last_outcome_write_at = new Date().toISOString();
                 this.health.connected = true;
+                markFirestoreOpSuccess();
             } catch (err) {
                 this.health.write_failure_count += 1;
                 this.health.last_error =
                     err instanceof Error ? err.message : String(err);
                 this.health.connected = false;
+                markFirestoreOpFailure(this.health.last_error);
             }
         });
         if (!ok) {

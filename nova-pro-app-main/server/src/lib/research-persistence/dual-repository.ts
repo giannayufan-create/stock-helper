@@ -85,6 +85,7 @@ export class DualStrategySignalRepository implements StrategySignalRepository {
             provider: 'DUAL',
             mode: 'dual',
             effective_mode: 'dual',
+            primary_repository: 'DUAL',
             durable: fh.durable,
         };
     }
@@ -139,7 +140,13 @@ export class DualSignalOutcomeRepository implements SignalOutcomeRepository {
 
     getHealth(): ResearchPersistenceHealth {
         const fh = this.firestore.getHealth();
-        return { ...fh, provider: 'DUAL', mode: 'dual' };
+        return {
+            ...fh,
+            provider: 'DUAL',
+            mode: 'dual',
+            effective_mode: 'dual',
+            primary_repository: 'DUAL',
+        };
     }
 
     async flush(): Promise<void> {
