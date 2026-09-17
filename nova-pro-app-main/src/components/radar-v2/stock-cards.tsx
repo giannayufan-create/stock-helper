@@ -5,6 +5,11 @@ import {
     DECISION_STATUS_LABEL,
     type DecisionSummaryDto,
 } from '../../lib/decision-summary';
+import {
+    continuationShort,
+    momentumLabel,
+    type RadarQualityItemDto,
+} from '../../lib/radar-quality';
 import { vars } from '../../theme.css';
 import {
     chaseLabel,
@@ -46,6 +51,7 @@ export interface RadarCardEnrichment {
     eventConfirmed?: boolean;
     layers?: ConfirmLayers;
     decision?: DecisionSummaryDto | null;
+    quality?: RadarQualityItemDto | null;
 }
 
 /** Premium radar card — curated metrics only. */
@@ -85,6 +91,7 @@ export function CompactStockRow({
             eventConfirmed: enrich?.eventConfirmed,
         });
     const decision = enrich?.decision ?? null;
+    const quality = enrich?.quality ?? null;
     const event = primaryEvent(item);
     const rankChg = item.rank_change;
     const chase = bp?.chase_risk ?? item.risk?.chase_risk;
@@ -166,6 +173,15 @@ export function CompactStockRow({
                             color: stateTone(item.state),
                         }}
                     >
+                        {quality ? (
+                            <span style={{ color: radarColor.aiSoft }}>
+                                {quality.is_focus
+                                    ? `FOCUS #${quality.focus_rank} · `
+                                    : ''}
+                                {momentumLabel(quality.momentum_state)}
+                                {' · '}
+                            </span>
+                        ) : null}
                         {stateLabel(item.state)}
                         {event ? ` · ${eventLabel(event)}` : ''}
                         {enrich?.sectorName
@@ -173,6 +189,9 @@ export function CompactStockRow({
                             : ''}
                         {enrich?.sectorRank != null
                             ? ` #${enrich.sectorRank}`
+                            : ''}
+                        {quality?.institutional?.continuation
+                            ? ` · ${continuationShort(quality.institutional.continuation)}`
                             : ''}
                     </div>
                 </div>

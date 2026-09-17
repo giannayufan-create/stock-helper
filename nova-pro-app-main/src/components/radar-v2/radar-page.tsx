@@ -4,18 +4,26 @@ import {
     requestRadarInterpretation,
     type RadarAIInterpretationDto,
 } from '../../lib/ai-interpretation';
+import {
+    momentumLabel,
+} from '../../lib/radar-quality';
 import { vars } from '../../theme.css';
-import { sortHeating, sortPullback, sortStrong, eventLabel } from './helpers';
+import { eventLabel } from './helpers';
 import * as s from './radar.css';
 import { CompactStockRow } from './stock-cards';
 import { radarColor } from './tokens';
 import type { RadarFeed } from './use-radar-feed';
 
-type RadarInnerTab = 'strong' | 'heating' | 'pullback' | 'events';
+type RadarInnerTab = 'active' | 'pullback' | 'watch' | 'all' | 'events';
+type InstFilter =
+    | 'ALL'
+    | 'FOREIGN_YDAY'
+    | 'CONTINUATION'
+    | 'DIVERGENCE';
 
 export function RadarPage({
     feed,
-    initialTab = 'strong',
+    initialTab = 'active',
     selectedSymbol,
     onOpenSymbol,
     onOpenSearch,
@@ -26,10 +34,11 @@ export function RadarPage({
     onOpenSymbol: (symbol: string) => void;
     onOpenSearch?: () => void;
 }) {
-    const [tab, setTab] = useState<RadarInnerTab>('strong');
+    const [tab, setTab] = useState<RadarInnerTab>('active');
     const [filterOpen, setFilterOpen] = useState(false);
     const [minC, setMinC] = useState(0);
     const [minHeat, setMinHeat] = useState(0);
+    const [instFilter, setInstFilter] = useState<InstFilter>('ALL');
     const [radarAi, setRadarAi] = useState<RadarAIInterpretationDto | null>(
         null,
     );
@@ -40,41 +49,119 @@ export function RadarPage({
     const [radarSheetOpen, setRadarSheetOpen] = useState(false);
 
     useEffect(() => {
-        if (
-            initialTab === 'strong' ||
-            initialTab === 'heating' ||
-            initialTab === 'pullback' ||
-            initialTab === 'events'
-        ) {
-            setTab(initialTab);
-        }
+        const map: Record<string, RadarInnerTab> = {
+            strong: 'active',
+            heating: 'watch',
+            pullback: 'pullback',
+            events: 'events',
+            active: 'active',
+            watch: 'watch',
+            all: 'all',
+            buy: 'active',
+        };
+        if (initialTab && map[initialTab]) setTab(map[initialTab]!);
     }, [initialTab]);
 
     const filtered = useMemo(() => {
-        return feed.items.filter(
-            (i) =>
-                i.intraday_score >= minC && (i.heat_score ?? 0) >= minHeat,
-        );
-    }, [feed.items, minC, minHeat]);
+        return feed.items.filter((i) => {
+            if (i.intraday_score < minC || (i.heat_score ?? 0) < minHeat) {
+                return false;
+            }
+            const q = feed.rqBySymbol[i.symbol];
+            if (instFilter === 'FOREIGN_YDAY') {
+                const bg = q?.institutional?.background ?? '';
+                return (
+                    bg === 'FOREIGN_STRONG_ACCUMULATION' ||
+                    bg === 'FOREIGN_ACCUMULATION' ||
+                    bg === 'TRUST_ACCUMULATION'
+                );
+            }
+            if (instFilter === 'CONTINUATION') {
+                return (
+                    q?.institutional?.continuation ===
+                    'CONFIRMED_CONTINUATION'
+                );
+            }
+            if (instFilter === 'DIVERGENCE') {
+                const c = q?.institutional?.continuation;
+                return c === 'DIVERGENCE' || c === 'REJECTED';
+            }
+            return true;
+        });
+    }, [feed.items, feed.rqBySymbol, minC, minHeat, instFilter]);
 
     const list = useMemo(() => {
-        if (tab === 'strong') return sortStrong(filtered);
-        if (tab === 'heating') return sortHeating(filtered);
+        const withQ = filtered.map((i) => ({
+            item: i,
+            q: feed.rqBySymbol[i.symbol],
+        }));
+        if (tab === 'active') {
+            return withQ
+                .filter(
+                    (x) =>
+                        x.q?.momentum_state === 'ACTIVE' ||
+                        x.q?.momentum_state === 'PULLBACK',
+                )
+                .filter((x) => {
+                    // Default ACTIVE tab: ACTIVE + clear PULLBACK_READY only
+                    if (x.q?.momentum_state === 'ACTIVE') return true;
+                    const ev = (x.item.events ?? []).map((e) =>
+                        String(e).toUpperCase(),
+                    );
+                    return (
+                        x.q?.momentum_state === 'PULLBACK' &&
+                        (ev.includes('PULLBACK_READY') ||
+                            (x.item.metrics?.pullback_state ?? '')
+                                .toUpperCase()
+                                .includes('READY'))
+                    );
+                })
+                .sort(
+                    (a, b) =>
+                        (b.q?.focus_score ?? 0) - (a.q?.focus_score ?? 0),
+                )
+                .map((x) => x.item);
+        }
         if (tab === 'pullback') {
-            const pb = sortPullback(filtered);
-            return pb.length ? pb : sortStrong(filtered).slice(0, 15);
+            return withQ
+                .filter((x) => x.q?.momentum_state === 'PULLBACK')
+                .map((x) => x.item);
+        }
+        if (tab === 'watch') {
+            return withQ
+                .filter((x) => x.q?.momentum_state === 'WATCH')
+                .map((x) => x.item);
+        }
+        if (tab === 'all') {
+            return withQ
+                .filter(
+                    (x) =>
+                        x.q?.momentum_state === 'ACTIVE' ||
+                        x.q?.momentum_state === 'PULLBACK' ||
+                        x.q?.momentum_state === 'WATCH' ||
+                        x.q?.momentum_state === 'INACTIVE' ||
+                        !x.q,
+                )
+                .sort(
+                    (a, b) =>
+                        (b.q?.focus_score ?? -1) - (a.q?.focus_score ?? -1),
+                )
+                .map((x) => x.item);
         }
         return [];
-    }, [tab, filtered]);
+    }, [tab, filtered, feed.rqBySymbol]);
 
     const filterPayload = useMemo(
         () => ({
             tab,
             min_c: minC,
             min_heat: minHeat,
+            inst_filter: instFilter,
         }),
-        [tab, minC, minHeat],
+        [tab, minC, minHeat, instFilter],
     );
+
+    const counts = feed.rqCounts;
 
     useEffect(() => {
         let cancelled = false;
@@ -159,9 +246,10 @@ export function RadarPage({
             <div className={s.stickyTabs}>
                 {(
                     [
-                        ['strong', '最強'],
-                        ['heating', '升溫'],
-                        ['pullback', '回踩'],
+                        ['active', '🔥 正在發動'],
+                        ['pullback', '🟠 回踩'],
+                        ['watch', '👀 等待'],
+                        ['all', '全部'],
                         ['events', '事件'],
                     ] as const
                 ).map(([id, label]) => (
@@ -170,11 +258,87 @@ export function RadarPage({
                         type="button"
                         className={`${s.tabChip} ${tab === id ? s.tabChipOn : ''}`}
                         onClick={() => setTab(id)}
+                        style={{ minHeight: 44 }}
                     >
                         {label}
                     </button>
                 ))}
             </div>
+
+            {tab !== 'events' && feed.focusTop3.length > 0 && (
+                <div className={s.section} style={{ marginTop: 4 }}>
+                    <div className={s.sectionTitle}>目前優先觀察</div>
+                    {feed.focusTop3.map((f) => {
+                        const item = feed.items.find(
+                            (i) => i.symbol === f.symbol,
+                        );
+                        if (!item) {
+                            return (
+                                <button
+                                    key={f.symbol}
+                                    type="button"
+                                    className={s.radarCard}
+                                    style={{ minHeight: 44 }}
+                                    onClick={() => onOpenSymbol(f.symbol)}
+                                >
+                                    <strong>
+                                        FOCUS #{f.focus_rank} {f.symbol}{' '}
+                                        {f.name}
+                                    </strong>
+                                    <div
+                                        style={{
+                                            fontSize: 12,
+                                            color: vars.color.mutedForeground,
+                                            marginTop: 4,
+                                        }}
+                                    >
+                                        {momentumLabel(f.momentum_state)} · Raw
+                                        Rank{' '}
+                                        {f.raw_rank != null
+                                            ? `#${f.raw_rank}`
+                                            : '—'}
+                                    </div>
+                                    <div
+                                        style={{
+                                            fontSize: 12,
+                                            marginTop: 4,
+                                        }}
+                                    >
+                                        {f.reasons.slice(0, 4).join(' · ')}
+                                    </div>
+                                </button>
+                            );
+                        }
+                        return (
+                            <CompactStockRow
+                                key={f.symbol}
+                                item={item}
+                                rank={f.focus_rank}
+                                selected={selectedSymbol === f.symbol}
+                                onOpen={onOpenSymbol}
+                                enrich={{
+                                    bp: feed.bpBySymbol[f.symbol] ?? null,
+                                    sectorName:
+                                        feed.sectorBySymbol[f.symbol]?.name ??
+                                        null,
+                                    sectorRank:
+                                        feed.sectorBySymbol[f.symbol]?.rank ??
+                                        null,
+                                    sectorHeat:
+                                        feed.sectorBySymbol[f.symbol]?.heat ??
+                                        null,
+                                    sectorState:
+                                        feed.sectorBySymbol[f.symbol]?.state ??
+                                        null,
+                                    taiwanRegime: feed.taiwanRegime,
+                                    decision: feed.dsBySymbol[f.symbol] ?? null,
+                                    quality: feed.rqBySymbol[f.symbol] ?? null,
+                                }}
+                            />
+                        );
+                    })}
+                </div>
+            )}
 
             {tab !== 'events' && (
                 <div className={s.aiCard} style={{ margin: '8px 16px 12px' }}>
@@ -197,6 +361,21 @@ export function RadarPage({
                             不影響正式分數
                         </span>
                     </div>
+                    {counts && (
+                        <div
+                            style={{
+                                fontSize: 13,
+                                color: vars.color.mutedForeground,
+                                marginBottom: 8,
+                                lineHeight: 1.5,
+                            }}
+                        >
+                            符合篩選約 {filtered.length} 檔；ACTIVE{' '}
+                            {counts.active} · PULLBACK {counts.pullback} ·
+                            WATCH {counts.watch} · INACTIVE {counts.inactive}
+                            。並非全部都在轉強。
+                        </div>
+                    )}
                     {radarAi ? (
                         <>
                             <div
@@ -219,6 +398,9 @@ export function RadarPage({
                             >
                                 Confidence：{radarAi.confidence} · 符合{' '}
                                 {radarAi.matched_count} 檔
+                                {counts
+                                    ? ` · 其中 ACTIVE ${counts.active}`
+                                    : ''}
                             </div>
                             <div
                                 style={{
@@ -229,39 +411,6 @@ export function RadarPage({
                             >
                                 {radarAi.headline}
                             </div>
-                            {radarAi.aggregate?.status_distribution && (
-                                <div
-                                    style={{
-                                        marginTop: 10,
-                                        fontSize: 12,
-                                        color: vars.color.mutedForeground,
-                                        display: 'grid',
-                                        gridTemplateColumns: '1fr 1fr',
-                                        gap: 4,
-                                    }}
-                                >
-                                    <span>
-                                        Confirmed{' '}
-                                        {radarAi.aggregate.status_distribution
-                                            .CONFIRMED_STRENGTH ?? 0}
-                                    </span>
-                                    <span>
-                                        Watch{' '}
-                                        {radarAi.aggregate.status_distribution
-                                            .WATCH ?? 0}
-                                    </span>
-                                    <span>
-                                        Extended{' '}
-                                        {radarAi.aggregate.status_distribution
-                                            .EXTENDED ?? 0}
-                                    </span>
-                                    <span>
-                                        Not Ready{' '}
-                                        {radarAi.aggregate.status_distribution
-                                            .NOT_READY ?? 0}
-                                    </span>
-                                </div>
-                            )}
                         </>
                     ) : (
                         <div
@@ -287,7 +436,7 @@ export function RadarPage({
                     <button
                         type="button"
                         className={s.aiBtn}
-                        style={{ marginTop: 12 }}
+                        style={{ marginTop: 12, minHeight: 44 }}
                         disabled={radarAiLoading || list.length === 0}
                         onClick={() => void runRadarAi()}
                     >
@@ -306,10 +455,11 @@ export function RadarPage({
                     <button
                         type="button"
                         className={s.quickBtn}
-                        style={{ marginTop: 12, width: '100%' }}
+                        style={{ marginTop: 12, width: '100%', minHeight: 44 }}
                         onClick={() => {
                             setMinC(0);
                             setMinHeat(0);
+                            setInstFilter('ALL');
                             feed.refresh();
                         }}
                     >
@@ -321,7 +471,7 @@ export function RadarPage({
                     <CompactStockRow
                         key={item.symbol}
                         item={item}
-                        rank={i + 1}
+                        rank={item.rank ?? i + 1}
                         selected={selectedSymbol === item.symbol}
                         onOpen={onOpenSymbol}
                         enrich={{
@@ -337,6 +487,7 @@ export function RadarPage({
                             taiwanRegime: feed.taiwanRegime,
                             eventConfirmed: false,
                             decision: feed.dsBySymbol[item.symbol] ?? null,
+                            quality: feed.rqBySymbol[item.symbol] ?? null,
                         }}
                     />
                 ))
@@ -382,13 +533,56 @@ export function RadarPage({
                                 style={{ width: '100%' }}
                             />
                         </label>
+                        <label style={{ display: 'block', marginBottom: 12 }}>
+                            <div style={{ fontSize: 13, marginBottom: 6 }}>
+                                法人續強
+                            </div>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: 8,
+                                }}
+                            >
+                                {(
+                                    [
+                                        ['ALL', '全部'],
+                                        ['FOREIGN_YDAY', '昨日外資大買'],
+                                        ['CONTINUATION', '今日續強確認'],
+                                        ['DIVERGENCE', '法人背景背離'],
+                                    ] as const
+                                ).map(([id, label]) => (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        className={`${s.tabChip} ${instFilter === id ? s.tabChipOn : ''}`}
+                                        style={{ minHeight: 44 }}
+                                        onClick={() => setInstFilter(id)}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div
+                                style={{
+                                    fontSize: 11,
+                                    color: vars.color.mutedForeground,
+                                    marginTop: 6,
+                                }}
+                            >
+                                昨日官方法人資料（Previous-Day），非即時外資身份；不改
+                                Raw Rank。
+                            </div>
+                        </label>
                         <div className={s.sheetActions}>
                             <button
                                 type="button"
                                 className={s.btnGhost}
+                                style={{ minHeight: 44 }}
                                 onClick={() => {
                                     setMinC(0);
                                     setMinHeat(0);
+                                    setInstFilter('ALL');
                                 }}
                             >
                                 重設

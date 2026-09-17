@@ -26,6 +26,7 @@ import { registerLiveAcceptanceRoutes } from './routes/live-acceptance.ts';
 import { registerDecisionSummaryRoutes } from './routes/decision-summary.ts';
 import { registerSessionAutonomyRoutes } from './routes/session-autonomy.ts';
 import { registerAiInterpretationRoutes } from './routes/ai-interpretation.ts';
+import { registerRadarQualityRoutes } from './routes/radar-quality.ts';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const app = Fastify({ logger: { level: 'warn' } });
@@ -61,6 +62,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerDecisionSummaryRoutes(app, ctx);
     registerSessionAutonomyRoutes(app, ctx);
     registerAiInterpretationRoutes(app, ctx);
+    registerRadarQualityRoutes(app, ctx);
 
     // provider events → SSE fan-out
     ctx.market.onTick((channel, tick) => ctx.hub.broadcast(channel, tick));

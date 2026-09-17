@@ -36,6 +36,7 @@ import {
 import { DecisionSummaryService } from './lib/decision-summary/index.ts';
 import { SessionAutonomyService } from './lib/session-autonomy/index.ts';
 import { AiInterpretationService } from './lib/ai-interpretation/index.ts';
+import { RadarQualityService } from './lib/radar-quality/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 
@@ -313,6 +314,17 @@ async function main(): Promise<void> {
         `ai-interpretation: ${aiInterpretation.getHealth().version} gemini=${aiInterpretation.getHealth().gemini ? 'on' : 'off'} (explanation only)`,
     );
 
+    const radarQuality = new RadarQualityService(
+        intradayRank,
+        buyPressure,
+        marketContext,
+        decisionSummary,
+    );
+    radarQuality.start();
+    console.log(
+        `radar-quality: ${radarQuality.getHealth().status} interval=${radarQuality.cfg.evaluate_interval_sec}s (support only)`,
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -337,6 +349,7 @@ async function main(): Promise<void> {
         decisionSummary,
         sessionAutonomy,
         aiInterpretation,
+        radarQuality,
         startedAt: Date.now(),
     };
     const liveAcceptance = new LiveAcceptanceService(ctx, dataDir);

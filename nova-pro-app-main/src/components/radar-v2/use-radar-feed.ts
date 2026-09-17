@@ -18,6 +18,12 @@ import {
 } from '../../lib/decision-summary';
 import { fetchMiOverview } from '../../lib/market-intelligence';
 import { fetchMarketContextOverview } from '../../lib/market-context';
+import {
+    fetchRadarQuality,
+    type FocusSlotDto,
+    type RadarQualityBatchDto,
+    type RadarQualityItemDto,
+} from '../../lib/radar-quality';
 import type { LiveStatus } from './tokens';
 
 export interface SectorHint {
@@ -55,6 +61,9 @@ export interface RadarFeed {
     bpBySymbol: Record<string, BuyPressureItemDto>;
     sectorBySymbol: Record<string, SectorHint>;
     dsBySymbol: Record<string, DecisionSummaryDto>;
+    rqBySymbol: Record<string, RadarQualityItemDto>;
+    focusTop3: FocusSlotDto[];
+    rqCounts: RadarQualityBatchDto['counts'] | null;
     refresh: () => void;
 }
 
@@ -95,6 +104,13 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
     const [dsBySymbol, setDsBySymbol] = useState<
         Record<string, DecisionSummaryDto>
     >({});
+    const [rqBySymbol, setRqBySymbol] = useState<
+        Record<string, RadarQualityItemDto>
+    >({});
+    const [focusTop3, setFocusTop3] = useState<FocusSlotDto[]>([]);
+    const [rqCounts, setRqCounts] = useState<
+        RadarQualityBatchDto['counts'] | null
+    >(null);
     const [taiwanRegime, setTaiwanRegime] = useState<string | null>(null);
     const [tick, setTick] = useState(0);
 
@@ -113,6 +129,7 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     fetchMiOverview(),
                     fetchDecisionSummary({ limit: 80 }),
                     fetchMarketContextOverview(),
+                    fetchRadarQuality({ limit: 80 }),
                 ]);
                 if (cancelled) return;
 
@@ -134,6 +151,8 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     settled[6].status === 'fulfilled' ? settled[6].value : null;
                 const mc =
                     settled[7].status === 'fulfilled' ? settled[7].value : null;
+                const rq =
+                    settled[8].status === 'fulfilled' ? settled[8].value : null;
 
                 if (!rank) {
                     setLiveStatus('DISCONNECTED');
@@ -183,6 +202,15 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                     dsMap[row.symbol] = row;
                 }
                 setDsBySymbol(dsMap);
+
+                const rqMap: Record<string, RadarQualityItemDto> = {};
+                for (const row of rq?.items ?? []) {
+                    rqMap[row.symbol] = row;
+                }
+                setRqBySymbol(rqMap);
+                setFocusTop3(rq?.focus_top3 ?? []);
+                setRqCounts(rq?.counts ?? null);
+
                 setTaiwanRegime(mc?.taiwan_regime?.state ?? null);
 
                 const idx = snaps.find(
@@ -285,6 +313,9 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             bpBySymbol,
             sectorBySymbol,
             dsBySymbol,
+            rqBySymbol,
+            focusTop3,
+            rqCounts,
             refresh,
         }),
         [
@@ -304,6 +335,9 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             bpBySymbol,
             sectorBySymbol,
             dsBySymbol,
+            rqBySymbol,
+            focusTop3,
+            rqCounts,
             refresh,
         ],
     );

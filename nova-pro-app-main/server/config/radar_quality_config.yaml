@@ -1,0 +1,53 @@
+# Radar Quality Upgrade v1 — Decision Support only.
+# Does NOT mutate A / B / C / BP / Heat / Raw Rank / thresholds.
+
+enabled: true
+version: rq_v1
+evaluate_interval_sec: 5
+
+# --- ACTIVE confirmations (need >= active_min_confirmations) ---
+active_min_confirmations: 2
+active_bp_strong_min: 70
+active_momentum_accel_min: 0
+active_volume_accel_min: 0
+active_rank_velocity_min: 1
+active_rvol_min: 1.2
+active_vwap_above_min_pct: 0
+active_c_state_strong:
+  - STRONG
+  - HEATING
+active_bp_states:
+  - BUY_SURGE
+  - ASK_EATING
+  - VOLUME_BREAKOUT
+  - EARLY
+active_sector_states:
+  - ROTATING_IN
+  - HOT
+  - LEADING
+
+# --- Weak thresholds (for INACTIVE / no-momentum) ---
+bp_weak_max: 40
+momentum_weak_max: 0
+volume_accel_weak_max: 0
+rank_velocity_weak_max: 0
+
+# --- Data gate ---
+coverage_not_ready_below: 40
+block_stale_from_active: true
+
+# --- Hysteresis ---
+active_enter_confirmations: 2
+active_exit_confirmations: 3
+
+# --- Focus Top3 sticky leader ---
+focus_leader_min_hold_seconds: 60
+focus_switch_confirmations: 3
+focus_switch_margin: 5
+focus_top_n: 3
+
+# --- Institutional (Previous-Day) ---
+foreign_strong_accumulation_min_shares: 500000
+foreign_accumulation_min_shares: 100000
+foreign_distribution_max_shares: -100000
+trust_accumulation_min_shares: 50000

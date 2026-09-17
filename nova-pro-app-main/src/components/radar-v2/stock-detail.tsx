@@ -8,6 +8,12 @@ import {
     type StockAIInterpretationDto,
 } from '../../lib/ai-interpretation';
 import {
+    continuationShort,
+    fetchRadarQuality,
+    momentumLabel,
+    type RadarQualityItemDto,
+} from '../../lib/radar-quality';
+import {
     fetchMiSymbol,
     type SymbolIntelligenceDto,
 } from '../../lib/market-intelligence';
@@ -86,6 +92,7 @@ export function StockDetailPage({
     const [interpStatus, setInterpStatus] = useState<
         'loading' | 'ready' | 'missing'
     >('loading');
+    const [rqItem, setRqItem] = useState<RadarQualityItemDto | null>(null);
     const [aiNarrative, setAiNarrative] = useState<string | null>(null);
     const [aiLoading, setAiLoading] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
@@ -130,6 +137,16 @@ export function StockDetailPage({
                 setInterpStatus('missing');
             }
         });
+        void fetchRadarQuality({ limit: 80 })
+            .then((batch) => {
+                if (cancelled) return;
+                const hit =
+                    batch.items.find((r) => r.symbol === item.symbol) ?? null;
+                setRqItem(hit);
+            })
+            .catch(() => {
+                if (!cancelled) setRqItem(null);
+            });
         void (async () => {
             try {
                 const rows = await fetchSnapshots([
@@ -558,6 +575,27 @@ export function StockDetailPage({
                     >
                         AI 輔助解讀，不影響正式分數
                     </p>
+                    {rqItem && (
+                        <div
+                            style={{
+                                fontSize: 13,
+                                lineHeight: 1.55,
+                                marginBottom: 10,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            Momentum：{momentumLabel(rqItem.momentum_state)}
+                            <br />
+                            法人背景：
+                            {rqItem.institutional?.note ?? '資料不足'}
+                            <br />
+                            今日：
+                            {continuationShort(
+                                rqItem.institutional?.continuation,
+                            )}
+                            （昨日官方法人 + 今日盤中確認，非即時外資身份）
+                        </div>
+                    )}
 
                     {interp ? (
                         <>
