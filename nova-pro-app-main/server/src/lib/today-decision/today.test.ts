@@ -292,6 +292,8 @@ function board(items: TodayInputItem[], mode: 'INTRADAY' | 'PREOPEN' = 'INTRADAY
     assert.ok(b.headline.includes('美股偏多'));
     assert.equal(b.overnight?.source, 'live');
     assert.equal(b.overnight?.assets[0]?.name, '那斯達克');
+    assert.ok(b.market_note.includes('今日現貨收盤'));
+    assert.ok(b.market_note.includes('不是夜盤即時'));
     pass('T15 — 盤後標題帶入夜盤動向，不再空白');
 }
 
@@ -375,6 +377,46 @@ function board(items: TodayInputItem[], mode: 'INTRADAY' | 'PREOPEN' = 'INTRADAY
     assert.notEqual(b.items[0]!.action, 'ACTIONABLE');
     assert.equal(b.items[0]!.action, 'WATCH');
     pass('T14 — 注意股最多觀察，不能當正式進場');
+}
+
+// ---- T16 after-hours list is prep, not fake live entries ----
+{
+    const b = buildTodayBoard({
+        now,
+        mode: 'AFTER_HOURS',
+        items: [item({ symbol: '2454', c_score: null, a_score: 88 })],
+        taiwan_regime: 'RISK_ON_BROAD',
+        market_breadth_advance_pct: 68,
+        overnight: {
+            available: true,
+            session_date: '2026-09-17',
+            created_at: now.toISOString(),
+            us_overnight_bias: null,
+            headline: '夜盤期貨：那指期 +0.50%',
+            source: 'live',
+            assets: [{ id: 'nq_fut', name: '那指期', change_pct: 0.5 }],
+        },
+    });
+    assert.equal(b.items[0]!.action, 'WAIT');
+    assert.equal(b.items[0]!.action_label, '明日預備');
+    assert.ok(b.market_note.includes('今日現貨收盤'));
+    assert.ok(b.headline.includes('夜盤期貨'));
+    pass('T16 — 盤後名單是明日預備，不拿現貨廣度冒充夜盤');
+}
+
+// ---- T17 proxy risk never shown on the board ----
+{
+    const b = board([
+        item({
+            symbol: '2330',
+            decision_risks: ['INSTITUTIONAL_RISK_PROXY（PROXY — 非即時外資買賣）'],
+            c_risks: ['追高風險偏高'],
+        }),
+    ]);
+    assert.ok(
+        b.items[0]!.risk.every((r) => !r.includes('INSTITUTIONAL_RISK_PROXY')),
+    );
+    pass('T17 — INSTITUTIONAL_RISK_PROXY 不進決策板');
 }
 
 console.log(`\ntoday.test.ts ${passed} passed`);

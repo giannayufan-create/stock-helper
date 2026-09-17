@@ -50,6 +50,7 @@ export class MarketContextRuntime {
     private lastQuotes: TwDayQuote[] = [];
     private globalMarket = new GlobalMarketService();
     private lastGapLayers: GapLayersSnapshot | null = null;
+    private evalInFlight: Promise<MarketContextOverview> | null = null;
 
     constructor(
         private runtime: MarketRuntime,
@@ -141,13 +142,22 @@ export class MarketContextRuntime {
     }
 
     async evaluate(): Promise<MarketContextOverview> {
-        const t0 = performance.now();
-        try {
-            return await this.evaluateInner();
-        } finally {
-            EvalTimingRegistry.note('Context', performance.now() - t0);
-            ReadinessTracker.markContextReady();
+        if (this.evalInFlight) {
+            if (this.lastOverview) return this.lastOverview;
+            return this.evalInFlight;
         }
+        const t0 = performance.now();
+        this.evalInFlight = this.evaluateInner()
+            .catch((err) => {
+                if (this.lastOverview) return this.lastOverview;
+                throw err;
+            })
+            .finally(() => {
+                this.evalInFlight = null;
+                EvalTimingRegistry.note('Context', performance.now() - t0);
+                ReadinessTracker.markContextReady();
+            });
+        return this.evalInFlight;
     }
 
     private async evaluateInner(): Promise<MarketContextOverview> {

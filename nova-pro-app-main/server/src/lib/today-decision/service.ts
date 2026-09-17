@@ -5,6 +5,7 @@ import type { AppContext } from '../../context.ts';
 import { summarizeUsOvernightBias } from '../session-autonomy/overnight-snapshot.ts';
 import type { GlobalAssetQuote } from '../market-intelligence/types.ts';
 import { buildTodayBoard } from './engine.ts';
+import { getTxfNightQuote, refreshTxfNightQuote } from './txf-night-quote.ts';
 import type {
     TodayDecisionBoard,
     TodayInputItem,
@@ -59,6 +60,7 @@ const OVERNIGHT_ASSET_LABEL: Record<string, string> = {
     nikkei: '日經',
     hsi: '恆生',
     txf_night: '台指夜盤',
+    twf_cme: '海外台指期',
 };
 
 function runtimeChangePct(
@@ -141,7 +143,10 @@ function buildOvernightBrief(ctx: AppContext): TodayOvernightBrief {
             if (a.available) ingest(a.id, a.change_pct);
         }
     }
-    const txf = runtimeChangePct(ctx, ['TXFR1', 'TXF', 'TX']);
+    const txf =
+        runtimeChangePct(ctx, ['TXFR1', 'TXF', 'TX']) ??
+        getTxfNightQuote()?.pct ??
+        null;
     if (txf != null) ingest('txf_night', txf);
 
     const assets = Object.keys(OVERNIGHT_ASSET_LABEL)
@@ -150,22 +155,29 @@ function buildOvernightBrief(ctx: AppContext): TodayOvernightBrief {
             Boolean(a),
         );
 
+    const cashIds = new Set(['nasdaq', 'sox', 'spx', 'dow']);
+    const futIds = new Set(['nq_fut', 'es_fut', 'txf_night', 'twf_cme']);
+    const cash = assets.filter((a) => cashIds.has(a.id));
+    const fut = assets.filter((a) => futIds.has(a.id));
+    const asia = assets.filter(
+        (a) => a.id === 'nikkei' || a.id === 'hsi' || a.id === 'vix',
+    );
+
+    const fmt = (a: { name: string; change_pct: number | null }) =>
+        `${a.name} ${a.change_pct != null && a.change_pct >= 0 ? '+' : ''}${a.change_pct?.toFixed(2)}%`;
+
     const bias =
-        summarizeUsOvernightBias(asQuotes(pool)) ??
+        summarizeUsOvernightBias(asQuotes(cash.length ? cash : pool)) ??
         snap?.us_overnight_bias ??
         null;
 
-    let headline = bias;
-    if (!headline && assets.length) {
-        headline = `夜盤：${assets
-            .slice(0, 4)
-            .map(
-                (a) =>
-                    `${a.name} ${a.change_pct != null && a.change_pct >= 0 ? '+' : ''}${a.change_pct?.toFixed(2)}%`,
-            )
-            .join('、')}`;
-    }
-    if (!headline) headline = '夜盤指數尚未就緒';
+    const parts: string[] = [];
+    if (cash.length) parts.push(`美股現貨收盤：${cash.map(fmt).join('、')}`);
+    if (fut.length) parts.push(`夜盤期貨：${fut.map(fmt).join('、')}`);
+    if (asia.length) parts.push(asia.map(fmt).join('、'));
+    const headline = parts.length
+        ? parts.join('。')
+        : (bias ?? '夜盤指數尚未就緒');
 
     return {
         available: assets.length > 0 || Boolean(bias),
@@ -247,9 +259,9 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
     );
     const rankItems = ctx.intradayRank.getLastBatch()?.items ?? [];
 
-    // Pre-open / after-hours: no live C batch yet. Show the prepared A pool
-    // so 08:30 is not a blank screen — Open Gate confirmation starts at 09:00.
-    if (!rankItems.length && (mode === 'PREOPEN' || mode === 'AFTER_HOURS')) {
+    // After hours / preopen: never reuse a dead C batch (C=0, no last price)
+    // as "today look at these". A-pool is tomorrow/open prep only.
+    if (mode === 'PREOPEN' || mode === 'AFTER_HOURS') {
         return ctx.openGateV2.candidates
             .list()
             .slice()
@@ -334,6 +346,9 @@ export function buildTodayDecision(
     const now = opts.now ?? new Date();
     const mode = resolveTodayMode(ctx, now);
     const overview = ctx.marketContext?.getOverview() ?? null;
+    if (mode === 'AFTER_HOURS' || mode === 'PREOPEN') {
+        void refreshTxfNightQuote(ctx.market);
+    }
 
     return buildTodayBoard({
         now,

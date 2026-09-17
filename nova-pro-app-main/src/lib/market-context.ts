@@ -108,7 +108,10 @@ export interface MarketContextOverviewDto {
 }
 
 export function fetchMarketContextOverview() {
-    return apiGet<MarketContextOverviewDto>('/api/v1/market-context/overview');
+    return apiGet<MarketContextOverviewDto>(
+        '/api/v1/market-context/overview',
+        8000,
+    );
 }
 
 export function fetchMarketContextSectors() {

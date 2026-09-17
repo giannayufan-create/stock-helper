@@ -58,7 +58,7 @@ export interface MarketConfig {
 }
 
 export function fetchMarketConfig() {
-    return apiGet<MarketConfig>('/api/v1/config/market');
+    return apiGet<MarketConfig>('/api/v1/config/market', 4000);
 }
 
 /** validate + save a Fugle API key and hot-swap the market provider */

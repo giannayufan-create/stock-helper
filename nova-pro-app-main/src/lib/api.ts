@@ -20,12 +20,23 @@ async function fail(res: Response): Promise<never> {
     throw new Error(detail || `${res.status} ${res.statusText}`);
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-    const res = await fetch(base + path);
-    if (!res.ok) {
-        await fail(res);
+export async function apiGet<T>(path: string, timeoutMs?: number): Promise<T> {
+    const ctrl = timeoutMs ? new AbortController() : null;
+    const timer =
+        ctrl && timeoutMs
+            ? setTimeout(() => ctrl.abort(), timeoutMs)
+            : null;
+    try {
+        const res = await fetch(base + path, {
+            signal: ctrl?.signal,
+        });
+        if (!res.ok) {
+            await fail(res);
+        }
+        return res.json() as Promise<T>;
+    } finally {
+        if (timer) clearTimeout(timer);
     }
-    return res.json() as Promise<T>;
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {

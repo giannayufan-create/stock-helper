@@ -25,6 +25,7 @@ import { ConfirmLayersRow } from './confirm-layers';
 import { FreshnessBadge } from './freshness-badge';
 import {
     fmtPctSigned,
+    liveStatusLabel,
     regimeMeta,
     sortHeating,
     sortPullback,
@@ -183,7 +184,7 @@ export function TodayPage({
                                       : radarColor.healthBad,
                         }}
                     >
-                        {feed.liveStatus}
+                        {liveStatusLabel(feed.liveStatus)}
                     </div>
                 </div>
                 <FreshnessBadge
@@ -252,7 +253,7 @@ export function TodayPage({
                     }}
                 >
                     <div>
-                        <div className={s.cardMetaLab}>TAIEX</div>
+                        <div className={s.cardMetaLab}>加權</div>
                         <div
                             className={
                                 (tw?.taiex_change_pct ?? feed.taiexPct ?? 0) >= 0
@@ -272,7 +273,7 @@ export function TodayPage({
                         </div>
                     </div>
                     <div>
-                        <div className={s.cardMetaLab}>TPEX</div>
+                        <div className={s.cardMetaLab}>櫃買</div>
                         <div
                             className={
                                 (tw?.tpex_change_pct ?? feed.tpexPct ?? 0) >= 0
@@ -290,11 +291,11 @@ export function TodayPage({
                         </div>
                     </div>
                     <div>
-                        <div className={s.cardMetaLab}>Market Breadth</div>
+                        <div className={s.cardMetaLab}>上漲家數</div>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>
                             {tw?.market_breadth_advance_pct != null
                                 ? `${tw.market_breadth_advance_pct.toFixed(0)}%`
-                                : mc?.breadth.advance_pct != null
+                                : mc?.breadth?.advance_pct != null
                                   ? `${mc.breadth.advance_pct.toFixed(0)}%`
                                   : '—'}
                         </div>
@@ -312,9 +313,15 @@ export function TodayPage({
                         )}
                     </div>
                     <div>
-                        <div className={s.cardMetaLab}>Turnover Accel</div>
+                        <div className={s.cardMetaLab}>成交量動能</div>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>
-                            {tw?.turnover_acceleration ?? '—'}
+                            {tw?.turnover_acceleration === 'ACCELERATING'
+                                ? '加速'
+                                : tw?.turnover_acceleration === 'DECELERATING'
+                                  ? '減速'
+                                  : tw?.turnover_acceleration === 'FLAT'
+                                    ? '持平'
+                                    : '—'}
                         </div>
                     </div>
                 </div>
@@ -334,7 +341,7 @@ export function TodayPage({
                     >
                         <span>法人背景</span>
                         <FreshnessBadge level="PREVIOUS_DAY" compact />
-                        <span>PREVIOUS DAY · 非即時外資動態</span>
+                        <span>前一日 · 非即時外資動態</span>
                     </div>
                 )}
             </div>

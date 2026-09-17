@@ -17,9 +17,10 @@ import asyncio
 import json
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Literal
 from queue import Empty, Queue
+import re
 
 import shioaji as sj
 from fastapi import FastAPI, HTTPException, Query
@@ -124,7 +125,14 @@ def _register_quote_callbacks(client: sj.Shioaji) -> None:
         quote.set_on_tick_stk_v1_callback(_on_tick)
     if hasattr(quote, "set_on_bidask_stk_v1_callback"):
         quote.set_on_bidask_stk_v1_callback(_on_bidask)
-    elif hasattr(quote, "set_quote_callback"):
+    if hasattr(quote, "set_on_tick_fop_v1_callback"):
+        quote.set_on_tick_fop_v1_callback(_on_tick)
+    if hasattr(quote, "set_on_bidask_fop_v1_callback"):
+        quote.set_on_bidask_fop_v1_callback(_on_bidask)
+    if (
+        not hasattr(quote, "set_on_tick_stk_v1_callback")
+        and hasattr(quote, "set_quote_callback")
+    ):
         # legacy fallback
         def _on_quote(topic: str, raw: dict) -> None:  # type: ignore[no-untyped-def]
             try:
@@ -186,6 +194,95 @@ def stock_contract(code: str, exchange: str | None = None) -> Any:
         except Exception:
             pass
     raise HTTPException(status_code=404, detail=f"找不到商品: {code}")
+
+
+def _product_contracts(bag: Any) -> list[Any]:
+    out: list[Any] = []
+    try:
+        for item in bag:
+            if item is not None and getattr(item, "code", None):
+                out.append(item)
+    except Exception:
+        pass
+    if out:
+        return out
+    for name in dir(bag):
+        if name.startswith("_"):
+            continue
+        try:
+            item = getattr(bag, name)
+        except Exception:
+            continue
+        if item is None or callable(item):
+            continue
+        if getattr(item, "code", None):
+            out.append(item)
+    return out
+
+
+def _delivery_key(c: Any) -> str:
+    return str(
+        getattr(c, "delivery_date", "")
+        or getattr(c, "delivery_month", "")
+        or getattr(c, "code", "")
+        or ""
+    )
+
+
+def front_month_future(client: sj.Shioaji, product: str, which: int = 0) -> Any:
+    bag = None
+    try:
+        bag = getattr(client.Contracts.Futures, product)
+    except Exception:
+        bag = None
+    if bag is None:
+        try:
+            bag = client.Contracts.Futures[product]
+        except Exception:
+            bag = None
+    if bag is None:
+        raise HTTPException(status_code=404, detail=f"找不到期貨商品: {product}")
+    try:
+        alias = getattr(bag, f"{product}R{which + 1}", None)
+        if alias is not None and getattr(alias, "code", None):
+            return alias
+    except Exception:
+        pass
+    contracts = _product_contracts(bag)
+    today = date.today().isoformat().replace("-", "/")
+    alive = [c for c in contracts if _delivery_key(c) >= today]
+    pool = sorted(alive or contracts, key=_delivery_key)
+    if not pool or which >= len(pool):
+        raise HTTPException(
+            status_code=404, detail=f"找不到期貨月份: {product} R{which + 1}"
+        )
+    return pool[which]
+
+
+def futures_contract(code: str) -> Any:
+    client = ensure_api()
+    code = code.strip().upper()
+    try:
+        c = client.Contracts.Futures[code]
+        if c is not None and getattr(c, "code", None):
+            return c
+    except Exception:
+        pass
+    m = re.fullmatch(r"([A-Z]{2,4})R([12])", code)
+    if m:
+        return front_month_future(client, m.group(1), int(m.group(2)) - 1)
+    raise HTTPException(status_code=404, detail=f"找不到期貨: {code}")
+
+
+def resolve_contract(
+    code: str, security_type: str | None, exchange: str | None = None
+) -> Any:
+    st = (security_type or "STK").upper()
+    if st in ("STK", "STOCK"):
+        return stock_contract(code, exchange)
+    if st in ("FUT", "FUTURES"):
+        return futures_contract(code)
+    raise HTTPException(status_code=404, detail=f"不支援 {st}")
 
 
 def num(v: Any, default: float = 0.0) -> float:
@@ -314,10 +411,11 @@ def snapshots(body: SnapshotsBody) -> list[dict[str, Any]]:
     client = ensure_api()
     contracts = []
     for c in body.contracts[:500]:
-        if (c.security_type or "STK").upper() not in ("STK", "STOCK"):
+        st = (c.security_type or "STK").upper()
+        if st not in ("STK", "STOCK", "FUT", "FUTURES"):
             continue
         try:
-            contracts.append(stock_contract(c.code, c.exchange))
+            contracts.append(resolve_contract(c.code, st, c.exchange))
         except HTTPException:
             continue
     if not contracts:
@@ -329,7 +427,9 @@ def snapshots(body: SnapshotsBody) -> list[dict[str, Any]]:
 @app.post("/kbars")
 def kbars(body: KbarsBody) -> dict[str, Any]:
     client = ensure_api()
-    contract = stock_contract(body.contract.code, body.contract.exchange)
+    contract = resolve_contract(
+        body.contract.code, body.contract.security_type, body.contract.exchange
+    )
     bars = client.kbars(contract, start=body.start, end=body.end)
     # shioaji returns object with ts/Open/High/Low/Close/Volume arrays
     def arr(name: str) -> list[Any]:
@@ -366,7 +466,9 @@ def kbars(body: KbarsBody) -> dict[str, Any]:
 @app.post("/ticks")
 def ticks(body: TicksBody) -> dict[str, Any]:
     client = ensure_api()
-    contract = stock_contract(body.contract.code, body.contract.exchange)
+    contract = resolve_contract(
+        body.contract.code, body.contract.security_type, body.contract.exchange
+    )
     ticks_obj = client.ticks(contract, body.date)
     def arr(name: str) -> list[Any]:
         v = getattr(ticks_obj, name, None)
@@ -511,12 +613,13 @@ def search(q: str = Query("")) -> dict[str, Any]:
 
 @app.get("/contracts/{code}")
 def contracts(code: str, security_type: str = "STK") -> dict[str, Any]:
-    if security_type.upper() not in ("STK", "STOCK"):
-        raise HTTPException(status_code=404, detail="僅支援 STK")
-    c = stock_contract(code)
-    exchange = str(getattr(c, "exchange", "") or "TSE")
+    st = security_type.upper()
+    if st not in ("STK", "STOCK", "FUT", "FUTURES"):
+        raise HTTPException(status_code=404, detail="僅支援 STK / FUT")
+    c = resolve_contract(code, st)
+    exchange = str(getattr(c, "exchange", "") or ("TAIFEX" if st in ("FUT", "FUTURES") else "TSE"))
     return {
-        "security_type": "STK",
+        "security_type": "FUT" if st in ("FUT", "FUTURES") else "STK",
         "exchange": exchange,
         "code": str(getattr(c, "code", code)),
         "symbol": str(getattr(c, "code", code)),
@@ -534,7 +637,7 @@ def contracts(code: str, security_type: str = "STK") -> dict[str, Any]:
 @app.post("/subscribe")
 def subscribe(body: SubBody) -> dict[str, str]:
     client = ensure_api()
-    contract = stock_contract(body.code, body.exchange)
+    contract = resolve_contract(body.code, body.security_type, body.exchange)
     qt_raw = body.quote_type
     if qt_raw.lower() in ("tick",):
         qt = sj.constant.QuoteType.Tick
@@ -559,7 +662,7 @@ def subscribe(body: SubBody) -> dict[str, str]:
 @app.post("/unsubscribe")
 def unsubscribe(body: SubBody) -> dict[str, str]:
     client = ensure_api()
-    contract = stock_contract(body.code, body.exchange)
+    contract = resolve_contract(body.code, body.security_type, body.exchange)
     qt_raw = body.quote_type
     if qt_raw.lower() in ("bidask", "bid_ask"):
         qt = sj.constant.QuoteType.BidAsk

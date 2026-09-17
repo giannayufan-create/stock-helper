@@ -24,6 +24,7 @@ export interface SessionAutonomyDeps {
     onCashLive?: () => void | Promise<void>;
     onPreopen?: () => void | Promise<void>;
     getNotificationCandidateCount?: () => number;
+    refreshTxfNight?: () => Promise<void>;
 }
 
 export class SessionAutonomyService {
@@ -188,6 +189,11 @@ export class SessionAutonomyService {
             await this.deps.marketContext?.refreshGlobalAssets?.();
         } catch {
             /* soft — Today board still reads last cache */
+        }
+        try {
+            await this.deps.refreshTxfNight?.();
+        } catch {
+            /* TXF night is optional */
         }
     }
 

@@ -19,6 +19,7 @@ export const GLOBAL_ASSET_SPECS: GlobalAssetSpec[] = [
     { id: 'sox', name: 'SOX', yahoo: '^SOX', group: 'us' },
     { id: 'nq_fut', name: '那指期', yahoo: 'NQ=F', group: 'us' },
     { id: 'es_fut', name: '標普期', yahoo: 'ES=F', group: 'us' },
+    { id: 'twf_cme', name: '海外台指期', yahoo: 'TWF=F', group: 'taiwan' },
     { id: 'taiex', name: 'TAIEX', yahoo: '^TWII', group: 'taiwan' },
     { id: 'tpex', name: 'TPEx', yahoo: '^TWOII', group: 'taiwan' },
     { id: 'vix', name: 'VIX', yahoo: '^VIX', group: 'vol' },

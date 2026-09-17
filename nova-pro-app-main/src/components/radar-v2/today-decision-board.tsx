@@ -12,11 +12,22 @@ import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { RegulatoryChip, TrapChips } from './stock-flags';
 
+const BOARD_TITLE: Record<string, string> = {
+    PREOPEN: '盤前預備名單',
+    OPENING: '今天看這幾支',
+    INTRADAY: '今天看這幾支',
+    CLOSING: '今天看這幾支',
+    AFTER_HOURS: '夜盤與明日預備',
+};
+
 const CONFIDENCE_LABEL: Record<'HIGH' | 'MEDIUM' | 'LOW', string> = {
     HIGH: '資料完整',
     MEDIUM: '資料部分',
     LOW: '資料不足',
 };
+
+const CASH_IDS = new Set(['nasdaq', 'sox', 'spx', 'dow']);
+const FUT_IDS = new Set(['nq_fut', 'es_fut', 'txf_night', 'twf_cme']);
 
 function OvernightTape({
     overnight,
@@ -24,6 +35,12 @@ function OvernightTape({
     overnight: TodayDecisionBoardDto['overnight'];
 }) {
     const assets = overnight?.assets ?? [];
+    const cash = assets.filter((a) => CASH_IDS.has(a.id));
+    const fut = assets.filter((a) => FUT_IDS.has(a.id));
+    const other = assets.filter(
+        (a) => !CASH_IDS.has(a.id) && !FUT_IDS.has(a.id),
+    );
+    const hasTxf = fut.some((a) => a.id === 'txf_night');
     return (
         <div
             style={{
@@ -53,41 +70,10 @@ function OvernightTape({
             >
                 {overnight?.headline ?? '夜盤指數尚未就緒'}
             </div>
-            {assets.length > 0 && (
-                <div
-                    style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: 8,
-                        marginTop: 8,
-                    }}
-                >
-                    {assets.map((a) => {
-                        const up = (a.change_pct ?? 0) >= 0;
-                        return (
-                            <span
-                                key={a.id}
-                                style={{
-                                    fontSize: 12,
-                                    fontFamily: vars.font.mono,
-                                    color:
-                                        a.change_pct == null
-                                            ? vars.color.mutedForeground
-                                            : up
-                                              ? vars.color.up
-                                              : vars.color.down,
-                                }}
-                            >
-                                {a.name ?? a.id}{' '}
-                                {a.change_pct == null
-                                    ? '—'
-                                    : `${up ? '+' : ''}${a.change_pct.toFixed(2)}%`}
-                            </span>
-                        );
-                    })}
-                </div>
-            )}
-            {overnight?.source === 'snapshot' && (
+            <AssetRow label="美股現貨收盤" items={cash} />
+            <AssetRow label="夜盤期貨" items={fut} />
+            <AssetRow label="其他" items={other} />
+            {!hasTxf && (
                 <div
                     style={{
                         marginTop: 6,
@@ -95,9 +81,57 @@ function OvernightTape({
                         color: vars.color.mutedForeground,
                     }}
                 >
-                    來源：今早盤前快照
+                    台指夜盤未接入（永豐夜盤報價尚未回來；海外台指期僅供參考）
                 </div>
             )}
+        </div>
+    );
+}
+
+function AssetRow({
+    label,
+    items,
+}: {
+    label: string;
+    items: Array<{ id: string; name?: string; change_pct: number | null }>;
+}) {
+    if (!items.length) return null;
+    return (
+        <div style={{ marginTop: 8 }}>
+            <div
+                style={{
+                    fontSize: 11,
+                    color: vars.color.mutedForeground,
+                    marginBottom: 4,
+                }}
+            >
+                {label}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {items.map((a) => {
+                    const up = (a.change_pct ?? 0) >= 0;
+                    return (
+                        <span
+                            key={a.id}
+                            style={{
+                                fontSize: 12,
+                                fontFamily: vars.font.mono,
+                                color:
+                                    a.change_pct == null
+                                        ? vars.color.mutedForeground
+                                        : up
+                                          ? vars.color.up
+                                          : vars.color.down,
+                            }}
+                        >
+                            {a.name ?? a.id}{' '}
+                            {a.change_pct == null
+                                ? '—'
+                                : `${up ? '+' : ''}${a.change_pct.toFixed(2)}%`}
+                        </span>
+                    );
+                })}
+            </div>
         </div>
     );
 }
@@ -228,7 +262,8 @@ function DecisionRow({
                 </div>
             )}
 
-            {item.risk.length > 0 && (
+            {item.risk.filter((r) => !r.includes('INSTITUTIONAL_RISK_PROXY'))
+                .length > 0 && (
                 <div
                     style={{
                         marginTop: 4,
@@ -237,9 +272,11 @@ function DecisionRow({
                         lineHeight: 1.6,
                     }}
                 >
-                    {item.risk.map((r) => (
-                        <div key={r}>⚠ {r}</div>
-                    ))}
+                    {item.risk
+                        .filter((r) => !r.includes('INSTITUTIONAL_RISK_PROXY'))
+                        .map((r) => (
+                            <div key={r}>⚠ {r}</div>
+                        ))}
                 </div>
             )}
 
@@ -322,7 +359,7 @@ export function TodayDecisionBoard({
     if (!board) {
         return (
             <section className={s.section}>
-                <div className={s.sectionTitle}>今天看這幾支</div>
+                <div className={s.sectionTitle}>夜盤與今日判斷</div>
                 <div className={s.empty}>
                     {error ? `讀取失敗：${error}` : '讀取中…'}
                 </div>
@@ -333,7 +370,9 @@ export function TodayDecisionBoard({
     return (
         <section className={s.section}>
             <div className={s.sectionRow}>
-                <div className={s.sectionTitle}>今天看這幾支</div>
+                <div className={s.sectionTitle}>
+                    {BOARD_TITLE[board.mode] ?? '今天看這幾支'}
+                </div>
                 <span
                     style={{
                         fontSize: 11,
@@ -375,10 +414,16 @@ export function TodayDecisionBoard({
                         color: vars.color.mutedForeground,
                     }}
                 >
-                    <span>可進場 {board.counts.actionable}</span>
-                    <span>觀察 {board.counts.watch}</span>
-                    <span>未成形 {board.counts.wait}</span>
-                    <span>避開 {board.counts.avoid}</span>
+                    {board.mode === 'AFTER_HOURS' || board.mode === 'PREOPEN' ? (
+                        <span>明日預備 {board.items.length} 檔</span>
+                    ) : (
+                        <>
+                            <span>可進場 {board.counts.actionable}</span>
+                            <span>觀察 {board.counts.watch}</span>
+                            <span>未成形 {board.counts.wait}</span>
+                            <span>避開 {board.counts.avoid}</span>
+                        </>
+                    )}
                 </div>
             </div>
 

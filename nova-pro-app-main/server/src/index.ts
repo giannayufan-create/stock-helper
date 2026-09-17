@@ -40,6 +40,7 @@ import { RadarQualityService } from './lib/radar-quality/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { LiveOutcomeTracker } from './lib/signal-outcome/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
+import { refreshTxfNightQuote } from './lib/today-decision/txf-night-quote.ts';
 
 loadEnvFile();
 
@@ -298,6 +299,9 @@ async function main(): Promise<void> {
         dataDir,
         marketContext,
         researchRepos,
+        refreshTxfNight: async () => {
+            await refreshTxfNightQuote(manager);
+        },
         getNotificationCandidateCount: () =>
             webNotifications?.list({ limit: 200 }).length ?? 0,
         onPreopen: async () => {

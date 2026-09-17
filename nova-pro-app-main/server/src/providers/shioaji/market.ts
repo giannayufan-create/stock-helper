@@ -158,10 +158,15 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
 
     async snapshots(keys: ContractKey[]): Promise<Snapshot[]> {
         const contracts = keys
-            .filter((k) => k.security_type === 'STK')
+            .filter(
+                (k) =>
+                    k.security_type === 'STK' || k.security_type === 'FUT',
+            )
             .map((k) => ({
-                security_type: 'STK',
-                exchange: k.exchange ?? 'TSE',
+                security_type: k.security_type,
+                exchange:
+                    k.exchange ??
+                    (k.security_type === 'FUT' ? 'TAIFEX' : 'TSE'),
                 code: k.code,
             }));
         if (!contracts.length) return [];

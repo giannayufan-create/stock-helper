@@ -247,29 +247,45 @@ function buildRisk(it: TodayInputItem): string[] {
     if (it.bp_overheated) extras.push('買盤過熱');
     if (it.bp_stale) extras.push('買盤資料延遲');
     if (it.data_blocked) extras.push('行情資料不完整');
-    return dedupe([...extras, ...it.decision_risks, ...it.c_risks], 2);
+    return dedupe(
+        [...extras, ...it.decision_risks, ...it.c_risks].filter(
+            (r) => !r.includes('INSTITUTIONAL_RISK_PROXY'),
+        ),
+        2,
+    );
 }
 
 function marketNote(
     regime: string | null,
     advancePct: number | null,
+    mode: TodayMode,
 ): string {
     const breadth =
         advancePct != null ? `，上漲家數約 ${Math.round(advancePct)}%` : '';
+    let cash: string;
     switch (regime) {
         case 'RISK_ON_BROAD':
-            return `大盤偏多且廣度不錯${breadth}`;
+            cash = `大盤偏多且廣度不錯${breadth}`;
+            break;
         case 'RISK_ON_NARROW':
-            return `大盤偏多但只集中在少數股${breadth}`;
+            cash = `大盤偏多但只集中在少數股${breadth}`;
+            break;
         case 'NEUTRAL':
-            return `大盤中性，選股比看指數重要${breadth}`;
+            cash = `大盤中性，選股比看指數重要${breadth}`;
+            break;
         case 'RISK_OFF_NARROW':
-            return `大盤偏弱，建議減少檔數${breadth}`;
+            cash = `大盤偏弱，建議減少檔數${breadth}`;
+            break;
         case 'RISK_OFF_BROAD':
-            return `大盤明顯偏空，建議空手或極小部位${breadth}`;
+            cash = `大盤明顯偏空，建議空手或極小部位${breadth}`;
+            break;
         default:
-            return `大盤狀態資料不足${breadth}`;
+            cash = `大盤狀態資料不足${breadth}`;
     }
+    if (mode === 'AFTER_HOURS' || mode === 'PREOPEN') {
+        return `今日現貨收盤：${cash}（不是夜盤即時）`;
+    }
+    return cash;
 }
 
 function buildHeadline(
@@ -315,7 +331,10 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
             last_price: it.last_price,
             change_pct: it.change_pct,
             action,
-            action_label: ACTION_LABEL[action],
+            action_label:
+                input.mode === 'PREOPEN' || input.mode === 'AFTER_HOURS'
+                    ? '明日預備'
+                    : ACTION_LABEL[action],
             action_hint: hint,
             conviction: conviction(it, action),
             why: buildWhy(it),
@@ -358,7 +377,9 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
         rank: idx + 1,
     }));
 
-    const dataReady = input.items.length > 0;
+    const dataReady =
+        input.items.length > 0 ||
+        Boolean(input.mode === 'AFTER_HOURS' && input.overnight?.available);
 
     return {
         as_of: input.now.toISOString(),
@@ -373,6 +394,7 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
         market_note: marketNote(
             input.taiwan_regime,
             input.market_breadth_advance_pct,
+            input.mode,
         ),
         items,
         counts,
@@ -380,9 +402,11 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
         data_ready: dataReady,
         not_ready_reason: dataReady
             ? null
-            : input.mode === 'AFTER_HOURS' || input.mode === 'PREOPEN'
-              ? '非交易時段，盤中名單尚未產生'
-              : '盤中批次尚未就緒，稍候再看',
+            : input.mode === 'AFTER_HOURS'
+              ? '盤後先看夜盤；明日名單等盤前預備'
+              : input.mode === 'PREOPEN'
+                ? '盤前名單尚未產生'
+                : '盤中批次尚未就緒，稍候再看',
         mutates_strategy: false,
         disclaimer: DISCLAIMER,
     };
