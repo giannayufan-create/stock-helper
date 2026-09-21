@@ -72,7 +72,7 @@ export function RadarApp({
 
     useEffect(() => {
         // Defer SSE + unread so first paint can hit limit-up / rank first
-        let unsub = () => undefined;
+        let unsub: () => void = () => undefined;
         const start = window.setTimeout(() => {
             ensureStream();
             const refresh = () => {
