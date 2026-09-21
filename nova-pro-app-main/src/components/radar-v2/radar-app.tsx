@@ -50,9 +50,10 @@ export function RadarApp({
     onOpenSearch?: () => void;
 }) {
     const isDesktop = useMediaQuery('screen and (min-width: 1025px)');
-    const feed = useRadarFeed(12_000);
     const [tab, setTab] = useState<RadarTab>('radar');
     const [radarInner, setRadarInner] = useState<string>('limit');
+    const feedPaused = tab === 'radar' && radarInner === 'limit';
+    const feed = useRadarFeed(12_000, feedPaused);
     const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
     const [detailFetched, setDetailFetched] =
         useState<IntradayRankItemDto | null>(null);
@@ -404,6 +405,7 @@ export function RadarApp({
     ) : null;
 
     const healthBanner =
+        !feedPaused &&
         feed.healthNote && (
             <div
                 className={`${s.banner} ${

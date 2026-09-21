@@ -83,7 +83,10 @@ const OTC = {
     target_code: null,
 };
 
-export function useRadarFeed(pollMs = 5000): RadarFeed {
+export function useRadarFeed(
+    pollMs = 5000,
+    paused = false,
+): RadarFeed {
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState<IntradayRankItemDto[]>([]);
     const [events, setEvents] = useState<RadarFeed['events']>([]);
@@ -341,6 +344,7 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
         };
 
         const load = async () => {
+            if (paused) return;
             if (inflightLoad) return;
             if (
                 typeof document !== 'undefined' &&
@@ -384,14 +388,20 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             if (!document.hidden) void load();
         };
         document.addEventListener('visibilitychange', onVis);
-        void load();
+        if (!paused) {
+            void load();
+        } else {
+            setLoading(false);
+            setLiveStatus('LIVE');
+            setHealthNote(null);
+        }
         const t = setInterval(() => void load(), pollMs);
         return () => {
             cancelled = true;
             clearInterval(t);
             document.removeEventListener('visibilitychange', onVis);
         };
-    }, [pollMs, tick]);
+    }, [pollMs, tick, paused]);
 
     return useMemo(
         () => ({

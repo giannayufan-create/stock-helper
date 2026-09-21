@@ -6,11 +6,15 @@ import App from './App';
 import { ErrorBoundary } from './components/error-boundary';
 import './index.css';
 import { startApiWarmup } from './lib/api-ready';
+import { getApiBase } from './lib/runtime';
 import { initTheme } from './lib/theme-store';
 import { startTriggerEngine } from './lib/trigger-engine';
 
 initTheme();
 startApiWarmup();
+void fetch(`${getApiBase()}/api/v1/health`, { cache: 'no-store' }).catch(
+    () => undefined,
+);
 startTriggerEngine();
 
 const rootElement = document.getElementById('root');

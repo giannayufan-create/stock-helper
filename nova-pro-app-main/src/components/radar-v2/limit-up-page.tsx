@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
     fetchLimitUpBoard,
+    readCachedLimitUpBoard,
+    writeCachedLimitUpBoard,
     type LimitUpBoardItem,
 } from '../../lib/limit-up-board';
+import { isHostedApi } from '../../lib/runtime';
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
@@ -36,19 +39,30 @@ export function LimitUpPage({
 }: {
     onOpenSymbol: (symbol: string) => void;
 }) {
-    const [items, setItems] = useState<LimitUpBoardItem[]>([]);
-    const [asOf, setAsOf] = useState<string | null>(null);
-    const [source, setSource] = useState<string | null>(null);
-    const [mode, setMode] = useState<string | null>(null);
-    const [warnings, setWarnings] = useState<string[]>([]);
-    const [loading, setLoading] = useState(true);
+    const cached = readCachedLimitUpBoard();
+    const [items, setItems] = useState<LimitUpBoardItem[]>(
+        () => cached?.items ?? [],
+    );
+    const [asOf, setAsOf] = useState<string | null>(() => cached?.as_of ?? null);
+    const [source, setSource] = useState<string | null>(
+        () => cached?.source ?? null,
+    );
+    const [mode, setMode] = useState<string | null>(() => cached?.mode ?? null);
+    const [warnings, setWarnings] = useState<string[]>(
+        () => cached?.warnings ?? [],
+    );
+    const [loading, setLoading] = useState(!cached);
+    const [stale, setStale] = useState(!!cached);
     const [err, setErr] = useState<string | null>(null);
-    const gotData = useRef(false);
+    const gotData = useRef(!!cached);
 
     useEffect(() => {
         let cancelled = false;
         const load = () => {
-            void fetchLimitUpBoard({ count: 80, timeoutMs: 18_000 })
+            void fetchLimitUpBoard({
+                count: 80,
+                timeoutMs: isHostedApi() ? 35_000 : 12_000,
+            })
                 .then((dto) => {
                     if (cancelled) return;
                     gotData.current = true;
@@ -57,11 +71,14 @@ export function LimitUpPage({
                     setSource(dto.source);
                     setMode(dto.mode);
                     setWarnings(dto.warnings ?? []);
+                    setStale(false);
                     setErr(null);
+                    if (dto.items.length) writeCachedLimitUpBoard(dto);
                 })
                 .catch(() => {
-                    if (!cancelled && !gotData.current) {
-                        setErr('漲停板暫時無法載入');
+                    if (cancelled) return;
+                    if (!gotData.current) {
+                        setErr('漲停板暫時無法載入，後端可能還在喚醒');
                     }
                 })
                 .finally(() => {
@@ -111,7 +128,7 @@ export function LimitUpPage({
                     >
                         {loading && !gotData.current
                             ? '載入中…'
-                            : `${items.length} 檔 · ${SOURCE_LABEL[source ?? ''] ?? source ?? '—'} · ${mode === 'live' ? '即時' : '日線'}`}
+                            : `${items.length} 檔 · ${SOURCE_LABEL[source ?? ''] ?? source ?? '—'} · ${mode === 'live' ? '即時' : '日線'}${stale ? ' · 上次紀錄' : ''}`}
                         {asOf
                             ? ` · ${new Date(asOf).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
                             : ''}
@@ -124,7 +141,12 @@ export function LimitUpPage({
                     {err}
                 </div>
             )}
-            {warnings.length > 0 && !err && (
+            {stale && items.length > 0 && !err && (
+                <div className={s.banner} style={{ margin: '0 0 10px' }}>
+                    先顯示上次成功的名單，正在更新今日漲停。
+                </div>
+            )}
+            {warnings.length > 0 && !err && !stale && (
                 <div className={s.banner} style={{ margin: '0 0 10px' }}>
                     {warnings[0]}
                 </div>

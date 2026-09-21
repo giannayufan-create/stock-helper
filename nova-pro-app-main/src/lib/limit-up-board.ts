@@ -44,3 +44,25 @@ export function fetchLimitUpBoard(opts?: {
         opts?.timeoutMs ?? 15_000,
     );
 }
+
+const BOARD_CACHE_KEY = 'limit-up-board-v1';
+
+export function readCachedLimitUpBoard(): LimitUpBoardDto | null {
+    try {
+        const raw = localStorage.getItem(BOARD_CACHE_KEY);
+        if (!raw) return null;
+        const dto = JSON.parse(raw) as LimitUpBoardDto;
+        if (!Array.isArray(dto.items) || dto.items.length === 0) return null;
+        return dto;
+    } catch {
+        return null;
+    }
+}
+
+export function writeCachedLimitUpBoard(dto: LimitUpBoardDto): void {
+    try {
+        localStorage.setItem(BOARD_CACHE_KEY, JSON.stringify(dto));
+    } catch {
+        // quota / private mode
+    }
+}

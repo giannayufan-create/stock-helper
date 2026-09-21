@@ -38,11 +38,49 @@ export interface LimitUpBoardDto {
 }
 
 function scannerChangePct(row: ScannerItem): number | null {
-    // ChangePercentRank maps Fugle changePercent → rank_value
-    if (Number.isFinite(row.rank_value)) return row.rank_value;
+    // ChangePercentRank maps Fugle changePercent → rank_value (percent, not volume)
+    if (Number.isFinite(row.rank_value) && Math.abs(row.rank_value) <= 20) {
+        return row.rank_value;
+    }
     const prev = row.close - row.change_price;
     if (!(prev > 0) || !Number.isFinite(row.change_price)) return null;
     return (row.change_price / prev) * 100;
+}
+
+/** TW cash session Mon–Fri 08:50–13:40 Taipei (movers still useful near open/close). */
+function isTwCashSession(now = new Date()): boolean {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Taipei',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+    }).formatToParts(now);
+    const wd = parts.find((p) => p.type === 'weekday')?.value ?? '';
+    if (wd === 'Sat' || wd === 'Sun') return false;
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+    const hm = hour * 60 + minute;
+    return hm >= 8 * 60 + 50 && hm <= 13 * 60 + 40;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const t = setTimeout(
+            () => reject(new Error(`${label} timeout ${ms}ms`)),
+            ms,
+        );
+        promise.then(
+            (v) => {
+                clearTimeout(t);
+                resolve(v);
+            },
+            (err) => {
+                clearTimeout(t);
+                reject(err);
+            },
+        );
+    });
 }
 
 function fromScanner(row: ScannerItem, pct: number): LimitUpBoardItem {
@@ -158,44 +196,53 @@ export async function buildLimitUpBoard(
         }
     }
 
-    const cacheKey = `live:${minPct}:${count}`;
-    const hit = cacheGet(cacheKey);
+    const inSession = isTwCashSession();
+    const cacheKey = `${inSession ? 'live' : 'eod'}:${minPct}:${count}`;
+    const hit = cacheGet(cacheKey, inSession ? 8_000 : 90_000);
     if (hit) return hit;
 
-    // Live path: scanner ChangePercentRank
-    try {
-        const rows = await market.scanner('ChangePercentRank', 100, false);
-        const items: LimitUpBoardItem[] = [];
-        for (const row of rows) {
-            if (!isCommonEquityCode(row.code)) continue;
-            const pct = scannerChangePct(row);
-            if (pct == null || pct < minPct) continue;
-            items.push(fromScanner(row, pct));
+    // After hours: skip empty Fugle movers and go straight to TWSE/TPEx day tape.
+    if (inSession || opts.mode === 'live') {
+        try {
+            const rows = await withTimeout(
+                market.scanner('ChangePercentRank', 100, false),
+                8_000,
+                'scanner',
+            );
+            const items: LimitUpBoardItem[] = [];
+            for (const row of rows) {
+                if (!isCommonEquityCode(row.code)) continue;
+                const pct = scannerChangePct(row);
+                if (pct == null || pct < minPct) continue;
+                items.push(fromScanner(row, pct));
+            }
+            if (items.length > 0) {
+                const sorted = sortItems(items).slice(0, count);
+                const dto: LimitUpBoardDto = {
+                    as_of: new Date().toISOString(),
+                    mode: 'live',
+                    source: 'scanner',
+                    min_pct: minPct,
+                    count: sorted.length,
+                    items: sorted,
+                    warnings,
+                };
+                cacheSet(cacheKey, dto);
+                return dto;
+            }
+            if (inSession) {
+                warnings.push('scanner 無 ≥門檻標的，改用證交所日線');
+            }
+        } catch (err) {
+            warnings.push(
+                err instanceof Error
+                    ? `scanner: ${err.message}`
+                    : 'scanner unavailable',
+            );
         }
-        if (items.length > 0) {
-            const sorted = sortItems(items).slice(0, count);
-            const dto: LimitUpBoardDto = {
-                as_of: new Date().toISOString(),
-                mode: 'live',
-                source: 'scanner',
-                min_pct: minPct,
-                count: sorted.length,
-                items: sorted,
-                warnings,
-            };
-            cacheSet(cacheKey, dto);
-            return dto;
-        }
-        warnings.push('scanner 無 ≥門檻標的，改用證交所日線');
-    } catch (err) {
-        warnings.push(
-            err instanceof Error
-                ? `scanner: ${err.message}`
-                : 'scanner unavailable',
-        );
     }
 
-    // Fallback: TWSE/TPEx open data (session tape / EOD)
+    // Fallback / EOD: TWSE + TPEx published day quotes
     try {
         const all = await fetchTwMarketDayAll();
         const items = sortItems(
@@ -203,7 +250,7 @@ export async function buildLimitUpBoard(
         ).filter((x) => x.change_pct >= minPct);
         const dto: LimitUpBoardDto = {
             as_of: new Date().toISOString(),
-            mode: 'live',
+            mode: inSession ? 'live' : 'eod',
             source: 'tw_openapi',
             min_pct: minPct,
             count: items.length,
@@ -231,12 +278,11 @@ export async function buildLimitUpBoard(
     };
 }
 
-const CACHE_TTL_MS = 8_000;
 let cacheEntry: { key: string; at: number; dto: LimitUpBoardDto } | null = null;
 
-function cacheGet(key: string): LimitUpBoardDto | null {
+function cacheGet(key: string, ttlMs: number): LimitUpBoardDto | null {
     if (!cacheEntry || cacheEntry.key !== key) return null;
-    if (Date.now() - cacheEntry.at > CACHE_TTL_MS) return null;
+    if (Date.now() - cacheEntry.at > ttlMs) return null;
     return cacheEntry.dto;
 }
 
