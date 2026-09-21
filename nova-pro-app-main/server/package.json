@@ -45,7 +45,9 @@
         "learning:analyze": "tsx src/learning-analyze-cli.ts",
         "learning:tune": "tsx src/learning-tune-cli.ts",
         "shadow:summary": "tsx src/shadow-cli.ts",
-        "shadow:daily": "tsx src/shadow-daily-cli.ts"
+        "shadow:daily": "tsx src/shadow-daily-cli.ts",
+        "board-attack:backtest": "tsx src/board-attack-cli.ts",
+        "test:board-attack": "tsx src/lib/board-attack/board-attack.test.ts"
     },
     "dependencies": {
         "@fastify/static": "^10.1.3",

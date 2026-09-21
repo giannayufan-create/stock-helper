@@ -13,10 +13,7 @@ import {
     type IntradayRankItemDto,
     type OpenConfirmV2Result,
 } from '../../lib/backend';
-import {
-    fetchBuyPressure,
-    type BuyPressureItemDto,
-} from '../../lib/buy-pressure';
+import { type BuyPressureItemDto } from '../../lib/buy-pressure';
 import {
     fetchDecisionSummary,
     type DecisionSummaryDto,
@@ -101,9 +98,7 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
     const [tpexPct, setTpexPct] = useState<number | null>(null);
     const [liveStatus, setLiveStatus] = useState<LiveStatus>('WAKING');
     const [healthNote, setHealthNote] = useState<string | null>(null);
-    const [bpBySymbol, setBpBySymbol] = useState<
-        Record<string, BuyPressureItemDto>
-    >({});
+    const [bpBySymbol] = useState<Record<string, BuyPressureItemDto>>({});
     const [sectorBySymbol, setSectorBySymbol] = useState<
         Record<string, SectorHint>
     >({});
@@ -220,11 +215,49 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
             return true;
         };
 
-        const loadContext = async () => {
+        const loadContext = async (light: boolean) => {
+            if (light) {
+                const settled = await Promise.allSettled([
+                    fetchSnapshots([TSE, OTC]),
+                    fetchMarketContextOverview(),
+                    fetchOpenConfirmLatest(),
+                ]);
+                if (cancelled) return;
+                const snaps =
+                    settled[0].status === 'fulfilled'
+                        ? settled[0].value
+                        : ([] as Awaited<ReturnType<typeof fetchSnapshots>>);
+                const mc =
+                    settled[1].status === 'fulfilled' ? settled[1].value : null;
+                const oc =
+                    settled[2].status === 'fulfilled' ? settled[2].value : null;
+                if (oc) setOpenConfirm(oc);
+                if (mc) setTaiwanRegime(mc.taiwan_regime?.state ?? null);
+                const idx = snaps.find(
+                    (s) => s.code === '001' || s.code === 'IX0001',
+                );
+                const otc = snaps.find(
+                    (s) =>
+                        s.code === '101' ||
+                        s.code === '002' ||
+                        s.code === 'IX0043',
+                );
+                const snapTaiex =
+                    idx?.change_rate != null ? Number(idx.change_rate) : null;
+                const snapTpex =
+                    otc?.change_rate != null ? Number(otc.change_rate) : null;
+                setTaiexPct(
+                    snapTaiex ?? mc?.taiwan_regime?.taiex_change_pct ?? null,
+                );
+                setTpexPct(
+                    snapTpex ?? mc?.taiwan_regime?.tpex_change_pct ?? null,
+                );
+                return;
+            }
+
             const settled = await Promise.allSettled([
                 fetchIntradayEvents(40),
                 fetchSnapshots([TSE, OTC]),
-                fetchBuyPressure({ limit: 40 }),
                 fetchMiOverview(),
                 fetchDecisionSummary({ limit: 80 }),
                 fetchMarketContextOverview(),
@@ -239,18 +272,16 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                 settled[1].status === 'fulfilled'
                     ? settled[1].value
                     : ([] as Awaited<ReturnType<typeof fetchSnapshots>>);
-            const bp =
-                settled[2].status === 'fulfilled' ? settled[2].value : null;
             const mi =
-                settled[3].status === 'fulfilled' ? settled[3].value : null;
+                settled[2].status === 'fulfilled' ? settled[2].value : null;
             const ds =
-                settled[4].status === 'fulfilled' ? settled[4].value : null;
+                settled[3].status === 'fulfilled' ? settled[3].value : null;
             const mc =
-                settled[5].status === 'fulfilled' ? settled[5].value : null;
+                settled[4].status === 'fulfilled' ? settled[4].value : null;
             const rq =
-                settled[6].status === 'fulfilled' ? settled[6].value : null;
+                settled[5].status === 'fulfilled' ? settled[5].value : null;
             const oc =
-                settled[7].status === 'fulfilled' ? settled[7].value : null;
+                settled[6].status === 'fulfilled' ? settled[6].value : null;
 
             if (ev) {
                 setEvents(
@@ -259,11 +290,6 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                         name: undefined,
                     })),
                 );
-            }
-            if (bp) {
-                const bpMap: Record<string, BuyPressureItemDto> = {};
-                for (const row of bp.items ?? []) bpMap[row.symbol] = row;
-                setBpBySymbol(bpMap);
             }
             if (mi) {
                 const secMap: Record<string, SectorHint> = {};
@@ -341,8 +367,11 @@ export function useRadarFeed(pollMs = 5000): RadarFeed {
                           : 12_000,
                 );
                 if (cancelled || !ok) return;
-                if (cycles === 0 || cycles % 4 === 0) {
-                    void loadContext();
+                // Light context right after first paint; full context every 6 cycles
+                if (cycles === 0) {
+                    void loadContext(true);
+                } else if (cycles % 6 === 0) {
+                    void loadContext(false);
                 }
                 cycles += 1;
             } catch {

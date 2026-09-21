@@ -15,6 +15,7 @@ import { MorePage } from './more-page';
 import { IntelPage } from './intel-page';
 import { BrokerRadarPage } from './broker-radar-page';
 import { BuyPressurePage } from './buy-pressure-page';
+import { LimitUpPage } from './limit-up-page';
 import {
     NotificationCenter,
     useNotificationToasts,
@@ -49,9 +50,9 @@ export function RadarApp({
     onOpenSearch?: () => void;
 }) {
     const isDesktop = useMediaQuery('screen and (min-width: 1025px)');
-    const feed = useRadarFeed(10_000);
-    const [tab, setTab] = useState<RadarTab>('today');
-    const [radarInner, setRadarInner] = useState<string>('buy');
+    const feed = useRadarFeed(12_000);
+    const [tab, setTab] = useState<RadarTab>('radar');
+    const [radarInner, setRadarInner] = useState<string>('limit');
     const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
     const [detailFetched, setDetailFetched] =
         useState<IntradayRankItemDto | null>(null);
@@ -70,17 +71,25 @@ export function RadarApp({
     const [unreadNotif, setUnreadNotif] = useState(0);
 
     useEffect(() => {
-        ensureStream();
-        const refresh = () => {
+        // Defer SSE + unread so first paint can hit limit-up / rank first
+        let unsub = () => undefined;
+        const start = window.setTimeout(() => {
+            ensureStream();
+            const refresh = () => {
+                void fetchUnreadCount()
+                    .then((r) => setUnreadNotif(r.unread_count))
+                    .catch(() => undefined);
+            };
+            refresh();
+            unsub = onBuyPressureNotification(() => refresh());
+        }, 4_000);
+        const t = setInterval(() => {
             void fetchUnreadCount()
                 .then((r) => setUnreadNotif(r.unread_count))
                 .catch(() => undefined);
-        };
-        refresh();
-        const unsub = onBuyPressureNotification(() => refresh());
-        // Fallback only
-        const t = setInterval(refresh, 20_000);
+        }, 30_000);
         return () => {
+            clearTimeout(start);
             clearInterval(t);
             unsub();
         };
@@ -97,11 +106,12 @@ export function RadarApp({
             .catch(() => setProvider(null));
     }, []);
 
-    // Auto-open first stock on desktop when list arrives
+    // Auto-open first stock on desktop when intensity list arrives (not 漲停板)
     useEffect(() => {
         if (!isDesktop || detailSymbol || !feed.items.length) return;
+        if (tab === 'radar' && radarInner === 'limit') return;
         setDetailSymbol(feed.items[0]!.symbol);
-    }, [isDesktop, feed.items, detailSymbol]);
+    }, [isDesktop, feed.items, detailSymbol, tab, radarInner]);
 
     const detailItem = useMemo(() => {
         if (!detailSymbol) return null;
@@ -205,7 +215,7 @@ export function RadarApp({
                     selectedSymbol={detailSymbol}
                     onOpenSymbol={openSymbol}
                     onGoRadar={(inner) => {
-                        setRadarInner(inner ?? 'buy');
+                        setRadarInner(inner ?? 'limit');
                         setTab('radar');
                         if (!isDesktop) closeDetail();
                     }}
@@ -226,6 +236,15 @@ export function RadarApp({
                         <button
                             type="button"
                             className={`${s.quickBtn} ${
+                                radarInner === 'limit' ? s.tabChipOn : ''
+                            }`}
+                            onClick={() => setRadarInner('limit')}
+                        >
+                            漲停板
+                        </button>
+                        <button
+                            type="button"
+                            className={`${s.quickBtn} ${
                                 radarInner === 'buy' ? s.tabChipOn : ''
                             }`}
                             onClick={() => setRadarInner('buy')}
@@ -235,14 +254,20 @@ export function RadarApp({
                         <button
                             type="button"
                             className={`${s.quickBtn} ${
-                                radarInner !== 'buy' ? s.tabChipOn : ''
+                                radarInner === 'strong' ||
+                                radarInner === 'heating' ||
+                                radarInner === 'pullback'
+                                    ? s.tabChipOn
+                                    : ''
                             }`}
                             onClick={() => setRadarInner('strong')}
                         >
                             強度雷達
                         </button>
                     </div>
-                    {radarInner === 'buy' ? (
+                    {radarInner === 'limit' ? (
+                        <LimitUpPage onOpenSymbol={openSymbol} />
+                    ) : radarInner === 'buy' ? (
                         <BuyPressurePage onOpenSymbol={openSymbol} />
                     ) : (
                         <RadarPage
@@ -441,7 +466,7 @@ export function RadarApp({
                             }`}
                             onClick={() => {
                                 setTab(n.id);
-                                if (n.id === 'radar') setRadarInner('buy');
+                                if (n.id === 'radar') setRadarInner('limit');
                             }}
                         >
                             <span>{n.icon}</span>
@@ -490,7 +515,7 @@ export function RadarApp({
                         onClick={() => {
                             closeDetail();
                             setTab('radar');
-                            setRadarInner('buy');
+                            setRadarInner('limit');
                         }}
                     >
                         回雷達
@@ -519,7 +544,7 @@ export function RadarApp({
                         }`}
                         onClick={() => {
                             setTab(n.id);
-                            if (n.id === 'radar') setRadarInner('buy');
+                            if (n.id === 'radar') setRadarInner('limit');
                         }}
                     >
                         <span className={s.dockIcon}>{n.icon}</span>

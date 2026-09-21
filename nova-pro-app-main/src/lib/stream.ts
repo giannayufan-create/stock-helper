@@ -197,7 +197,7 @@ export function ensureStream() {
     if (started) return;
     started = true;
     if (isHostedApi()) {
-        retryTimer = setTimeout(connect, 3_000);
+        retryTimer = setTimeout(connect, 5_000);
     } else {
         connect();
     }

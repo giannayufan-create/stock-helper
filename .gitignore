@@ -34,3 +34,6 @@ Thumbs.db
 
 # Cursor MCP may contain FinMind token — never commit real secrets
 .cursor/mcp.json
+
+# BoardAttack FinMind daily cache (research)
+nova-pro-app-main/server/data/board-attack/
