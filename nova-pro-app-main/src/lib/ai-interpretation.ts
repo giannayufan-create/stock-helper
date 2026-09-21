@@ -84,6 +84,7 @@ export async function requestStockInterpretation(opts: {
         return await apiPost<StockAIInterpretationDto>(
             '/api/v1/ai/stock-interpretation',
             opts,
+            50_000,
         );
     } catch {
         return null;
@@ -115,6 +116,7 @@ export async function requestRadarInterpretation(body: {
         return await apiPost<RadarAIInterpretationDto>(
             '/api/v1/ai/radar-interpretation',
             body,
+            50_000,
         );
     } catch {
         return null;

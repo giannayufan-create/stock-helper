@@ -5,10 +5,12 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/error-boundary';
 import './index.css';
+import { startApiWarmup } from './lib/api-ready';
 import { initTheme } from './lib/theme-store';
 import { startTriggerEngine } from './lib/trigger-engine';
 
 initTheme();
+startApiWarmup();
 startTriggerEngine();
 
 const rootElement = document.getElementById('root');

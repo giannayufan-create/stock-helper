@@ -4,11 +4,15 @@ import {
     requestRadarInterpretation,
     type RadarAIInterpretationDto,
 } from '../../lib/ai-interpretation';
+import { getApiPhase } from '../../lib/api-ready';
 import {
     momentumLabel,
 } from '../../lib/radar-quality';
 import { vars } from '../../theme.css';
-import { eventLabel } from './helpers';
+import {
+    eventLabel,
+    looksLikeBoardMover,
+} from './helpers';
 import * as s from './radar.css';
 import { CompactStockRow } from './stock-cards';
 import { radarColor } from './tokens';
@@ -36,8 +40,9 @@ export function RadarPage({
 }) {
     const [tab, setTab] = useState<RadarInnerTab>('active');
     const [filterOpen, setFilterOpen] = useState(false);
-    const [minC, setMinC] = useState(0);
-    const [minHeat, setMinHeat] = useState(0);
+    const [minC, setMinC] = useState(50);
+    const [minHeat, setMinHeat] = useState(45);
+    const [onlyHot, setOnlyHot] = useState(true);
     const [instFilter, setInstFilter] = useState<InstFilter>('ALL');
     const [radarAi, setRadarAi] = useState<RadarAIInterpretationDto | null>(
         null,
@@ -67,6 +72,17 @@ export function RadarPage({
             if (i.intraday_score < minC || (i.heat_score ?? 0) < minHeat) {
                 return false;
             }
+            if (
+                onlyHot &&
+                !looksLikeBoardMover({
+                    changePct: i.adjusted_change_pct ?? i.change_pct,
+                    heat: i.heat_score,
+                    state: i.state,
+                    bpState: feed.bpBySymbol[i.symbol]?.primary_state,
+                })
+            ) {
+                return false;
+            }
             const q = feed.rqBySymbol[i.symbol];
             if (instFilter === 'FOREIGN_YDAY') {
                 const bg = q?.institutional?.background ?? '';
@@ -88,7 +104,15 @@ export function RadarPage({
             }
             return true;
         });
-    }, [feed.items, feed.rqBySymbol, minC, minHeat, instFilter]);
+    }, [
+        feed.items,
+        feed.rqBySymbol,
+        feed.bpBySymbol,
+        minC,
+        minHeat,
+        instFilter,
+        onlyHot,
+    ]);
 
     const list = useMemo(() => {
         const withQ = filtered.map((i) => ({
@@ -134,14 +158,23 @@ export function RadarPage({
         }
         if (tab === 'all') {
             return withQ
-                .filter(
-                    (x) =>
-                        x.q?.momentum_state === 'ACTIVE' ||
-                        x.q?.momentum_state === 'PULLBACK' ||
-                        x.q?.momentum_state === 'WATCH' ||
-                        x.q?.momentum_state === 'INACTIVE' ||
-                        !x.q,
-                )
+                .filter((x) => {
+                    const m = x.q?.momentum_state;
+                    if (onlyHot) {
+                        return (
+                            m === 'ACTIVE' ||
+                            m === 'PULLBACK' ||
+                            m === 'WATCH'
+                        );
+                    }
+                    return (
+                        m === 'ACTIVE' ||
+                        m === 'PULLBACK' ||
+                        m === 'WATCH' ||
+                        m === 'INACTIVE' ||
+                        !x.q
+                    );
+                })
                 .sort(
                     (a, b) =>
                         (b.q?.focus_score ?? -1) - (a.q?.focus_score ?? -1),
@@ -149,16 +182,17 @@ export function RadarPage({
                 .map((x) => x.item);
         }
         return [];
-    }, [tab, filtered, feed.rqBySymbol]);
+    }, [tab, filtered, feed.rqBySymbol, onlyHot]);
 
     const filterPayload = useMemo(
         () => ({
             tab,
             min_c: minC,
             min_heat: minHeat,
+            only_hot: onlyHot,
             inst_filter: instFilter,
         }),
-        [tab, minC, minHeat, instFilter],
+        [tab, minC, minHeat, instFilter, onlyHot],
     );
 
     const counts = feed.rqCounts;
@@ -182,6 +216,14 @@ export function RadarPage({
     }, [list, filterPayload]);
 
     const runRadarAi = async () => {
+        if (getApiPhase() !== 'ready' || list.length === 0) {
+            setRadarAiError(
+                getApiPhase() !== 'ready'
+                    ? '後端還沒連上，請稍候再按'
+                    : '目前沒有雷達標的',
+            );
+            return;
+        }
         setRadarAiLoading(true);
         setRadarAiError(null);
         try {
@@ -437,12 +479,23 @@ export function RadarPage({
                         type="button"
                         className={s.aiBtn}
                         style={{ marginTop: 12, minHeight: 44 }}
-                        disabled={radarAiLoading || list.length === 0}
+                        disabled={
+                            radarAiLoading ||
+                            list.length === 0 ||
+                            feed.liveStatus === 'WAKING' ||
+                            feed.liveStatus === 'DISCONNECTED'
+                        }
                         onClick={() => void runRadarAi()}
                     >
                         {radarAiLoading
                             ? '解讀中…'
-                            : '✨ AI 解讀目前雷達'}
+                            : feed.liveStatus === 'WAKING'
+                              ? '載入中…'
+                              : feed.liveStatus === 'DISCONNECTED'
+                                ? '尚未連上後端'
+                                : list.length === 0
+                                  ? '目前沒有雷達標的'
+                                  : '✨ AI 解讀目前雷達'}
                     </button>
                 </div>
             )}
@@ -451,19 +504,35 @@ export function RadarPage({
                 <EventsList feed={feed} onOpenSymbol={onOpenSymbol} />
             ) : list.length === 0 ? (
                 <div className={s.empty}>
-                    此分頁暫無標的
+                    {feed.liveStatus === 'WAKING'
+                        ? '正在載入雷達'
+                        : feed.liveStatus === 'DISCONNECTED'
+                          ? '還沒連上後端，請到「今日」按重新連線'
+                          : '此分頁暫無標的'}
                     <button
                         type="button"
                         className={s.quickBtn}
                         style={{ marginTop: 12, width: '100%', minHeight: 44 }}
                         onClick={() => {
+                            if (
+                                feed.liveStatus === 'DISCONNECTED' ||
+                                feed.liveStatus === 'WAKING'
+                            ) {
+                                feed.refresh();
+                                return;
+                            }
+                            setOnlyHot(false);
                             setMinC(0);
                             setMinHeat(0);
                             setInstFilter('ALL');
                             feed.refresh();
                         }}
                     >
-                        重設篩選並重新整理
+                        {feed.liveStatus === 'DISCONNECTED'
+                            ? '重新連線'
+                            : feed.liveStatus === 'WAKING'
+                              ? '重新整理'
+                              : '顯示全部標的'}
                     </button>
                 </div>
             ) : (
@@ -533,6 +602,14 @@ export function RadarPage({
                                 style={{ width: '100%' }}
                             />
                         </label>
+                        <button
+                            type="button"
+                            className={`${s.quickBtn} ${onlyHot ? s.tabChipOn : ''}`}
+                            style={{ marginBottom: 12, minHeight: 44 }}
+                            onClick={() => setOnlyHot((v) => !v)}
+                        >
+                            {onlyHot ? '只要強勢（已開）' : '只要強勢（已關）'}
+                        </button>
                         <label style={{ display: 'block', marginBottom: 12 }}>
                             <div style={{ fontSize: 13, marginBottom: 6 }}>
                                 法人續強
@@ -580,8 +657,9 @@ export function RadarPage({
                                 className={s.btnGhost}
                                 style={{ minHeight: 44 }}
                                 onClick={() => {
-                                    setMinC(0);
-                                    setMinHeat(0);
+                                    setMinC(50);
+                                    setMinHeat(45);
+                                    setOnlyHot(true);
                                     setInstFilter('ALL');
                                 }}
                             >

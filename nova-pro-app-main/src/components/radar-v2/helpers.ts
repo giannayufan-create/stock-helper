@@ -99,6 +99,8 @@ export function liveStatusLabel(status: string): string {
             return '即時';
         case 'REPLAY':
             return '回放';
+        case 'WAKING':
+            return '載入中';
         case 'DATA STALE':
             return '資料過期';
         case 'DISCONNECTED':
@@ -144,6 +146,34 @@ export function primaryEvent(item: IntradayRankItemDto): string | null {
 export function fmtNum(v: number | null | undefined, digits = 1): string {
     if (v == null || Number.isNaN(v)) return '—';
     return v.toFixed(digits);
+}
+
+export function looksLikeBoardMover(opts: {
+    changePct?: number | null;
+    heat?: number | null;
+    state?: string | null;
+    bpState?: string | null;
+}): boolean {
+    const pct = opts.changePct;
+    const heat = opts.heat ?? 0;
+    const st = (opts.state ?? '').toUpperCase();
+    const bp = (opts.bpState ?? '').toUpperCase();
+    if (st === 'INVALID' || st === 'DORMANT') {
+        return false;
+    }
+    if (pct == null || pct < 1) return false;
+    if (pct >= 2) return true;
+    if (heat >= 45) return true;
+    if (bp === 'COOLING' || st === 'COOLING') return false;
+    const strong =
+        st === 'STRONG' ||
+        st === 'HEATING' ||
+        bp === 'BUY_SURGE' ||
+        bp === 'ASK_EATING' ||
+        bp === 'VOLUME_BREAKOUT' ||
+        bp === 'OVERHEATED' ||
+        bp === 'LARGE_BID';
+    return strong && pct >= 1;
 }
 
 export function fmtPctSigned(v: number | null | undefined): string {

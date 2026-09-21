@@ -27,6 +27,7 @@ import { ConfirmLayersRow } from './confirm-layers';
 import { FreshnessBadge } from './freshness-badge';
 import {
     fmtPctSigned,
+    looksLikeBoardMover,
     liveStatusLabel,
     regimeMeta,
     sortHeating,
@@ -151,9 +152,14 @@ export function TodayPage({
     const heating = sortHeating(feed.items)
         .filter(
             (i) =>
-                i.state === 'HEATING' ||
-                i.state === 'EMERGING' ||
-                (i.heat_score ?? 0) >= 65,
+                (i.state === 'HEATING' ||
+                    i.state === 'EMERGING' ||
+                    (i.heat_score ?? 0) >= 65) &&
+                looksLikeBoardMover({
+                    changePct: i.adjusted_change_pct ?? i.change_pct,
+                    heat: i.heat_score,
+                    state: i.state,
+                }),
         )
         .slice(0, 8);
     const pullbacks = sortPullback(feed.items).slice(0, 6);
@@ -265,7 +271,8 @@ export function TodayPage({
                             color:
                                 feed.liveStatus === 'LIVE'
                                     ? radarColor.live
-                                    : feed.liveStatus === 'DATA STALE'
+                                    : feed.liveStatus === 'WAKING' ||
+                                        feed.liveStatus === 'DATA STALE'
                                       ? radarColor.healthWarn
                                       : radarColor.healthBad,
                         }}
@@ -277,15 +284,34 @@ export function TodayPage({
                     level={
                         feed.liveStatus === 'LIVE'
                             ? 'REALTIME'
-                            : feed.liveStatus === 'DATA STALE'
+                            : feed.liveStatus === 'WAKING'
                               ? 'STALE'
-                              : 'DELAYED'
+                              : feed.liveStatus === 'DATA STALE'
+                                ? 'STALE'
+                                : 'DELAYED'
                     }
                 />
             </div>
             {feed.healthNote ? (
                 <div className={s.banner} style={{ marginBottom: 12 }}>
                     {feed.healthNote}
+                    {(feed.liveStatus === 'DISCONNECTED' ||
+                        feed.liveStatus === 'WAKING') && (
+                        <button
+                            type="button"
+                            className={s.quickBtn}
+                            style={{
+                                marginTop: 10,
+                                width: '100%',
+                                minHeight: 44,
+                            }}
+                            onClick={() => feed.refresh()}
+                        >
+                            {feed.liveStatus === 'WAKING'
+                                ? '重新整理'
+                                : '重新連線'}
+                        </button>
+                    )}
                 </div>
             ) : null}
 

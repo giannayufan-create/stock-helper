@@ -40,6 +40,11 @@ export const radarColor = {
     live: '#34d399',
 } as const;
 
-export type LiveStatus = 'LIVE' | 'REPLAY' | 'DATA STALE' | 'DISCONNECTED';
+export type LiveStatus =
+    | 'LIVE'
+    | 'REPLAY'
+    | 'WAKING'
+    | 'DATA STALE'
+    | 'DISCONNECTED';
 
 export type RadarTab = 'today' | 'radar' | 'watch' | 'perf' | 'more';

@@ -90,6 +90,6 @@ export function fetchTodayDecision(
 ): Promise<TodayDecisionBoardDto> {
     return apiGet<TodayDecisionBoardDto>(
         `/api/v1/today/decision?limit=${limit}`,
-        8000,
+        15_000,
     );
 }

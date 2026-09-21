@@ -151,16 +151,20 @@ export function analyzeWithServer(input: {
     screenerOvernightWinRate?: number | null;
     regulatory?: 'punish' | 'attention' | null;
 }) {
-    return apiPost<AiAnalyzeResult>('/api/v1/ai/analyze', {
-        code: input.code,
-        name: input.name,
-        bars: input.bars,
-        stop_pct: 0.01,
-        take_pct: 0.02,
-        with_coach: input.withCoach !== false,
-        screener_strength: input.screenerStrength ?? undefined,
-        screener_mode: input.screenerMode ?? undefined,
-        screener_overnight_winrate: input.screenerOvernightWinRate ?? undefined,
-        regulatory: input.regulatory ?? undefined,
-    });
+    return apiPost<AiAnalyzeResult>(
+        '/api/v1/ai/analyze',
+        {
+            code: input.code,
+            name: input.name,
+            bars: input.bars,
+            stop_pct: 0.01,
+            take_pct: 0.02,
+            with_coach: input.withCoach !== false,
+            screener_strength: input.screenerStrength ?? undefined,
+            screener_mode: input.screenerMode ?? undefined,
+            screener_overnight_winrate: input.screenerOvernightWinRate ?? undefined,
+            regulatory: input.regulatory ?? undefined,
+        },
+        45_000,
+    );
 }

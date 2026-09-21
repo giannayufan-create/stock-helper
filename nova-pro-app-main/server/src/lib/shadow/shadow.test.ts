@@ -168,6 +168,9 @@ function enabledShadowCfg(over: Partial<ShadowConfig> = {}): ShadowConfig {
     return {
         ...DEFAULT_SHADOW_CONFIG,
         enabled: true,
+        // Tests run off the live cadence — do not gate on cash session / diffs.
+        session_only: false,
+        record_diffs_only: false,
         ...over,
         experiments:
             over.experiments ??
@@ -275,10 +278,12 @@ function baseSummary(
     };
 }
 
-// --- 1. Config loads 3 experiments; enabled + auto_promote false ---
+// --- 1. Config loads 3 experiments; live default off + auto_promote false ---
 {
     const cfg = loadShadowConfig();
-    assert.equal(cfg.enabled, true);
+    assert.equal(cfg.enabled, false);
+    assert.equal(cfg.record_diffs_only, true);
+    assert.equal(cfg.session_only, true);
     assert.equal(cfg.promotion.auto_promote, false);
     assert.equal(cfg.promotion_require_both_gates, true);
     assert.equal(cfg.experiments.length, 3);
@@ -295,7 +300,7 @@ function baseSummary(
     assert.equal(c.intraday_rank?.strong_enter, 82);
     assert.equal(c.intraday_rank?.strong_exit, 76);
     assert.equal(c.open_gate, undefined);
-    console.log('ok 1 — 3 experiments + enabled + no auto_promote');
+    console.log('ok 1 — 3 experiments + live-off + no auto_promote');
 }
 
 // --- 2. Threshold delta changes B status (same state object) ---
@@ -376,7 +381,7 @@ function baseSummary(
     const shadowRoot = tmpRoot('multi');
     const state = makeState();
     const rt = makeRuntime(state);
-    const repo = new JsonlShadowRepository(shadowRoot);
+    const repo = new JsonlShadowRepository(shadowRoot, { flushMs: 0 });
     const svc = new ShadowEvaluationService(rt.runtime, {
         repo,
         shadowConfig: enabledShadowCfg(),
@@ -664,7 +669,7 @@ function baseSummary(
     const shadowRoot = tmpRoot('sig');
     const state = makeState();
     const { runtime } = makeRuntime(state);
-    const repo = new JsonlShadowRepository(shadowRoot);
+    const repo = new JsonlShadowRepository(shadowRoot, { flushMs: 0 });
     const svc = new ShadowEvaluationService(runtime, {
         repo,
         shadowConfig: enabledShadowCfg({

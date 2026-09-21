@@ -49,7 +49,7 @@ export function RadarApp({
     onOpenSearch?: () => void;
 }) {
     const isDesktop = useMediaQuery('screen and (min-width: 1025px)');
-    const feed = useRadarFeed(5000);
+    const feed = useRadarFeed(10_000);
     const [tab, setTab] = useState<RadarTab>('today');
     const [radarInner, setRadarInner] = useState<string>('buy');
     const [detailSymbol, setDetailSymbol] = useState<string | null>(null);

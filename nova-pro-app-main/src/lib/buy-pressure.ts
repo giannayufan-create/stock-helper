@@ -1,6 +1,7 @@
 // src/lib/buy-pressure.ts — read-only Buy Pressure Radar client
 
 import { apiGet } from './api';
+import { isHostedApi } from './runtime';
 
 export type BuyPressureState =
     | 'EARLY'
@@ -98,7 +99,10 @@ export function fetchBuyPressure(query: BuyPressureQuery = {}) {
     if (query.sort && query.sort !== 'strongest') qs.set('sort', query.sort);
     if (query.limit != null) qs.set('limit', String(query.limit));
     const suffix = qs.toString() ? `?${qs}` : '';
-    return apiGet<BuyPressureBatchDto>(`/api/v1/data/buy-pressure${suffix}`);
+    return apiGet<BuyPressureBatchDto>(
+        `/api/v1/data/buy-pressure${suffix}`,
+        isHostedApi() ? 15_000 : 8_000,
+    );
 }
 
 export function fetchBuyPressureSymbol(symbol: string) {

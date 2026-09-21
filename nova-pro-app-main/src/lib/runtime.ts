@@ -21,3 +21,7 @@ export function getApiBase(): string {
     if (FIREBASE_HOSTING) return HOSTED_API_FALLBACK;
     return '';
 }
+
+export function isHostedApi(): boolean {
+    return /onrender\.com$/i.test(getApiBase().replace(/\/$/, ''));
+}

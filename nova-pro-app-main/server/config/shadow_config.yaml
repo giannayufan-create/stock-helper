@@ -1,9 +1,12 @@
-# Shadow Live Observation — 3 independent experiments.
-# NEVER auto-promotes. NEVER writes production yaml.
-# All experiments share one MarketRuntime / Clock / MarketState.
-# No extra broker subscriptions.
+# Shadow Live Observation — research only (never auto-promote / never write production yaml).
+#
+# Live path default: OFF. Turn enabled=true only for deliberate research windows.
+# When on: session_only + record_diffs_only keep CPU / disk off the hot path.
 
-enabled: true
+enabled: false
+record_diffs_only: true
+session_only: true
+
 min_shadow_days: 10
 min_shadow_signals: 200
 # AND gate: both days AND signals required for READY_FOR_MANUAL_REVIEW

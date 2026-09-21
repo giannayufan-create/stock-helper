@@ -1,6 +1,7 @@
 // Shadow multi-experiment config loader — never writes production yaml.
+// Cached by mtime; call reloadShadowConfig() / loadShadowConfig(path, true) to force.
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -41,7 +42,10 @@ export const DEFAULT_EXPERIMENTS: ShadowExperimentDef[] = [
 ];
 
 export const DEFAULT_SHADOW_CONFIG: ShadowConfig = {
-    enabled: true,
+    // Off on live path by default — enable manually for research windows.
+    enabled: false,
+    record_diffs_only: true,
+    session_only: true,
     min_shadow_days: 10,
     min_shadow_signals: 200,
     promotion_require_both_gates: true,
@@ -106,9 +110,7 @@ function parseSimpleYaml(text: string): Record<string, unknown> {
     return root;
 }
 
-function parseExperiments(
-    raw: unknown,
-): ShadowExperimentDef[] {
+function parseExperiments(raw: unknown): ShadowExperimentDef[] {
     if (!raw || typeof raw !== 'object') return [...DEFAULT_EXPERIMENTS];
     const map = raw as Record<string, unknown>;
     const out: ShadowExperimentDef[] = [];
@@ -141,47 +143,54 @@ export function resolveShadowConfigPath(custom?: string): string {
 }
 
 let testOverride: ShadowConfig | null = null;
+let cached: ShadowConfig | null = null;
+let cachedPath: string | null = null;
+let cachedMtimeMs = -1;
+let cacheGeneration = 0;
 
 export function setShadowConfigForTest(cfg: ShadowConfig | null): void {
     testOverride = cfg;
+    cached = null;
+    cachedPath = null;
+    cachedMtimeMs = -1;
+    cacheGeneration += 1;
+}
+
+export function shadowConfigGeneration(): number {
+    return cacheGeneration;
 }
 
 export function reloadShadowConfig(path?: string): ShadowConfig {
-    return loadShadowConfig(path);
+    return loadShadowConfig(path, true);
 }
 
-export function loadShadowConfig(path?: string): ShadowConfig {
-    if (testOverride) {
-        return {
-            ...testOverride,
-            experiments: testOverride.experiments.map((e) => ({
-                ...e,
-                open_gate: e.open_gate ? { ...e.open_gate } : undefined,
-                intraday_rank: e.intraday_rank
-                    ? { ...e.intraday_rank }
-                    : undefined,
-            })),
-            promotion: { ...testOverride.promotion, auto_promote: false },
-        };
-    }
-    const p = resolveShadowConfigPath(path);
-    const base: ShadowConfig = {
-        ...DEFAULT_SHADOW_CONFIG,
-        experiments: DEFAULT_EXPERIMENTS.map((e) => ({
+function cloneConfig(cfg: ShadowConfig): ShadowConfig {
+    return {
+        ...cfg,
+        experiments: cfg.experiments.map((e) => ({
             ...e,
             open_gate: e.open_gate ? { ...e.open_gate } : undefined,
             intraday_rank: e.intraday_rank
                 ? { ...e.intraday_rank }
                 : undefined,
         })),
-        promotion: { ...DEFAULT_PROMOTION, auto_promote: false },
+        promotion: { ...cfg.promotion, auto_promote: false },
     };
+}
+
+function parseFile(p: string): ShadowConfig {
+    const base = cloneConfig(DEFAULT_SHADOW_CONFIG);
     if (!existsSync(p)) return base;
 
     const raw = parseSimpleYaml(readFileSync(p, 'utf8'));
     const promoRaw = (raw.promotion ?? {}) as Record<string, unknown>;
 
     base.enabled = coerceBool(raw.enabled, base.enabled);
+    base.record_diffs_only = coerceBool(
+        raw.record_diffs_only,
+        base.record_diffs_only,
+    );
+    base.session_only = coerceBool(raw.session_only, base.session_only);
     base.min_shadow_days = coerceNum(
         raw.min_shadow_days,
         base.min_shadow_days,
@@ -236,6 +245,38 @@ export function loadShadowConfig(path?: string): ShadowConfig {
     };
 
     return base;
+}
+
+export function loadShadowConfig(
+    path?: string,
+    force = false,
+): ShadowConfig {
+    if (testOverride) {
+        return cloneConfig(testOverride);
+    }
+    const p = resolveShadowConfigPath(path);
+    let mtimeMs = -1;
+    if (existsSync(p)) {
+        try {
+            mtimeMs = statSync(p).mtimeMs;
+        } catch {
+            mtimeMs = -1;
+        }
+    }
+    if (
+        !force &&
+        cached &&
+        cachedPath === p &&
+        cachedMtimeMs === mtimeMs
+    ) {
+        return cached;
+    }
+    const next = parseFile(p);
+    cached = next;
+    cachedPath = p;
+    cachedMtimeMs = mtimeMs;
+    cacheGeneration += 1;
+    return next;
 }
 
 export function mergeNumericOverlay<T extends Record<string, unknown>>(

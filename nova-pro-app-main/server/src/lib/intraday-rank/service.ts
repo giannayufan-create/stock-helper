@@ -270,25 +270,25 @@ export class IntradayRankService {
             const scored: IntradayRankItem[] = [];
             const clockNow = this.runtime.now();
             const replay = this.runtime.sourceInfo().source_mode === 'replay';
+            const sessionMin = (() => {
+                const parts = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'Asia/Taipei',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                }).formatToParts(clockNow);
+                const hh = Number(
+                    parts.find((p) => p.type === 'hour')?.value ?? 0,
+                );
+                const mm = Number(
+                    parts.find((p) => p.type === 'minute')?.value ?? 0,
+                );
+                return Math.max(0, hh * 60 + mm - 9 * 60);
+            })();
             for (const disc of this.activeWatch.values()) {
                 const state = this.runtime.getState(disc.symbol);
                 const health = this.runtime.healthReport(disc.symbol);
                 const vwapInfo = this.runtime.vwap(disc.symbol);
-                const sessionMin = (() => {
-                    const parts = new Intl.DateTimeFormat('en-US', {
-                        timeZone: 'Asia/Taipei',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false,
-                    }).formatToParts(clockNow);
-                    const hh = Number(
-                        parts.find((p) => p.type === 'hour')?.value ?? 0,
-                    );
-                    const mm = Number(
-                        parts.find((p) => p.type === 'minute')?.value ?? 0,
-                    );
-                    return Math.max(0, hh * 60 + mm - 9 * 60);
-                })();
                 const rvol = this.runtime.rvolSameTime(
                     disc.symbol,
                     state?.total_volume ?? 0,
@@ -387,6 +387,8 @@ export class IntradayRankService {
                     discovery: this.activeWatch.get(item.symbol),
                     previousC: prev,
                     marketRetHint: this.marketRetHint,
+                    session_minute: sessionMin,
+                    now: clockNow,
                 });
 
                 this.lastResults.set(item.symbol, item);

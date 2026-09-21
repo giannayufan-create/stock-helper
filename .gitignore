@@ -31,3 +31,6 @@ nova-pro-app-main/nova-pro-app-main/
 Thumbs.db
 .vscode/
 .idea/
+
+# Cursor MCP may contain FinMind token — never commit real secrets
+.cursor/mcp.json

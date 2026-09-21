@@ -2,7 +2,7 @@
 // Quote state lives here (module-level store) so components can subscribe
 // via useSyncExternalStore without prop drilling.
 
-import { getApiBase } from './runtime';
+import { getApiBase, isHostedApi } from './runtime';
 import type { SseBidAsk, SseTick } from './types/market';
 import type { OrderEventData } from './types/order';
 
@@ -135,16 +135,21 @@ async function resubscribeAll() {
 
 let es: EventSource | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
-let retryDelay = 1000;
+let retryDelay = isHostedApi() ? 8_000 : 1_000;
 let everDown = false;
 
 function connect() {
+    if (typeof document !== 'undefined' && document.hidden) {
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(connect, 5_000);
+        return;
+    }
     if (es) es.close();
     setStatus('connecting');
     es = new EventSource(`${base}/api/v1/stream/data`);
 
     es.onopen = () => {
-        retryDelay = 1000;
+        retryDelay = isHostedApi() ? 8_000 : 1_000;
         setStatus('live');
         if (everDown) {
             everDown = false;
@@ -177,19 +182,23 @@ function connect() {
 
     es.onerror = () => {
         everDown = true;
-        setStatus('down');
+        setStatus('connecting');
         es?.close();
         es = null;
         if (retryTimer) clearTimeout(retryTimer);
+        const max = isHostedApi() ? 45_000 : 15_000;
         retryTimer = setTimeout(connect, retryDelay);
-        retryDelay = Math.min(retryDelay * 2, 15000);
+        retryDelay = Math.min(retryDelay * 2, max);
     };
 }
 
 let started = false;
 export function ensureStream() {
-    if (!started) {
-        started = true;
+    if (started) return;
+    started = true;
+    if (isHostedApi()) {
+        retryTimer = setTimeout(connect, 3_000);
+    } else {
         connect();
     }
 }

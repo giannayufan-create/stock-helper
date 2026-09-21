@@ -1,7 +1,7 @@
 // src/components/radar-v2/today-decision-board.tsx
 // One merged answer: what to look at today, and what to do about it.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     fetchTodayDecision,
     TODAY_ACTION_COLOR,
@@ -11,7 +11,7 @@ import {
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { RegulatoryChip, TrapChips } from './stock-flags';
-import { openConfirmLabel } from './helpers';
+import { looksLikeBoardMover, openConfirmLabel } from './helpers';
 
 const BOARD_TITLE: Record<string, string> = {
     PREOPEN: '盤前預備名單',
@@ -350,7 +350,7 @@ export function TodayDecisionBoard({
     useEffect(() => {
         let cancelled = false;
         const load = () =>
-            void fetchTodayDecision(12)
+            void fetchTodayDecision(30)
                 .then((b) => {
                     if (cancelled) return;
                     setBoard(b);
@@ -361,12 +361,26 @@ export function TodayDecisionBoard({
                     setError(e instanceof Error ? e.message : '連線失敗');
                 });
         load();
-        const t = setInterval(load, 5_000);
+        const t = setInterval(load, 15_000);
         return () => {
             cancelled = true;
             clearInterval(t);
         };
     }, []);
+
+    const hotItems = useMemo(() => {
+        if (!board) return [];
+        return board.items
+            .filter((it) => {
+                if (it.action === 'WAIT' || it.action === 'AVOID') return false;
+                return looksLikeBoardMover({
+                    changePct: it.change_pct,
+                    heat: it.sources.heat_score,
+                    state: it.sources.momentum_state,
+                });
+            })
+            .slice(0, 12);
+    }, [board]);
 
     if (!board) {
         return (
@@ -448,12 +462,13 @@ export function TodayDecisionBoard({
                 </div>
             </div>
 
-            {board.items.length === 0 ? (
+            {hotItems.length === 0 ? (
                 <div className={s.empty}>
-                    {board.not_ready_reason ?? '目前沒有名單'}
+                    {board.not_ready_reason ??
+                        '目前沒有夠熱、夠漲的標的'}
                 </div>
             ) : (
-                board.items.map((it) => (
+                hotItems.map((it) => (
                     <DecisionRow
                         key={it.symbol}
                         item={it}

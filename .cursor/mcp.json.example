@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "finmind": {
+      "command": "C:\\Users\\ko520\\.local\\bin\\uvx.exe",
+      "args": ["finmind-mcp"],
+      "env": {
+        "FINMIND_TOKEN": "PASTE_FINMIND_TOKEN_HERE"
+      }
+    }
+  }
+}

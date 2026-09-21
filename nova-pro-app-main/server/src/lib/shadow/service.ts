@@ -32,11 +32,13 @@ import {
 import {
     loadShadowConfig,
     mergeNumericOverlay,
+    shadowConfigGeneration,
 } from './config.ts';
 import {
     JsonlShadowRepository,
     type ShadowRepository,
 } from './repository.ts';
+import { isShadowCashSession, sessionMinuteTaipei } from './session.ts';
 import type {
     ShadowComparisonRow,
     ShadowConfig,
@@ -79,24 +81,26 @@ interface PreparedExperiment {
     candidateConfigHash: string;
 }
 
-function sessionMinuteTaipei(d: Date): number {
-    const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'Asia/Taipei',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-    }).formatToParts(d);
-    const hh = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
-    const mm = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
-    return Math.max(0, hh * 60 + mm - 9 * 60);
-}
-
 function isBSignal(status: string | null | undefined): boolean {
     return status === 'pass' || status === 'early_pass';
 }
 
 function isCSignal(state: string | null | undefined): boolean {
     return state === 'STRONG';
+}
+
+/** Persist only when prod vs shadow actually diverges (safe for analytics). */
+export function isMeaningfulShadowDiff(row: ShadowComparisonRow): boolean {
+    const d = row.delta;
+    if (d.state_changed) return true;
+    if (d.signal_only_production || d.signal_only_shadow) return true;
+    if (d.score_delta_b != null && Math.abs(d.score_delta_b) >= 0.01) {
+        return true;
+    }
+    if (d.score_delta_c != null && Math.abs(d.score_delta_c) >= 0.01) {
+        return true;
+    }
+    return false;
 }
 
 const C_EVENT_TYPES = new Set([
@@ -226,6 +230,7 @@ export class ShadowEvaluationService {
     private persist: boolean;
     private emitShadowSignals: boolean;
     private shadowConfigOverride: ShadowConfig | null = null;
+    private configGen = -1;
 
     constructor(
         private runtime: MarketRuntime,
@@ -242,10 +247,18 @@ export class ShadowEvaluationService {
         this.reloadConfigs();
     }
 
+    private ensureFreshConfig(): void {
+        if (this.shadowConfigOverride) return;
+        const gen = shadowConfigGeneration();
+        if (gen === this.configGen) return;
+        this.reloadConfigs();
+    }
+
     reloadConfigs(): void {
         this.shadowCfg =
             this.shadowConfigOverride ?? loadShadowConfig();
         this.shadowCfg.promotion.auto_promote = false;
+        this.configGen = shadowConfigGeneration();
 
         this.prodOpenGate = loadOpenGateConfig();
         this.prodIntraday = loadIntradayRankConfig();
@@ -340,14 +353,25 @@ export class ShadowEvaluationService {
             previousB?: OpenConfirmResult | null;
             previousC?: IntradayRankItem | null;
             marketRetHint?: number | null;
+            session_minute?: number | null;
+            now?: Date;
         } = {},
     ): ShadowComparisonRow[] {
+        this.ensureFreshConfig();
         if (!this.shadowCfg.enabled) return [];
+        const now = opts.now ?? this.runtime.now();
+        if (
+            this.shadowCfg.session_only !== false &&
+            !isShadowCashSession(now)
+        ) {
+            return [];
+        }
         const symbol = bResult?.symbol ?? cItem?.symbol;
         if (!symbol) return [];
         try {
             return this.evaluateAllExperiments({
                 symbol,
+                now,
                 productionB: bResult,
                 productionC: cItem,
                 aCandidate: opts.aCandidate,
@@ -356,6 +380,7 @@ export class ShadowEvaluationService {
                 previousC: opts.previousC,
                 marketRetHint: opts.marketRetHint,
                 market_regime: bResult?.market_regime ?? null,
+                session_minute: opts.session_minute ?? sessionMinuteTaipei(now),
             });
         } catch (err) {
             console.warn(
@@ -532,7 +557,10 @@ export class ShadowEvaluationService {
         };
 
         const shouldPersist = input.persist ?? this.persist;
-        if (shouldPersist) {
+        if (
+            shouldPersist &&
+            (!this.shadowCfg.record_diffs_only || isMeaningfulShadowDiff(row))
+        ) {
             this.recordComparison(row);
         }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { IntradayRankItemDto } from '../../lib/backend';
 import { fetchSnapshots } from '../../lib/backend';
+import { getApiPhase } from '../../lib/api-ready';
 import { useQuote } from '../../hooks/use-stream';
 import {
     fetchStockInterpretationScore,
@@ -299,6 +300,10 @@ export function StockDetailPage({
     const regime = regimeMeta(marketRegime);
 
     const runAi = async () => {
+        if (getApiPhase() !== 'ready') {
+            setAiError('後端還沒連上，請稍候再按');
+            return;
+        }
         setAiLoading(true);
         setAiError(null);
         void onSelectCode(item.symbol);

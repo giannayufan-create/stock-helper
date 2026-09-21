@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import { useQuote } from '../hooks/use-stream';
 import { bollinger, ema, rsi, sma, vwap } from '../lib/indicators';
 import { analyzeWithServer } from '../lib/ai-analyze';
+import { getApiPhase } from '../lib/api-ready';
 import {
     buildAiAlerts,
     buildLocalCoach,
@@ -486,6 +487,13 @@ export function CandleChart({
 
         setAiBusy(true);
         try {
+            if (getApiPhase() !== 'ready') {
+                applyLocal({
+                    source: 'local',
+                    coach: '後端還沒連上（可能還在喚醒），先用本地規則。',
+                });
+                return;
+            }
             const screenerStrengthRaw = sessionStorage.getItem(
                 'nova-screener-strength',
             );

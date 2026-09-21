@@ -58,7 +58,7 @@ export interface MarketConfig {
 }
 
 export function fetchMarketConfig() {
-    return apiGet<MarketConfig>('/api/v1/config/market', 4000);
+    return apiGet<MarketConfig>('/api/v1/config/market', 12_000);
 }
 
 /** validate + save a Fugle API key and hot-swap the market provider */
@@ -460,6 +460,7 @@ export function fetchIntradayRank(opts?: {
     limit?: number;
     state?: string;
     includeWatch?: boolean;
+    timeoutMs?: number;
 }) {
     const q = new URLSearchParams();
     q.set('limit', String(opts?.limit ?? 20));
@@ -472,7 +473,10 @@ export function fetchIntradayRank(opts?: {
         emerging?: number;
         items: IntradayRankItemDto[];
         warnings?: string[];
-    }>(`/api/v1/data/intraday-rank?${q.toString()}`);
+    }>(
+        `/api/v1/data/intraday-rank?${q.toString()}`,
+        opts?.timeoutMs ?? 10_000,
+    );
 }
 
 export function fetchIntradayRankSymbol(symbol: string) {

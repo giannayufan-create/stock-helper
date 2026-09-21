@@ -36,6 +36,14 @@ export interface ShadowPromotionConfig {
 
 export interface ShadowConfig {
     enabled: boolean;
+    /**
+     * Only append comparison rows when production vs shadow differs
+     * (state / signal exclusivity / score delta). Analytics skips NEITHER
+     * anyway — diffs-only does not change promotion denominators.
+     */
+    record_diffs_only: boolean;
+    /** Skip observe outside TW cash session 09:00–13:30 on trading days. */
+    session_only: boolean;
     min_shadow_days: number;
     min_shadow_signals: number;
     /** READY requires days AND signals (not OR). */

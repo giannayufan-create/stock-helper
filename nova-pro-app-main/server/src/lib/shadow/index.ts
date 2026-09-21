@@ -17,6 +17,7 @@ export {
     mergeNumericOverlay,
     reloadShadowConfig,
     setShadowConfigForTest,
+    shadowConfigGeneration,
 } from './config.ts';
 export {
     assertNeverAutoPromote,
@@ -28,6 +29,12 @@ export {
     type ShadowRepository,
 } from './repository.ts';
 export {
+    isShadowCashSession,
+    sessionMinuteTaipei,
+    taipeiYmd,
+} from './session.ts';
+export {
+    isMeaningfulShadowDiff,
     ShadowEvaluationService,
     type EvaluatePairInput,
     type ShadowEvaluationOptions,

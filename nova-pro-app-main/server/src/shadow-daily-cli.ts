@@ -1,5 +1,6 @@
 // npm run shadow:daily -- [--date 2026-09-15]
 // Daily Shadow summary for Production vs SHADOW_B / SHADOW_C / SHADOW_BC.
+// Streams JSONL (never readFileSync whole multi-GB day files).
 
 import {
     buildAllExperimentAnalytics,
@@ -27,11 +28,12 @@ function fmt(v: number | null | undefined): string {
     return v == null ? 'n/a' : String(v);
 }
 
-function main(): void {
+async function main(): Promise<void> {
     const date = arg('date') ?? todayTaipei();
     const cfg = loadShadowConfig();
     const repo = new JsonlShadowRepository();
-    const comparisons = repo.listComparisons(date, date);
+    await repo.flush?.();
+    const comparisons = await repo.listComparisonsAsync(date, date);
     const summaries = buildAllExperimentAnalytics(comparisons, [], {
         from: date,
         to: date,
@@ -39,39 +41,21 @@ function main(): void {
     });
 
     console.log(`=== Shadow Daily Summary ${date} ===\n`);
-    console.log(`enabled=${cfg.enabled} auto_promote=${cfg.promotion.auto_promote}`);
+    console.log(
+        `enabled=${cfg.enabled} diffs_only=${cfg.record_diffs_only} session_only=${cfg.session_only} auto_promote=${cfg.promotion.auto_promote}`,
+    );
     console.log(`comparisons_today=${comparisons.length}\n`);
 
-    // Production aggregate (union across rows — same production arm)
-    let prodSignals = 0;
-    let prodEligible = 0;
-    const regimes = new Set<string>();
-    for (const row of comparisons) {
-        if (
-            row.production.signal_type ||
-            row.production.b_status === 'pass' ||
-            row.production.b_status === 'early_pass' ||
-            row.production.c_state === 'STRONG'
-        ) {
-            // Count once per experiment_id would inflate — use SHADOW_B only if present
-            continue;
-        }
-    }
-
-    // Prefer reporting production from first experiment's day bucket
     const byLabel = new Map(summaries.map((s) => [s.experiment_label, s]));
     const primary =
-        byLabel.get('SHADOW_B') ??
-        summaries[0] ??
-        null;
+        byLabel.get('SHADOW_B') ?? summaries[0] ?? null;
 
     if (primary) {
-        prodSignals = primary.production_signal_count;
-        prodEligible = primary.eligible_production_signal_count;
+        const regimes = new Set<string>();
         for (const r of primary.by_regime) regimes.add(r.regime);
         console.log('--- Production (same MarketRuntime) ---');
         console.log(
-            `Eligible Signals=${prodEligible} (raw=${prodSignals})`,
+            `Eligible Signals=${primary.eligible_production_signal_count} (raw=${primary.production_signal_count})`,
         );
         console.log(
             `Coverage avg=${fmt(primary.avg_score_coverage_pct)}%`,
@@ -141,4 +125,7 @@ function main(): void {
     );
 }
 
-main();
+main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+});

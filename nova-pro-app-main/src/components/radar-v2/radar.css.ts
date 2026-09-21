@@ -820,6 +820,7 @@ export const toneFlat = style({ color: vars.color.flat });
 export const liveVariants = styleVariants({
     LIVE: { color: radarColor.live },
     REPLAY: { color: radarColor.ai },
+    WAKING: { color: radarColor.healthWarn },
     'DATA STALE': { color: radarColor.healthBad },
     DISCONNECTED: { color: radarColor.healthBad },
 });

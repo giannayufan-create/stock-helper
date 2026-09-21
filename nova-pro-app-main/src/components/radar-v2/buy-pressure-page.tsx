@@ -1,12 +1,13 @@
 // src/components/radar-v2/buy-pressure-page.tsx — 即時買盤雷達 v1 (context only)
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
     fetchBuyPressure,
     type BuyPressureItemDto,
     type BuyPressureState,
 } from '../../lib/buy-pressure';
 import { vars } from '../../theme.css';
+import { looksLikeBoardMover } from './helpers';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 import { BP_EVENT_LABEL, RegulatoryChip } from './stock-flags';
@@ -98,6 +99,7 @@ export function BuyPressurePage({
     >('ALL');
     /** User opt-in only — default false so OVERHEATED stays visible. */
     const [onlyNotOverheated, setOnlyNotOverheated] = useState(false);
+    const [onlyHot, setOnlyHot] = useState(true);
     const [showPricePanel, setShowPricePanel] = useState(false);
     const [showMarketPanel, setShowMarketPanel] = useState(false);
     const [sortMode, setSortMode] = useState<
@@ -114,6 +116,7 @@ export function BuyPressurePage({
     const [loading, setLoading] = useState(true);
     const [detail, setDetail] = useState<BuyPressureItemDto | null>(null);
     const [err, setErr] = useState<string | null>(null);
+    const gotData = useRef(false);
 
     const query = useMemo(() => {
         const bounds = priceBounds(pricePreset, customMin, customMax);
@@ -141,25 +144,39 @@ export function BuyPressurePage({
             void fetchBuyPressure(query)
                 .then((batch) => {
                     if (cancelled) return;
+                    gotData.current = true;
                     setItems(batch.items);
                     setAsOf(batch.as_of);
                     setStaleGlobal(batch.data_stale_global);
                     setErr(null);
                 })
                 .catch(() => {
-                    if (!cancelled) setErr('買盤雷達暫時無法載入');
+                    if (!cancelled && !gotData.current) {
+                        setErr('買盤雷達暫時無法載入');
+                    }
                 })
                 .finally(() => {
                     if (!cancelled) setLoading(false);
                 });
         };
         load();
-        const t = setInterval(load, 2500);
+        const t = setInterval(load, 8_000);
         return () => {
             cancelled = true;
             clearInterval(t);
         };
     }, [query]);
+
+    const visible = useMemo(() => {
+        if (!onlyHot) return items;
+        return items.filter((it) =>
+            looksLikeBoardMover({
+                changePct: it.change_pct,
+                heat: it.heat_score,
+                bpState: it.primary_state,
+            }),
+        );
+    }, [items, onlyHot]);
 
     if (detail) {
         return (
@@ -319,6 +336,13 @@ export function BuyPressurePage({
             <div className={s.quickBar} style={{ marginBottom: 10 }}>
                 <button
                     type="button"
+                    className={`${s.quickBtn} ${onlyHot ? s.tabChipOn : ''}`}
+                    onClick={() => setOnlyHot((v) => !v)}
+                >
+                    {onlyHot ? '只要強勢（已開）' : '只要強勢（已關）'}
+                </button>
+                <button
+                    type="button"
                     className={`${s.quickBtn} ${
                         onlyNotOverheated ? s.tabChipOn : ''
                     }`}
@@ -461,11 +485,29 @@ export function BuyPressurePage({
                     {err}
                 </div>
             )}
-            {!loading && !err && items.length === 0 && (
-                <div className={s.empty}>目前沒有符合條件的買盤訊號</div>
+            {!loading && !err && visible.length === 0 && (
+                <div className={s.empty}>
+                    {onlyHot
+                        ? '目前沒有夠熱、夠漲的標的'
+                        : '目前沒有符合條件的買盤訊號'}
+                    {onlyHot && (
+                        <button
+                            type="button"
+                            className={s.quickBtn}
+                            style={{
+                                marginTop: 12,
+                                width: '100%',
+                                minHeight: 44,
+                            }}
+                            onClick={() => setOnlyHot(false)}
+                        >
+                            顯示全部狀態
+                        </button>
+                    )}
+                </div>
             )}
 
-            {items.map((it) => {
+            {visible.map((it) => {
                 const meta = STATE_META[it.primary_state];
                 return (
                     <button
