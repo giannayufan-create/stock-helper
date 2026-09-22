@@ -174,12 +174,31 @@ function resolveAction(
                     hint: '開盤通過但是注意股，只觀察',
                 };
             }
+            if (it.trap_flags.length) {
+                return {
+                    action: 'WATCH',
+                    hint: '開盤通過但有騙線疑慮，先等確認',
+                };
+            }
+            if (isHighChase(it.chase_risk)) {
+                return {
+                    action: 'WATCH',
+                    hint: '開盤通過但位置偏高，等回踩再看',
+                };
+            }
+            // Align with Radar: Open Gate pass + tradeable = 可進場
+            if (it.tradeable_candidate || oc === 'pass') {
+                return {
+                    action: 'ACTIONABLE',
+                    hint:
+                        oc === 'early_pass'
+                            ? '提早通過開盤確認，注意進場價與停損'
+                            : '開盤確認通過，注意進場價與停損',
+                };
+            }
             return {
                 action: 'WATCH',
-                hint:
-                    oc === 'early_pass'
-                        ? '提早通過開盤確認，等結構再決定進場'
-                        : '開盤確認通過，等買盤與結構再決定進場',
+                hint: '開盤確認偏弱通過，再等買盤與結構',
             };
         }
         if (oc === 'watch') {
@@ -188,15 +207,15 @@ function resolveAction(
         return { action: 'WAIT', hint: '開盤確認尚未產出，稍候' };
     }
 
-    const confirmed =
-        (it.decision_status === 'CONFIRMED_STRENGTH' ||
-            it.rescue_state === 'ACTIVE') &&
-        (it.momentum_state === 'ACTIVE' ||
-            it.rescue_state === 'ACTIVE' ||
-            it.focus_rank != null) &&
-        !isHighChase(it.chase_risk);
+    // Align with Radar card: Decision Summary CONFIRMED_STRENGTH = 可進場
+    // (unless chase/trap/注意股 already handled above / below).
+    const radarConfirmed =
+        it.decision_status === 'CONFIRMED_STRENGTH' ||
+        // Rescue ACTIVE in focus/active lane = Radar「正在發動」可跟
+        (it.rescue_state === 'ACTIVE' &&
+            (it.focus_rank != null || (it.opportunity_score ?? 0) >= 60));
 
-    if (confirmed) {
+    if (radarConfirmed && !isHighChase(it.chase_risk)) {
         if (it.c_risks.includes('注意股')) {
             return {
                 action: 'WATCH',
@@ -213,11 +232,13 @@ function resolveAction(
             action: 'ACTIONABLE',
             hint: it.tradeable_candidate
                 ? '開盤確認已通過且動能延續，注意進場價與停損'
-                : '條件已確認，注意進場價與停損',
+                : it.decision_status === 'CONFIRMED_STRENGTH'
+                  ? '雷達已確認強度，注意進場價與停損'
+                  : '動能已發動且追價風險可控，注意進場價與停損',
         };
     }
 
-    if (it.decision_status === 'CONFIRMED_STRENGTH' && isHighChase(it.chase_risk)) {
+    if (radarConfirmed && isHighChase(it.chase_risk)) {
         return { action: 'WATCH', hint: '條件有了但位置偏高，等回踩再看' };
     }
     if (it.momentum_state === 'PULLBACK') {

@@ -277,54 +277,98 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         ctx.openGateV2.candidates.list().map((a) => [a.symbol, a]),
     );
     const rankItems = ctx.intradayRank.getLastBatch()?.items ?? [];
+    const rankBy = new Map(rankItems.map((c) => [c.symbol, c]));
 
     const rescueBatch = ctx.radarRescue?.getLastBatch() ?? null;
+    // Focus confirmed first so Map keeps the strongest card per symbol.
     const rescueBy = new Map(
         [
-            ...(rescueBatch?.focus.confirmed ?? []),
-            ...(rescueBatch?.focus.early ?? []),
-            ...(rescueBatch?.active ?? []),
             ...(rescueBatch?.early ?? []),
+            ...(rescueBatch?.active ?? []),
+            ...(rescueBatch?.focus.early ?? []),
+            ...(rescueBatch?.focus.confirmed ?? []),
         ].map((c) => [c.symbol, c]),
     );
+    const rescueFocusConfirmed = new Set(
+        (rescueBatch?.focus.confirmed ?? []).map((c) => c.symbol),
+    );
 
-    const fromRank = (c: (typeof rankItems)[number]): TodayInputItem => {
-        const bp = bpItems.get(c.symbol) ?? null;
-        const rq = rqItems.get(c.symbol) ?? null;
-        const ds = dsItems.get(c.symbol) ?? null;
-        const og = openItems.get(c.symbol) ?? null;
-        const a = aPool.get(c.symbol) ?? null;
-        const rescue = rescueBy.get(c.symbol) ?? null;
+    /** Merge every layer for one symbol — same sources Radar uses. */
+    const mergeSymbol = (symbol: string): TodayInputItem => {
+        const c = rankBy.get(symbol) ?? null;
+        const bp = bpItems.get(symbol) ?? null;
+        const rq = rqItems.get(symbol) ?? null;
+        const ds = dsItems.get(symbol) ?? null;
+        const og = openItems.get(symbol) ?? null;
+        const a = aPool.get(symbol) ?? null;
+        const rescue = rescueBy.get(symbol) ?? null;
+        const q = runtimeQuote(ctx, symbol);
+
+        const focusEarly = new Set(
+            (rescueBatch?.focus.early ?? []).map((x) => x.symbol),
+        );
+        const focusRank =
+            rescueFocusConfirmed.has(symbol)
+                ? 1
+                : focusEarly.has(symbol)
+                  ? 2
+                  : rq?.is_focus
+                    ? rq.focus_rank
+                    : null;
+
+        const name =
+            c?.name ??
+            rescue?.name ??
+            rq?.name ??
+            ds?.name ??
+            og?.name ??
+            a?.name ??
+            symbol;
+
         return {
-            symbol: c.symbol,
-            name: c.name,
-            last_price: c.last_price,
-            change_pct: c.change_pct,
-            c_score: c.intraday_score,
-            c_state: c.state,
-            rank: c.rank,
-            rank_change: c.rank_change,
-            heat_score: c.heat_score,
-            chase_risk: rescue?.chase_risk ?? c.risk.chase_risk,
-            vwap_pos_pct: c.metrics.vwap_pos_pct,
+            symbol,
+            name,
+            last_price:
+                c?.last_price ??
+                rescue?.last_price ??
+                q.last_price,
+            change_pct:
+                c?.change_pct ??
+                rescue?.change_pct ??
+                q.change_pct,
+            c_score: c?.intraday_score ?? rescue?.c_score ?? null,
+            c_state: c?.state ?? null,
+            rank: c?.rank ?? rescue?.rank ?? null,
+            rank_change: c?.rank_change ?? rescue?.rank_change ?? null,
+            heat_score: c?.heat_score ?? null,
+            chase_risk:
+                rescue?.chase_risk ??
+                c?.risk.chase_risk ??
+                og?.risk.chase_risk ??
+                null,
+            vwap_pos_pct:
+                c?.metrics.vwap_pos_pct ?? og?.metrics.vwap_pos_pct ?? null,
             rvol: null,
-            breakout_type: c.metrics.breakout_type,
-            pullback_state: c.metrics.pullback_state,
-            events: c.events,
+            breakout_type: c?.metrics.breakout_type ?? null,
+            pullback_state: c?.metrics.pullback_state ?? null,
+            events: c?.events ?? [],
             c_reasons: [
-                ...c.reasons,
+                ...(c?.reasons ?? []),
+                ...(og?.reasons ?? []),
                 ...(rescue?.reasons ?? []),
             ],
             c_risks: [
-                ...(c.risks ?? []),
+                ...(c?.risks ?? []),
+                ...(og?.risks ?? []),
                 ...(a?.warning_status ? ['注意股'] : []),
                 ...(a?.disposition_status ? ['處置股'] : []),
             ],
-            trap_flags: c.risk.trap_flags ?? [],
-            trap_penalty: c.risk.trap_penalty ?? 0,
-            data_blocked: c.data_blocked,
-            data_health: c.data_health,
-            score_coverage_pct: c.score_coverage_pct ?? null,
+            trap_flags: c?.risk.trap_flags ?? [],
+            trap_penalty: c?.risk.trap_penalty ?? 0,
+            data_blocked: c?.data_blocked ?? og?.data_blocked ?? false,
+            data_health: c?.data_health ?? null,
+            score_coverage_pct:
+                c?.score_coverage_pct ?? og?.score_coverage_pct ?? null,
             bp_score: bp?.buy_pressure_score ?? rescue?.bp_score ?? null,
             bp_state: bp?.primary_state ?? null,
             bp_overheated: bp?.overheated ?? false,
@@ -332,12 +376,7 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             momentum_state:
                 rescue?.radar_state ?? rq?.momentum_state ?? null,
             eligibility: rq?.eligibility ?? null,
-            focus_rank:
-                rescue?.focus_score != null && rescue.focus_score >= 0
-                    ? 1
-                    : rq?.is_focus
-                      ? rq.focus_rank
-                      : null,
+            focus_rank: focusRank,
             rq_reasons: [
                 ...(rq?.focus_reasons ?? []),
                 ...(rescue?.reasons ?? []),
@@ -347,34 +386,13 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             decision_missing: ds?.missing_confirmations ?? [],
             decision_risks: ds?.risk_flags ?? [],
             decision_next: ds?.next_confirmations ?? [],
-            open_confirm: og?.open_confirm ?? c.open_gate_status ?? null,
-            open_score: og?.final_open_score ?? c.open_score ?? null,
+            open_confirm: og?.open_confirm ?? c?.open_gate_status ?? null,
+            open_score: og?.final_open_score ?? c?.open_score ?? null,
             tradeable_candidate: og?.tradeable_candidate ?? false,
-            a_score: c.a_score,
+            a_score: c?.a_score ?? a?.a_score ?? og?.a_score ?? null,
             rescue_state: rescue?.radar_state ?? null,
             rescue_reasons: rescue?.reasons ?? [],
             opportunity_score: rescue?.opportunity_score ?? null,
-        };
-    };
-
-    const fromRescueOnly = (sym: string): TodayInputItem | null => {
-        const rescue = rescueBy.get(sym);
-        if (!rescue) return null;
-        const q = runtimeQuote(ctx, sym);
-        return {
-            ...emptyInput(sym, rescue.name),
-            last_price: rescue.last_price ?? q.last_price,
-            change_pct: rescue.change_pct ?? q.change_pct,
-            bp_score: rescue.bp_score,
-            c_score: rescue.c_score,
-            chase_risk: rescue.chase_risk?.toLowerCase() ?? null,
-            momentum_state: rescue.radar_state,
-            focus_rank: rescue.focus_score >= 0 ? 1 : null,
-            c_reasons: rescue.reasons,
-            rq_reasons: rescue.reasons,
-            rescue_state: rescue.radar_state,
-            rescue_reasons: rescue.reasons,
-            opportunity_score: rescue.opportunity_score,
         };
     };
 
@@ -397,34 +415,6 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         };
     };
 
-    const fromOpenOrA = (symbol: string): TodayInputItem => {
-        const og = openItems.get(symbol) ?? null;
-        const a = aPool.get(symbol) ?? null;
-        const q = runtimeQuote(ctx, symbol);
-        return {
-            ...emptyInput(symbol, a?.name ?? og?.name ?? symbol),
-            last_price: q.last_price,
-            change_pct: q.change_pct,
-            open_confirm: og?.open_confirm ?? null,
-            open_score: og?.final_open_score ?? null,
-            tradeable_candidate: og?.tradeable_candidate ?? false,
-            a_score: a?.a_score ?? og?.a_score ?? null,
-            data_blocked: og?.data_blocked ?? false,
-            chase_risk: og?.risk.chase_risk ?? null,
-            vwap_pos_pct: og?.metrics.vwap_pos_pct ?? null,
-            c_reasons: [
-                ...(og?.reasons ?? []),
-                ...(a?.sector ? [`族群：${a.sector}`] : []),
-            ],
-            c_risks: [
-                ...(og?.risks ?? []),
-                ...(a?.warning_status ? ['注意股'] : []),
-                ...(a?.disposition_status ? ['處置股'] : []),
-            ],
-            score_coverage_pct: og?.score_coverage_pct ?? null,
-        };
-    };
-
     // After hours / preopen: A-pool prep + any rescue leftovers from session
     if (mode === 'PREOPEN' || mode === 'AFTER_HOURS') {
         const seen = new Set<string>();
@@ -439,11 +429,8 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         }
         for (const sym of rescueBy.keys()) {
             if (seen.has(sym)) continue;
-            const extra = fromRescueOnly(sym);
-            if (extra) {
-                seen.add(sym);
-                out.push(extra);
-            }
+            seen.add(sym);
+            out.push(mergeSymbol(sym));
         }
         return out.slice(0, 24);
     }
@@ -466,14 +453,12 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
                     return 5;
             }
         };
-        const rankBy = new Map(rankItems.map((c) => [c.symbol, c]));
         const seen = new Set<string>();
         const out: TodayInputItem[] = [];
         const take = (symbol: string) => {
             if (seen.has(symbol)) return;
             seen.add(symbol);
-            const c = rankBy.get(symbol);
-            out.push(c ? fromRank(c) : fromOpenOrA(symbol));
+            out.push(mergeSymbol(symbol));
         };
         const bList = [...openItems.values()].sort((a, b) => {
             const by = confirmOrder(a.open_confirm) - confirmOrder(b.open_confirm);
@@ -481,6 +466,11 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             return (b.final_open_score ?? 0) - (a.final_open_score ?? 0);
         });
         for (const b of bList) take(b.symbol);
+        // Rescue / DS / RQ that already look live — don't wait only on A order
+        for (const ds of dsItems.values()) {
+            if (ds.status === 'CONFIRMED_STRENGTH') take(ds.symbol);
+        }
+        for (const sym of rescueFocusConfirmed) take(sym);
         for (const a of [...aPool.values()].sort(
             (x, y) => (y.a_score ?? 0) - (x.a_score ?? 0),
         )) {
@@ -488,24 +478,43 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         }
         for (const c of rankItems) take(c.symbol);
         for (const sym of rescueBy.keys()) take(sym);
-        return out.slice(0, 20);
+        return out.slice(0, 24);
     }
 
-    // Intraday / closing: C rank first, then rescue focus/early not already in C
+    // Intraday / closing: same order Radar would surface as “可進”
+    // 1) Decision Summary CONFIRMED_STRENGTH
+    // 2) Rescue focus confirmed / ACTIVE
+    // 3) RQ focus
+    // 4) Rest of C rank + other rescue lanes
     const seen = new Set<string>();
     const out: TodayInputItem[] = [];
-    for (const c of rankItems) {
-        seen.add(c.symbol);
-        out.push(fromRank(c));
-    }
-    for (const sym of rescueBy.keys()) {
-        if (seen.has(sym)) continue;
-        const extra = fromRescueOnly(sym);
-        if (extra) {
-            seen.add(sym);
-            out.push(extra);
+    const take = (symbol: string) => {
+        if (seen.has(symbol)) return;
+        seen.add(symbol);
+        out.push(mergeSymbol(symbol));
+    };
+
+    for (const ds of [...dsItems.values()].sort((a, b) => {
+        const rank = (s: string) =>
+            s === 'CONFIRMED_STRENGTH' ? 0 : s === 'WATCH' ? 1 : 2;
+        return rank(a.status) - rank(b.status);
+    })) {
+        if (
+            ds.status === 'CONFIRMED_STRENGTH' ||
+            ds.status === 'WATCH'
+        ) {
+            take(ds.symbol);
         }
     }
+    for (const c of rescueBatch?.focus.confirmed ?? []) take(c.symbol);
+    for (const c of rescueBatch?.active ?? []) take(c.symbol);
+    for (const c of rescueBatch?.focus.early ?? []) take(c.symbol);
+    for (const rq of rqItems.values()) {
+        if (rq.is_focus) take(rq.symbol);
+    }
+    for (const c of rankItems) take(c.symbol);
+    for (const sym of rescueBy.keys()) take(sym);
+
     return out;
 }
 

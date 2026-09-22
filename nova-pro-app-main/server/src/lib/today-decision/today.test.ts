@@ -468,7 +468,21 @@ function board(
         'OPENING',
     );
     assert.equal(trap.items[0]!.action, 'AVOID');
-    pass('T18 — 開盤用 B 確認：通過觀察、未過避開、試算等待、騙線仍避開');
+
+    const canEnter = board(
+        [
+            item({
+                symbol: '2330',
+                open_confirm: 'pass',
+                tradeable_candidate: true,
+                chase_risk: 'LOW',
+            }),
+        ],
+        'OPENING',
+    );
+    assert.equal(canEnter.items[0]!.action, 'ACTIONABLE');
+    assert.equal(canEnter.items[0]!.action_label, '可進場');
+    pass('T18 — 開盤用 B 確認：通過可進場、提早通過觀察、未過避開、試算等待、騙線仍避開');
 }
 
 // ---- T19 after-hours prep list ignores leftover B reject / chase ----
@@ -504,6 +518,41 @@ function board(
     assert.ok(b.items[0]!.risk.every((r) => !r.includes('追高')));
     assert.ok(b.items[0]!.risk.every((r) => !r.includes('VWAP')));
     pass('T19 — 盤後預備名單不帶白天開盤 reject / 追高殘渣');
+}
+
+// ---- T20 Decision Summary CONFIRMED = 可進場（對齊雷達，不強求 momentum ACTIVE）----
+{
+    const b = board([
+        item({
+            symbol: '2454',
+            decision_status: 'CONFIRMED_STRENGTH',
+            momentum_state: 'WATCH',
+            chase_risk: 'LOW',
+            c_score: 82,
+            bp_score: 70,
+            decision_confirmed: ['強度已確認'],
+        }),
+    ]);
+    assert.equal(b.items[0]!.action, 'ACTIONABLE');
+    assert.equal(b.items[0]!.action_label, '可進場');
+    pass('T20 — 雷達 CONFIRMED_STRENGTH → 今日可進場');
+}
+
+// ---- T21 Rescue ACTIVE + focus → 可進場 ----
+{
+    const b = board([
+        item({
+            symbol: '2376',
+            rescue_state: 'ACTIVE',
+            focus_rank: 1,
+            opportunity_score: 72,
+            chase_risk: 'MEDIUM',
+            decision_status: null,
+            momentum_state: 'ACTIVE',
+        }),
+    ]);
+    assert.equal(b.items[0]!.action, 'ACTIONABLE');
+    pass('T21 — Rescue 焦點 ACTIVE → 可進場');
 }
 
 console.log(`\ntoday.test.ts ${passed} passed`);
