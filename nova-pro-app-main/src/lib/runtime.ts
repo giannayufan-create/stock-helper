@@ -11,7 +11,7 @@ const FIREBASE_HOSTING =
     /(?:web\.app|firebaseapp\.com)$/.test(window.location.hostname);
 
 /** Render API used when the SPA is hosted on Firebase without VITE_API_BASE. */
-const HOSTED_API_FALLBACK = 'https://stock-helper-eskj.onrender.com';
+const HOSTED_API_FALLBACK = 'https://stock-helper-api-ruao.onrender.com';
 
 export function getApiBase(): string {
     const env = (import.meta.env.VITE_API_BASE as string | undefined)?.trim();
