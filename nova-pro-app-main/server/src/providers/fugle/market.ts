@@ -66,6 +66,23 @@ const TICKERS_TTL_MS = 10 * 60_000;
 const WS_CONNECT_TIMEOUT_MS = 10_000;
 const REST_TIMEOUT_MS = 10_000;
 
+/** TW cash session Mon–Fri 08:50–13:40 Taipei. Snapshot movers/actives 403 overnight. */
+function isTwCashSession(now = new Date()): boolean {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Taipei',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+    }).formatToParts(now);
+    const wd = parts.find((p) => p.type === 'weekday')?.value ?? '';
+    if (wd === 'Sat' || wd === 'Sun') return false;
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+    const hm = hour * 60 + minute;
+    return hm >= 8 * 60 + 50 && hm <= 13 * 60 + 40;
+}
+
 // the SDK's ws.connect() promise only settles on (un)authenticated events —
 // network errors, closes, and unexpected auth replies leave it pending
 // forever, so every await on it must be bounded
@@ -728,6 +745,9 @@ export class FugleMarketDataProvider implements MarketDataProvider {
         count: number,
         ascending: boolean,
     ): Promise<ScannerItem[]> {
+        if (!isTwCashSession()) {
+            return fetchTwOvernightPool(type, count);
+        }
         const markets = ['TSE', 'OTC'];
         let rows: any[] = [];
         try {
