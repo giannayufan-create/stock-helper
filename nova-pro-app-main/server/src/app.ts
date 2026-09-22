@@ -27,6 +27,7 @@ import { registerDecisionSummaryRoutes } from './routes/decision-summary.ts';
 import { registerSessionAutonomyRoutes } from './routes/session-autonomy.ts';
 import { registerAiInterpretationRoutes } from './routes/ai-interpretation.ts';
 import { registerRadarQualityRoutes } from './routes/radar-quality.ts';
+import { registerRadarRescueRoutes } from './routes/radar-rescue.ts';
 import { registerTodayRoutes } from './routes/today.ts';
 import { registerOutcomeRoutes } from './routes/outcomes.ts';
 import { registerLimitUpBoardRoutes } from './routes/limit-up-board.ts';
@@ -66,6 +67,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerSessionAutonomyRoutes(app, ctx);
     registerAiInterpretationRoutes(app, ctx);
     registerRadarQualityRoutes(app, ctx);
+    registerRadarRescueRoutes(app, ctx);
     registerTodayRoutes(app, ctx);
     registerOutcomeRoutes(app, ctx);
     registerLimitUpBoardRoutes(app, ctx);

@@ -99,7 +99,7 @@ export function BuyPressurePage({
     >('ALL');
     /** User opt-in only — default false so OVERHEATED stays visible. */
     const [onlyNotOverheated, setOnlyNotOverheated] = useState(false);
-    const [onlyHot, setOnlyHot] = useState(true);
+    const [onlyHot, setOnlyHot] = useState(false);
     const [showPricePanel, setShowPricePanel] = useState(false);
     const [showMarketPanel, setShowMarketPanel] = useState(false);
     const [sortMode, setSortMode] = useState<

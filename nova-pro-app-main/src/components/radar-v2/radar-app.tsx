@@ -31,11 +31,15 @@ import type { LiveStatus, RadarTab } from './tokens';
 import { radarColor } from './tokens';
 import { useRadarFeed } from './use-radar-feed';
 import { WatchPage } from './watch-page';
+import { SimpleRadarPage } from './simple-radar-page';
+import { getRadarUiMode } from '../../lib/radar-rescue';
+
+const RADAR_UI_MODE = getRadarUiMode();
 
 const NAV: Array<{ id: RadarTab; label: string; icon: string }> = [
     { id: 'today', label: '今日', icon: '◉' },
     { id: 'radar', label: '雷達', icon: '◎' },
-    { id: 'watch', label: '觀察', icon: '☆' },
+    { id: 'watch', label: '新聞', icon: '📰' },
     { id: 'perf', label: '績效', icon: '▣' },
     { id: 'more', label: '更多', icon: '☰' },
 ];
@@ -51,8 +55,12 @@ export function RadarApp({
 }) {
     const isDesktop = useMediaQuery('screen and (min-width: 1025px)');
     const [tab, setTab] = useState<RadarTab>('radar');
-    const [radarInner, setRadarInner] = useState<string>('limit');
-    const feedPaused = tab === 'radar' && radarInner === 'limit';
+    const [radarInner, setRadarInner] = useState<string>(
+        RADAR_UI_MODE === 'rescue' ? 'rescue' : 'limit',
+    );
+    const feedPaused =
+        tab === 'radar' &&
+        (radarInner === 'limit' || radarInner === 'rescue');
     const feed = useRadarFeed(12_000, feedPaused);
     const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
     const [detailFetched, setDetailFetched] =
@@ -246,65 +254,131 @@ export function RadarApp({
             )}
             {tab === 'radar' && (
                 <>
-                    <div className={s.quickBar} style={{ marginBottom: 10 }}>
-                        <button
-                            type="button"
-                            className={`${s.quickBtn} ${
-                                radarInner === 'limit' ? s.tabChipOn : ''
-                            }`}
-                            onClick={() => setRadarInner('limit')}
-                        >
-                            漲停板
-                        </button>
-                        <button
-                            type="button"
-                            className={`${s.quickBtn} ${
-                                radarInner === 'buy' ? s.tabChipOn : ''
-                            }`}
-                            onClick={() => setRadarInner('buy')}
-                        >
-                            🔥 即時買盤
-                        </button>
-                        <button
-                            type="button"
-                            className={`${s.quickBtn} ${
-                                radarInner === 'strong' ||
-                                radarInner === 'heating' ||
-                                radarInner === 'pullback'
-                                    ? s.tabChipOn
-                                    : ''
-                            }`}
-                            onClick={() => setRadarInner('strong')}
-                        >
-                            強度雷達
-                        </button>
-                    </div>
-                    {radarInner === 'limit' ? (
-                        <LimitUpPage onOpenSymbol={openSymbol} />
-                    ) : radarInner === 'buy' ? (
-                        <BuyPressurePage onOpenSymbol={openSymbol} />
+                    {RADAR_UI_MODE === 'rescue' ? (
+                        <>
+                            <div
+                                className={s.quickBar}
+                                style={{ marginBottom: 10 }}
+                            >
+                                <button
+                                    type="button"
+                                    className={`${s.quickBtn} ${
+                                        radarInner === 'rescue'
+                                            ? s.tabChipOn
+                                            : ''
+                                    }`}
+                                    onClick={() => setRadarInner('rescue')}
+                                >
+                                    簡式雷達
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`${s.quickBtn} ${
+                                        radarInner === 'limit'
+                                            ? s.tabChipOn
+                                            : ''
+                                    }`}
+                                    onClick={() => setRadarInner('limit')}
+                                >
+                                    漲停板
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`${s.quickBtn} ${
+                                        radarInner === 'legacy'
+                                            ? s.tabChipOn
+                                            : ''
+                                    }`}
+                                    onClick={() => setRadarInner('legacy')}
+                                >
+                                    舊雷達
+                                </button>
+                            </div>
+                            {radarInner === 'limit' ? (
+                                <LimitUpPage onOpenSymbol={openSymbol} />
+                            ) : radarInner === 'legacy' ? (
+                                <RadarPage
+                                    feed={feed}
+                                    initialTab="active"
+                                    selectedSymbol={detailSymbol}
+                                    onOpenSymbol={openSymbol}
+                                    onOpenSearch={onOpenSearch}
+                                />
+                            ) : (
+                                <SimpleRadarPage onOpenSymbol={openSymbol} />
+                            )}
+                        </>
                     ) : (
-                        <RadarPage
-                            feed={feed}
-                            initialTab={radarInner}
-                            selectedSymbol={detailSymbol}
-                            onOpenSymbol={openSymbol}
-                            onOpenSearch={onOpenSearch}
-                        />
+                        <>
+                            <div
+                                className={s.quickBar}
+                                style={{ marginBottom: 10 }}
+                            >
+                                <button
+                                    type="button"
+                                    className={`${s.quickBtn} ${
+                                        radarInner === 'limit'
+                                            ? s.tabChipOn
+                                            : ''
+                                    }`}
+                                    onClick={() => setRadarInner('limit')}
+                                >
+                                    漲停板
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`${s.quickBtn} ${
+                                        radarInner === 'buy' ? s.tabChipOn : ''
+                                    }`}
+                                    onClick={() => setRadarInner('buy')}
+                                >
+                                    🔥 即時買盤
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`${s.quickBtn} ${
+                                        radarInner === 'strong' ||
+                                        radarInner === 'heating' ||
+                                        radarInner === 'pullback'
+                                            ? s.tabChipOn
+                                            : ''
+                                    }`}
+                                    onClick={() => setRadarInner('strong')}
+                                >
+                                    強度雷達
+                                </button>
+                            </div>
+                            {radarInner === 'limit' ? (
+                                <LimitUpPage onOpenSymbol={openSymbol} />
+                            ) : radarInner === 'buy' ? (
+                                <BuyPressurePage onOpenSymbol={openSymbol} />
+                            ) : (
+                                <RadarPage
+                                    feed={feed}
+                                    initialTab={radarInner}
+                                    selectedSymbol={detailSymbol}
+                                    onOpenSymbol={openSymbol}
+                                    onOpenSearch={onOpenSearch}
+                                />
+                            )}
+                        </>
                     )}
                 </>
             )}
-            {tab === 'watch' && (
-                <WatchPage
-                    feed={feed}
-                    favorites={favorites}
-                    onOpenSymbol={openSymbol}
-                    onGoBrokerRadar={() => {
-                        setShowBrokerRadar(true);
-                        if (!isDesktop) closeDetail();
-                    }}
-                />
-            )}
+            {tab === 'watch' &&
+                (RADAR_UI_MODE === 'rescue' ? (
+                    <IntelPage onBack={() => setTab('radar')} />
+                ) : (
+                    <WatchPage
+                        feed={feed}
+                        favorites={favorites}
+                        onOpenSymbol={openSymbol}
+                        onGoBrokerRadar={() => {
+                            setShowBrokerRadar(true);
+                            if (!isDesktop) closeDetail();
+                        }}
+                    />
+                ))}
             {tab === 'perf' && <PerformancePage />}
             {tab === 'more' && (
                 <MorePage
@@ -489,7 +563,12 @@ export function RadarApp({
                             }`}
                             onClick={() => {
                                 setTab(n.id);
-                                if (n.id === 'radar') setRadarInner('limit');
+                                if (n.id === 'radar')
+                                    setRadarInner(
+                                        RADAR_UI_MODE === 'rescue'
+                                            ? 'rescue'
+                                            : 'limit',
+                                    );
                             }}
                         >
                             <span>{n.icon}</span>
@@ -538,7 +617,9 @@ export function RadarApp({
                         onClick={() => {
                             closeDetail();
                             setTab('radar');
-                            setRadarInner('limit');
+                            setRadarInner(
+                                RADAR_UI_MODE === 'rescue' ? 'rescue' : 'limit',
+                            );
                         }}
                     >
                         回雷達
@@ -567,7 +648,12 @@ export function RadarApp({
                         }`}
                         onClick={() => {
                             setTab(n.id);
-                            if (n.id === 'radar') setRadarInner('limit');
+                            if (n.id === 'radar')
+                                setRadarInner(
+                                    RADAR_UI_MODE === 'rescue'
+                                        ? 'rescue'
+                                        : 'limit',
+                                );
                         }}
                     >
                         <span className={s.dockIcon}>{n.icon}</span>

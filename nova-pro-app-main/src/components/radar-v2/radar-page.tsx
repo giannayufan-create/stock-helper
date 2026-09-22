@@ -42,7 +42,7 @@ export function RadarPage({
     const [filterOpen, setFilterOpen] = useState(false);
     const [minC, setMinC] = useState(50);
     const [minHeat, setMinHeat] = useState(45);
-    const [onlyHot, setOnlyHot] = useState(true);
+    const [onlyHot, setOnlyHot] = useState(false);
     const [instFilter, setInstFilter] = useState<InstFilter>('ALL');
     const [radarAi, setRadarAi] = useState<RadarAIInterpretationDto | null>(
         null,

@@ -64,7 +64,6 @@ const QUOTE_TTL_MS = 10_000;
 const OPT_QUOTE_TTL_MS = 60_000;
 const TICKERS_TTL_MS = 10 * 60_000;
 const WS_CONNECT_TIMEOUT_MS = 10_000;
-const REST_TIMEOUT_MS = 10_000;
 const INIT_PROBE_TIMEOUT_MS = 25_000;
 
 /** TW cash session Mon–Fri 08:50–13:40 Taipei. Snapshot movers/actives 403 overnight. */

@@ -17,6 +17,7 @@ import type { DecisionSummaryService } from './lib/decision-summary/index.ts';
 import type { SessionAutonomyService } from './lib/session-autonomy/index.ts';
 import type { AiInterpretationService } from './lib/ai-interpretation/index.ts';
 import type { RadarQualityService } from './lib/radar-quality/index.ts';
+import type { RadarRescueService } from './lib/radar-rescue/index.ts';
 import type { LiveOutcomeTracker } from './lib/signal-outcome/index.ts';
 import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
 import type { MarketManager } from './providers/manager.ts';
@@ -70,6 +71,8 @@ export interface AppContext {
     aiInterpretation: AiInterpretationService | null;
     /** Radar Quality — eligibility / momentum / focus / institutional continuation; support only. */
     radarQuality: RadarQualityService | null;
+    /** Radar Rescue v3 — EARLY/ACTIVE/Funnel/EOD; never mutates A/B/C/BP. */
+    radarRescue: RadarRescueService | null;
     /** Signal outcome measurement — research only; never feeds back into B/C. */
     outcomeTracker: LiveOutcomeTracker | null;
     startedAt: number;

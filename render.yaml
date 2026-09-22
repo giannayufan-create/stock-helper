@@ -20,6 +20,8 @@ services:
         value: "0.0.0.0"
       - key: MARKET_PROVIDER
         value: fugle
+      - key: RADAR_MODE
+        value: rescue
       - key: TRADE_PROVIDER
         value: mock
       - key: FUGLE_API_KEY
