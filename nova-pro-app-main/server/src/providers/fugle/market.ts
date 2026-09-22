@@ -65,6 +65,7 @@ const OPT_QUOTE_TTL_MS = 60_000;
 const TICKERS_TTL_MS = 10 * 60_000;
 const WS_CONNECT_TIMEOUT_MS = 10_000;
 const REST_TIMEOUT_MS = 10_000;
+const INIT_PROBE_TIMEOUT_MS = 25_000;
 
 /** TW cash session Mon–Fri 08:50–13:40 Taipei. Snapshot movers/actives 403 overnight. */
 function isTwCashSession(now = new Date()): boolean {
@@ -140,24 +141,33 @@ export class FugleMarketDataProvider implements MarketDataProvider {
         if (!this.apiKey) throw new Error('需要 Fugle API Key');
         this.sdk = await import('@fugle/marketdata');
         this.rest = new this.sdk.RestClient({ apiKey: this.apiKey });
-        // validate the key with a cheap call
-        const probe: any = await withTimeout<any>(
-            this.rest.stock.intraday.quote({ symbol: '2330' }),
-            REST_TIMEOUT_MS,
-            'Fugle REST API 連線逾時',
-        );
-        if (!probe || probe.statusCode === 401 || probe.status === 401) {
-            throw new Error('Fugle API Key 無效（401）');
-        }
-        if (probe.statusCode && probe.statusCode >= 400) {
-            throw new Error(
-                `Fugle API 驗證失敗（${probe.statusCode}）: ${probe.message ?? ''}`,
+        // Cold start + overnight quote can exceed 10s; only 401 means a bad key.
+        // Anything else (timeout, 403 after hours, empty body) still starts Fugle
+        // so Render does not silently fall back to mock until the next restart.
+        try {
+            const probe: any = await withTimeout<any>(
+                this.rest.stock.intraday.quote({ symbol: '2330' }),
+                INIT_PROBE_TIMEOUT_MS,
+                'Fugle REST API 連線逾時',
             );
-        }
-        if (!probe.symbol) {
-            throw new Error(
-                `Fugle API 回應異常: ${JSON.stringify(probe).slice(0, 200)}`,
-            );
+            if (probe?.statusCode === 401 || probe?.status === 401) {
+                throw new Error('Fugle API Key 無效（401）');
+            }
+            if (probe?.statusCode && probe.statusCode >= 400) {
+                console.warn(
+                    `fugle init: quote probe ${probe.statusCode} — starting anyway`,
+                );
+                return;
+            }
+            if (!probe?.symbol) {
+                console.warn(
+                    'fugle init: quote probe empty — starting anyway (key present)',
+                );
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (/401|無效/.test(msg)) throw err instanceof Error ? err : new Error(msg);
+            console.warn(`fugle init: ${msg} — starting anyway (key present)`);
         }
     }
 

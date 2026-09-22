@@ -70,10 +70,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         (Boolean(shioajiApiKey && shioajiSecretKey) &&
             truthy(env.SHIOAJI_AS_PRIMARY));
 
+    if ((env.MARKET_PROVIDER ?? '').trim().toLowerCase() === 'mock') {
+        throw new Error(
+            'MARKET_PROVIDER=mock 已停用。請設 MARKET_PROVIDER=fugle 或 shioaji。',
+        );
+    }
     let marketProvider = pick(
         env.MARKET_PROVIDER,
-        ['mock', 'fugle', 'shioaji'],
-        'mock',
+        ['fugle', 'shioaji'],
+        'fugle',
     );
     // New name preferred: SHIOAJI_ENABLED=true (does not require changing MARKET_PROVIDER)
     if (shioajiEnabled && shioajiApiKey && shioajiSecretKey) {

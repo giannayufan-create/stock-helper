@@ -57,6 +57,12 @@ export function registerBuyPressureRoutes(
     });
 
     app.get('/api/v1/data/buy-pressure', async (req, reply) => {
+        if (ctx.market.name() === 'mock') {
+            return reply.code(503).send({
+                error: 'MARKET_REFUSED_MOCK',
+                detail: '模擬行情已停用，真實報價未連上。',
+            });
+        }
         const svc = bp();
         if (!svc) return reply.code(503).send({ error: 'disabled' });
         const q = req.query as Record<string, string | undefined>;

@@ -53,8 +53,10 @@ function contractKey(c: ContractBase) {
 
 export interface MarketConfig {
     provider: 'mock' | 'fugle' | 'shioaji';
+    env_provider?: 'mock' | 'fugle' | 'shioaji';
     has_key: boolean;
     has_shioaji?: boolean;
+    paper_trade?: boolean;
 }
 
 export function fetchMarketConfig() {

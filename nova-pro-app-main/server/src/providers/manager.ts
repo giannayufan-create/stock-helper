@@ -55,7 +55,7 @@ export type UpstreamDemandHook = {
 
 export class MarketManager implements MarketDataProvider, PriceFeed {
     private active!: MarketDataProvider;
-    private activeName: MarketName = 'mock';
+    private activeName: MarketName = 'fugle';
 
     private subs = new Map<string, SubEntry>();
     private holds = new Map<string, { key: ContractKey; count: number }>();

@@ -9,7 +9,6 @@ import { loadConfig } from './config.ts';
 import type { AppContext } from './context.ts';
 import { FugleMarketDataProvider } from './providers/fugle/market.ts';
 import { MarketManager } from './providers/manager.ts';
-import { MockMarketDataProvider } from './providers/mock/market.ts';
 import { ShioajiMarketDataProvider } from './providers/shioaji/market.ts';
 import { MockTradingProvider } from './providers/mock/trading.ts';
 import type { TradingProvider } from './providers/trading.ts';
@@ -64,6 +63,7 @@ async function main(): Promise<void> {
     const manager = new MarketManager();
     const saved = runtimeConfig.get();
     let started = false;
+    const bootErrors: string[] = [];
 
     // Prefer SHIOAJI_ENABLED (new name) so Render need not change MARKET_PROVIDER
     if (
@@ -89,7 +89,8 @@ async function main(): Promise<void> {
                 console.log('market: shioaji (永豐行情)');
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                console.warn(`shioaji init failed (${msg}) — falling back`);
+                bootErrors.push(`shioaji: ${msg}`);
+                console.warn(`shioaji init failed (${msg}) — trying fugle`);
                 if (/fetch failed|ECONNREFUSED|AbortError/i.test(msg)) {
                     console.warn(
                         `shioaji bridge unreachable at ${config.shioajiBridgeUrl} — Render must run Docker (start-cloud.sh), not native Node`,
@@ -107,17 +108,19 @@ async function main(): Promise<void> {
             manager.start(fugle, 'fugle');
             started = true;
             runtimeConfig.set({ marketProvider: 'fugle', fugleApiKey: fugleKey });
-            console.log('market: fugle (fallback)');
+            console.log('market: fugle');
         } catch (err) {
-            console.warn(
-                `fugle init failed (${err instanceof Error ? err.message : err}) — falling back to mock`,
-            );
+            const msg = err instanceof Error ? err.message : String(err);
+            bootErrors.push(`fugle: ${msg}`);
+            console.error(`fugle init failed (${msg}) — mock disabled`);
         }
+    } else if (!started && !fugleKey) {
+        bootErrors.push('fugle: FUGLE_API_KEY missing');
     }
     if (!started) {
-        const mock = new MockMarketDataProvider();
-        await mock.init();
-        manager.start(mock, 'mock');
+        throw new Error(
+            `MARKET_REFUSED_MOCK: 真實行情無法啟動，拒絕模擬盤。${bootErrors.join('；') || '沒有 Fugle / 永豐可用'}`,
+        );
     }
 
     let trading: TradingProvider;
@@ -137,7 +140,7 @@ async function main(): Promise<void> {
             break;
         }
         default:
-            // paper trading priced off the live market feed (mock or fugle)
+            // paper trading priced off the live market feed (fugle or shioaji)
             trading = new MockTradingProvider(manager);
     }
 

@@ -4,7 +4,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.ts';
 import { FugleMarketDataProvider } from '../providers/fugle/market.ts';
-import { MockMarketDataProvider } from '../providers/mock/market.ts';
 import { ShioajiMarketDataProvider } from '../providers/shioaji/market.ts';
 
 export function registerConfigRoutes(
@@ -13,10 +12,12 @@ export function registerConfigRoutes(
 ): void {
     app.get('/api/v1/config/market', async () => ({
         provider: ctx.market.name(),
+        env_provider: ctx.config.marketProvider,
         has_key: Boolean(ctx.runtimeConfig.get().fugleApiKey),
         has_shioaji: Boolean(
             ctx.config.shioajiApiKey && ctx.config.shioajiSecretKey,
         ),
+        paper_trade: ctx.config.tradeProvider === 'mock',
     }));
 
     app.post<{
@@ -26,11 +27,9 @@ export function registerConfigRoutes(
         const provider = req.body?.provider;
 
         if (provider === 'mock') {
-            const mock = new MockMarketDataProvider();
-            await mock.init();
-            await ctx.market.swap(mock, 'mock');
-            ctx.runtimeConfig.set({ marketProvider: 'mock' });
-            return { provider: 'mock' as const };
+            return reply.code(400).send({
+                detail: '模擬行情已停用。請使用 fugle 或 shioaji。',
+            });
         }
 
         if (provider === 'shioaji') {

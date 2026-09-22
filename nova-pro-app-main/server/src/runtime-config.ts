@@ -23,14 +23,15 @@ export class RuntimeConfigStore {
         } catch {
             // first run — use env seed
         }
+        const seeded =
+            loaded.marketProvider ?? envSeed.marketProvider ?? 'fugle';
         this.config = {
             marketProvider:
-                loaded.marketProvider ??
-                (envSeed.marketProvider === 'shioaji'
+                seeded === 'shioaji'
                     ? 'shioaji'
-                    : envSeed.marketProvider === 'fugle'
+                    : seeded === 'fugle'
                       ? 'fugle'
-                      : 'mock'),
+                      : 'fugle',
             fugleApiKey: loaded.fugleApiKey ?? envSeed.fugleApiKey ?? '',
         };
     }

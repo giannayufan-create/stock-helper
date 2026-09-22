@@ -282,19 +282,6 @@ function MarketSourceMenu() {
         }
     };
 
-    const backToMock = async () => {
-        if (busy) return;
-        setBusy(true);
-        setError('');
-        try {
-            await setMarketSource({ provider: 'mock' });
-            window.location.reload();
-        } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
-            setBusy(false);
-        }
-    };
-
     const connectShioaji = async () => {
         if (busy) return;
         setBusy(true);
@@ -314,7 +301,7 @@ function MarketSourceMenu() {
         ? '行情·永豐'
         : isFugle
           ? '行情·富果'
-          : '行情·模擬';
+          : '行情·未連線';
     return (
         <Menu label={label}>
             {() => (
@@ -328,7 +315,7 @@ function MarketSourceMenu() {
                             ? '永豐 Shioaji 行情（雲端 Key）'
                             : isFugle
                               ? '富果行情 API（真實報價）'
-                              : '內建模擬行情（隨機走動）'}
+                              : '真實行情未連線（模擬已停用）'}
                     </span>
                     <button
                         className={styles.opt[isShioaji ? 'on' : 'off']}
@@ -370,15 +357,6 @@ function MarketSourceMenu() {
                               ? '↻ 重新連接富果行情'
                               : '✓ 連接富果行情'}
                     </button>
-                    {(isFugle || isShioaji) && (
-                        <button
-                            className={styles.opt.off}
-                            disabled={busy}
-                            onClick={backToMock}
-                        >
-                            切回模擬行情
-                        </button>
-                    )}
                     {error && (
                         <span className={`${styles.emptyHint} ${panel.dirText.up}`}>
                             ✕ {error}

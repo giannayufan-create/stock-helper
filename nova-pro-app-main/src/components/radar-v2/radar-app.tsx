@@ -65,6 +65,7 @@ export function RadarApp({
     const [provider, setProvider] = useState<'mock' | 'fugle' | 'shioaji' | null>(
         null,
     );
+    const [marketError, setMarketError] = useState<string | null>(null);
     const [showIntel, setShowIntel] = useState(false);
     const [showBrokerRadar, setShowBrokerRadar] = useState(false);
     const [showBuyPressure, setShowBuyPressure] = useState(false);
@@ -103,8 +104,20 @@ export function RadarApp({
 
     useEffect(() => {
         void fetchMarketConfig()
-            .then((c) => setProvider(c.provider))
-            .catch(() => setProvider(null));
+            .then((c) => {
+                setProvider(c.provider);
+                if (c.provider === 'mock') {
+                    setMarketError(
+                        '行情模擬已停用。目前沒有真實報價，不要使用任何股票名單。',
+                    );
+                } else {
+                    setMarketError(null);
+                }
+            })
+            .catch(() => {
+                setProvider(null);
+                setMarketError('行情連線失敗，無法取得真實報價。');
+            });
     }, []);
 
     // Auto-open first stock on desktop when intensity list arrives (not 漲停板)
@@ -346,7 +359,13 @@ export function RadarApp({
                 <span
                     className={`${s.simBadge} ${isLiveFeed ? s.liveBadge : ''}`}
                 >
-                    {provider == null ? '連線中' : isSim ? '模擬' : '即時'}
+                    {provider == null
+                        ? marketError
+                            ? '中斷'
+                            : '連線中'
+                        : isSim
+                          ? '中斷'
+                          : '即時'}
                 </span>
                 <div
                     className={`${s.statusPill} ${s.liveVariants[statusLabel]}`}
@@ -398,9 +417,11 @@ export function RadarApp({
         </header>
     );
 
-    const mockBanner = isSim ? (
+    const mockBanner = marketError ? (
+        <div className={`${s.banner} ${s.bannerBad}`}>{marketError}</div>
+    ) : isSim ? (
         <div className={`${s.banner} ${s.bannerBad}`}>
-            目前是模擬／備援資料，不是真實盤中報價。畫面可對，但不要當盤中訊號。
+            行情模擬已停用。真實報價未連上，不要使用任何股票名單。
         </div>
     ) : null;
 

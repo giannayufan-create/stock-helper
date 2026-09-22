@@ -315,7 +315,13 @@ export function registerDataRoutes(
             state?: string;
             include_watch?: string;
         };
-    }>('/api/v1/data/intraday-rank', async (req) => {
+    }>('/api/v1/data/intraday-rank', async (req, reply) => {
+        if (ctx.market.name() === 'mock') {
+            return reply.code(503).send({
+                error: 'MARKET_REFUSED_MOCK',
+                detail: '模擬行情已停用，真實報價未連上。',
+            });
+        }
         const batch = ctx.intradayRank.getLastBatch();
         const limit = Math.min(
             50,
