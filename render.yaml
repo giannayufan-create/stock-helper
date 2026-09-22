@@ -1,6 +1,6 @@
 # Render Blueprint — 股市小幫手
-# Dashboard: https://dashboard.render.com → Blueprint / stock-helper-api
-# Free tier sleeps when idle（第一次開啟可能要等 30–60 秒）
+# Dashboard: https://dashboard.render.com → stock-helper-api
+# Starter stays up (no 15-min spin-down). Free sleeps and first open waits 30–60s.
 #
 # 原本變數維持不動；永豐行情只用新名稱 SHIOAJI_*（勿再貼 MARKET_PROVIDER）。
 
@@ -8,7 +8,7 @@ services:
   - type: web
     name: stock-helper-api
     runtime: docker
-    plan: free
+    plan: starter
     region: singapore
     rootDir: nova-pro-app-main
     dockerfilePath: ./Dockerfile
