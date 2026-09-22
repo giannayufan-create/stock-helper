@@ -13,7 +13,7 @@ import {
 } from './types.ts';
 
 const DISCLAIMER =
-    '決策支援參考，非投資建議。進場與部位由你自行決定。';
+    '動作標籤為決策支援參考（可進場／只觀察／不要碰），非投資建議。進場與部位由你自行決定。';
 
 const MODE_LABEL: Record<TodayMode, string> = {
     PREOPEN: '盤前準備（08:30–09:00）',
@@ -31,10 +31,10 @@ const ACTION_ORDER: Record<TodayAction, number> = {
 };
 
 const ACTION_LABEL: Record<TodayAction, string> = {
-    ACTIONABLE: '可考慮進場',
-    WATCH: '再等一個確認',
+    ACTIONABLE: '可進場',
+    WATCH: '只觀察',
     WAIT: '還沒成形',
-    AVOID: '不要追',
+    AVOID: '不要碰',
 };
 
 function clamp(n: number, lo = 0, hi = 100): number {
@@ -137,6 +137,15 @@ function resolveAction(
     if ((it.chase_risk ?? '').toUpperCase() === 'EXTREME') {
         return { action: 'AVOID', hint: '追高風險極高，現在進場位置太差' };
     }
+
+    // Rescue EARLY = 剛轉強 → 只觀察（不要求漲幅）
+    if (it.rescue_state === 'EARLY') {
+        return {
+            action: 'WATCH',
+            hint: '剛轉強，動能在加速，先觀察確認再進場',
+        };
+    }
+
     if (it.decision_status === 'EXTENDED') {
         return { action: 'AVOID', hint: '漲幅已經拉開，等回檔再看' };
     }
@@ -180,8 +189,11 @@ function resolveAction(
     }
 
     const confirmed =
-        it.decision_status === 'CONFIRMED_STRENGTH' &&
-        (it.momentum_state === 'ACTIVE' || it.focus_rank != null) &&
+        (it.decision_status === 'CONFIRMED_STRENGTH' ||
+            it.rescue_state === 'ACTIVE') &&
+        (it.momentum_state === 'ACTIVE' ||
+            it.rescue_state === 'ACTIVE' ||
+            it.focus_rank != null) &&
         !isHighChase(it.chase_risk);
 
     if (confirmed) {
@@ -381,9 +393,11 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
             change_pct: it.change_pct,
             action,
             action_label:
-                input.mode === 'PREOPEN' || input.mode === 'AFTER_HOURS'
+                input.mode === 'AFTER_HOURS'
                     ? '明日預備'
-                    : ACTION_LABEL[action],
+                    : input.mode === 'PREOPEN'
+                      ? '盤前觀察'
+                      : ACTION_LABEL[action],
             action_hint: hint,
             conviction: conviction(it, action),
             why: buildWhy(it),

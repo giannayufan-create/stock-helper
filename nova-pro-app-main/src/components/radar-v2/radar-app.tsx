@@ -54,7 +54,7 @@ export function RadarApp({
     onOpenSearch?: () => void;
 }) {
     const isDesktop = useMediaQuery('screen and (min-width: 1025px)');
-    const [tab, setTab] = useState<RadarTab>('radar');
+    const [tab, setTab] = useState<RadarTab>('today');
     const [radarInner, setRadarInner] = useState<string>(
         RADAR_UI_MODE === 'rescue' ? 'rescue' : 'limit',
     );

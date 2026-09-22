@@ -11,14 +11,14 @@ import {
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { RegulatoryChip, TrapChips } from './stock-flags';
-import { looksLikeBoardMover, openConfirmLabel } from './helpers';
+import { openConfirmLabel } from './helpers';
 
 const BOARD_TITLE: Record<string, string> = {
-    PREOPEN: '盤前預備名單',
+    PREOPEN: '盤前：夜盤結論＋開盤預想',
     OPENING: '開盤看這幾支',
     INTRADAY: '今天看這幾支',
     CLOSING: '今天看這幾支',
-    AFTER_HOURS: '夜盤與明日預備',
+    AFTER_HOURS: '夜盤結論＋明日預備',
 };
 
 const CONFIDENCE_LABEL: Record<'HIGH' | 'MEDIUM' | 'LOW', string> = {
@@ -370,28 +370,36 @@ export function TodayDecisionBoard({
 
     const hotItems = useMemo(() => {
         if (!board) return [];
-        return board.items
-            .filter((it) => {
-                if (it.action === 'WAIT' || it.action === 'AVOID') return false;
-                return looksLikeBoardMover({
-                    changePct: it.change_pct,
-                    heat: it.sources.heat_score,
-                    state: it.sources.momentum_state,
-                });
-            })
-            .slice(0, 12);
+        // No frontend secondary filter — trust backend actions.
+        return board.items.slice(0, 16);
     }, [board]);
+
+    const grouped = useMemo(() => {
+        const buckets: Record<string, TodayDecisionItemDto[]> = {
+            ACTIONABLE: [],
+            WATCH: [],
+            WAIT: [],
+            AVOID: [],
+        };
+        for (const it of hotItems) {
+            (buckets[it.action] ??= []).push(it);
+        }
+        return buckets;
+    }, [hotItems]);
 
     if (!board) {
         return (
             <section className={s.section}>
-                <div className={s.sectionTitle}>夜盤與今日判斷</div>
+                <div className={s.sectionTitle}>今天看這幾支</div>
                 <div className={s.empty}>
                     {error ? `讀取失敗：${error}` : '讀取中…'}
                 </div>
             </section>
         );
     }
+
+    const isPreopen =
+        board.mode === 'PREOPEN' || board.mode === 'AFTER_HOURS';
 
     return (
         <section className={s.section}>
@@ -417,6 +425,18 @@ export function TodayDecisionBoard({
                     marginBottom: 10,
                 }}
             >
+                {isPreopen && (
+                    <div
+                        style={{
+                            fontSize: 12,
+                            fontWeight: 800,
+                            marginBottom: 6,
+                            color: vars.color.mutedForeground,
+                        }}
+                    >
+                        ① 夜盤結論
+                    </div>
+                )}
                 <div style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.5 }}>
                     {board.headline}
                 </div>
@@ -438,36 +458,49 @@ export function TodayDecisionBoard({
                         gap: 12,
                         fontSize: 11,
                         color: vars.color.mutedForeground,
+                        flexWrap: 'wrap',
                     }}
                 >
-                    {board.mode === 'AFTER_HOURS' || board.mode === 'PREOPEN' ? (
-                        <span>明日預備 {board.items.length} 檔</span>
-                    ) : board.mode === 'OPENING' ? (
-                        <>
-                            {board.counts.actionable > 0 ? (
-                                <span>可進場 {board.counts.actionable}</span>
-                            ) : null}
-                            <span>開盤觀察 {board.counts.watch}</span>
-                            <span>尚未確認 {board.counts.wait}</span>
-                            <span>避開 {board.counts.avoid}</span>
-                        </>
+                    {isPreopen ? (
+                        <span>
+                            {board.mode === 'PREOPEN'
+                                ? '開盤預想'
+                                : '明日預備'}{' '}
+                            {board.items.length} 檔
+                        </span>
                     ) : (
                         <>
-                            <span>可進場 {board.counts.actionable}</span>
-                            <span>觀察 {board.counts.watch}</span>
-                            <span>未成形 {board.counts.wait}</span>
-                            <span>避開 {board.counts.avoid}</span>
+                            <span>
+                                可進場 {board.counts.actionable}
+                            </span>
+                            <span>只觀察 {board.counts.watch}</span>
+                            <span>還沒成形 {board.counts.wait}</span>
+                            <span>不要碰 {board.counts.avoid}</span>
                         </>
                     )}
                 </div>
             </div>
 
+            {isPreopen && (
+                <div
+                    style={{
+                        fontSize: 13,
+                        fontWeight: 800,
+                        margin: '4px 0 8px',
+                    }}
+                >
+                    ②{' '}
+                    {board.mode === 'PREOPEN'
+                        ? '開盤預想清單'
+                        : '明日預備名單'}
+                </div>
+            )}
+
             {hotItems.length === 0 ? (
                 <div className={s.empty}>
-                    {board.not_ready_reason ??
-                        '目前沒有夠熱、夠漲的標的'}
+                    {board.not_ready_reason ?? '目前沒有符合條件的標的'}
                 </div>
-            ) : (
+            ) : isPreopen ? (
                 hotItems.map((it) => (
                     <DecisionRow
                         key={it.symbol}
@@ -475,6 +508,39 @@ export function TodayDecisionBoard({
                         onOpenSymbol={onOpenSymbol}
                     />
                 ))
+            ) : (
+                (
+                    [
+                        ['ACTIONABLE', '可進場'],
+                        ['WATCH', '只觀察'],
+                        ['WAIT', '還沒成形'],
+                        ['AVOID', '不要碰'],
+                    ] as const
+                ).map(([key, label]) => {
+                    const list = grouped[key] ?? [];
+                    if (!list.length) return null;
+                    return (
+                        <div key={key} style={{ marginBottom: 12 }}>
+                            <div
+                                style={{
+                                    fontSize: 12,
+                                    fontWeight: 800,
+                                    marginBottom: 6,
+                                    color: TODAY_ACTION_COLOR[key],
+                                }}
+                            >
+                                {label} · {list.length}
+                            </div>
+                            {list.map((it) => (
+                                <DecisionRow
+                                    key={it.symbol}
+                                    item={it}
+                                    onOpenSymbol={onOpenSymbol}
+                                />
+                            ))}
+                        </div>
+                    );
+                })
             )}
 
             <div

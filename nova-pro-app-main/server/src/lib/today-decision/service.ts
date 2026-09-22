@@ -247,6 +247,9 @@ function emptyInput(symbol: string, name: string): TodayInputItem {
         open_score: null,
         tradeable_candidate: false,
         a_score: null,
+        rescue_state: null,
+        rescue_reasons: [],
+        opportunity_score: null,
     };
 }
 
@@ -275,12 +278,23 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
     );
     const rankItems = ctx.intradayRank.getLastBatch()?.items ?? [];
 
+    const rescueBatch = ctx.radarRescue?.getLastBatch() ?? null;
+    const rescueBy = new Map(
+        [
+            ...(rescueBatch?.focus.confirmed ?? []),
+            ...(rescueBatch?.focus.early ?? []),
+            ...(rescueBatch?.active ?? []),
+            ...(rescueBatch?.early ?? []),
+        ].map((c) => [c.symbol, c]),
+    );
+
     const fromRank = (c: (typeof rankItems)[number]): TodayInputItem => {
         const bp = bpItems.get(c.symbol) ?? null;
         const rq = rqItems.get(c.symbol) ?? null;
         const ds = dsItems.get(c.symbol) ?? null;
         const og = openItems.get(c.symbol) ?? null;
         const a = aPool.get(c.symbol) ?? null;
+        const rescue = rescueBy.get(c.symbol) ?? null;
         return {
             symbol: c.symbol,
             name: c.name,
@@ -291,13 +305,16 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             rank: c.rank,
             rank_change: c.rank_change,
             heat_score: c.heat_score,
-            chase_risk: c.risk.chase_risk,
+            chase_risk: rescue?.chase_risk ?? c.risk.chase_risk,
             vwap_pos_pct: c.metrics.vwap_pos_pct,
             rvol: null,
             breakout_type: c.metrics.breakout_type,
             pullback_state: c.metrics.pullback_state,
             events: c.events,
-            c_reasons: c.reasons,
+            c_reasons: [
+                ...c.reasons,
+                ...(rescue?.reasons ?? []),
+            ],
             c_risks: [
                 ...(c.risks ?? []),
                 ...(a?.warning_status ? ['注意股'] : []),
@@ -308,14 +325,23 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             data_blocked: c.data_blocked,
             data_health: c.data_health,
             score_coverage_pct: c.score_coverage_pct ?? null,
-            bp_score: bp?.buy_pressure_score ?? null,
+            bp_score: bp?.buy_pressure_score ?? rescue?.bp_score ?? null,
             bp_state: bp?.primary_state ?? null,
             bp_overheated: bp?.overheated ?? false,
             bp_stale: bp?.data_stale ?? false,
-            momentum_state: rq?.momentum_state ?? null,
+            momentum_state:
+                rescue?.radar_state ?? rq?.momentum_state ?? null,
             eligibility: rq?.eligibility ?? null,
-            focus_rank: rq?.is_focus ? rq.focus_rank : null,
-            rq_reasons: rq?.focus_reasons ?? [],
+            focus_rank:
+                rescue?.focus_score != null && rescue.focus_score >= 0
+                    ? 1
+                    : rq?.is_focus
+                      ? rq.focus_rank
+                      : null,
+            rq_reasons: [
+                ...(rq?.focus_reasons ?? []),
+                ...(rescue?.reasons ?? []),
+            ],
             decision_status: ds?.status ?? null,
             decision_confirmed: ds?.confirmed_reasons ?? [],
             decision_missing: ds?.missing_confirmations ?? [],
@@ -325,6 +351,30 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             open_score: og?.final_open_score ?? c.open_score ?? null,
             tradeable_candidate: og?.tradeable_candidate ?? false,
             a_score: c.a_score,
+            rescue_state: rescue?.radar_state ?? null,
+            rescue_reasons: rescue?.reasons ?? [],
+            opportunity_score: rescue?.opportunity_score ?? null,
+        };
+    };
+
+    const fromRescueOnly = (sym: string): TodayInputItem | null => {
+        const rescue = rescueBy.get(sym);
+        if (!rescue) return null;
+        const q = runtimeQuote(ctx, sym);
+        return {
+            ...emptyInput(sym, rescue.name),
+            last_price: rescue.last_price ?? q.last_price,
+            change_pct: rescue.change_pct ?? q.change_pct,
+            bp_score: rescue.bp_score,
+            c_score: rescue.c_score,
+            chase_risk: rescue.chase_risk?.toLowerCase() ?? null,
+            momentum_state: rescue.radar_state,
+            focus_rank: rescue.focus_score >= 0 ? 1 : null,
+            c_reasons: rescue.reasons,
+            rq_reasons: rescue.reasons,
+            rescue_state: rescue.radar_state,
+            rescue_reasons: rescue.reasons,
+            opportunity_score: rescue.opportunity_score,
         };
     };
 
@@ -375,15 +425,27 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         };
     };
 
-    // After hours / preopen: never reuse a dead C batch (C=0, no last price)
-    // as "today look at these". A-pool is tomorrow/open prep only.
+    // After hours / preopen: A-pool prep + any rescue leftovers from session
     if (mode === 'PREOPEN' || mode === 'AFTER_HOURS') {
-        return ctx.openGateV2.candidates
+        const seen = new Set<string>();
+        const out: TodayInputItem[] = [];
+        for (const a of ctx.openGateV2.candidates
             .list()
             .slice()
-            .sort((a, b) => (b.a_score ?? 0) - (a.a_score ?? 0))
-            .slice(0, 20)
-            .map((a) => fromAPoolPrep(a.symbol));
+            .sort((x, y) => (y.a_score ?? 0) - (x.a_score ?? 0))
+            .slice(0, 20)) {
+            seen.add(a.symbol);
+            out.push(fromAPoolPrep(a.symbol));
+        }
+        for (const sym of rescueBy.keys()) {
+            if (seen.has(sym)) continue;
+            const extra = fromRescueOnly(sym);
+            if (extra) {
+                seen.add(sym);
+                out.push(extra);
+            }
+        }
+        return out.slice(0, 24);
     }
 
     // Opening: B already evaluates A-pool every 3s. Don't wait for C.
@@ -425,10 +487,26 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             take(a.symbol);
         }
         for (const c of rankItems) take(c.symbol);
+        for (const sym of rescueBy.keys()) take(sym);
         return out.slice(0, 20);
     }
 
-    return rankItems.map(fromRank);
+    // Intraday / closing: C rank first, then rescue focus/early not already in C
+    const seen = new Set<string>();
+    const out: TodayInputItem[] = [];
+    for (const c of rankItems) {
+        seen.add(c.symbol);
+        out.push(fromRank(c));
+    }
+    for (const sym of rescueBy.keys()) {
+        if (seen.has(sym)) continue;
+        const extra = fromRescueOnly(sym);
+        if (extra) {
+            seen.add(sym);
+            out.push(extra);
+        }
+    }
+    return out;
 }
 
 export function buildTodayDecision(

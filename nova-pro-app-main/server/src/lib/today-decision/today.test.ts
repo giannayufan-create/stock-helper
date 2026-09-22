@@ -57,6 +57,9 @@ function item(p: Partial<TodayInputItem> & { symbol: string }): TodayInputItem {
         open_score: p.open_score ?? null,
         tradeable_candidate: p.tradeable_candidate ?? false,
         a_score: p.a_score ?? null,
+        rescue_state: p.rescue_state ?? null,
+        rescue_reasons: p.rescue_reasons ?? [],
+        opportunity_score: p.opportunity_score ?? null,
     };
 }
 
@@ -90,10 +93,10 @@ function board(
         }),
     ]);
     assert.equal(b.items[0]!.action, 'ACTIONABLE');
-    assert.equal(b.items[0]!.action_label, '可考慮進場');
+    assert.equal(b.items[0]!.action_label, '可進場');
     assert.ok(b.items[0]!.why.length >= 1);
     assert.ok(b.headline.includes('2330'));
-    pass('T1 — 條件齊全 → 可考慮進場');
+    pass('T1 — 條件齊全 → 可進場');
 }
 
 // ---- T2 confirmed but extreme chase → AVOID ----

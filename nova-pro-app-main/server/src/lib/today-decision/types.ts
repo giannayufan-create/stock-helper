@@ -138,6 +138,11 @@ export interface TodayInputItem {
 
     // A layer
     a_score: number | null;
+
+    // Rescue layer (read-only blend; never mutates A/B/C/BP)
+    rescue_state: string | null;
+    rescue_reasons: string[];
+    opportunity_score: number | null;
 }
 
 export interface TodayBoardInput {
