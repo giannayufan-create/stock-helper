@@ -49,9 +49,11 @@ export interface RadarRescueConfig {
     rescue_disc_active_min_discovery: number;
     /** Promote top WATCH cards into UI visibility when ACTIVE/EARLY empty. */
     ui_promote_watch_top_n: number;
-    /** Top discovery by change_pct → Force into Rescue ACTIVE/Focus/UI (bypass C). */
+    /** Top discovery by change_pct → Force into Rescue ACTIVE/Focus/UI (bypass C). 0 = no cap. */
     board_mover_top_n: number;
     board_mover_min_change_pct: number;
+    /** Any discovery already ≥ this day-change gets ui_visible (comprehensive catch). */
+    board_mover_ui_guarantee_pct: number;
 }
 
 export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
@@ -113,9 +115,10 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
     rescue_disc_active_min_change_pct: 1.5,
     rescue_disc_active_min_trigger: 40,
     rescue_disc_active_min_discovery: 45,
-    ui_promote_watch_top_n: 40,
-    board_mover_top_n: 40,
+    ui_promote_watch_top_n: 80,
+    board_mover_top_n: 0,
     board_mover_min_change_pct: 1.5,
+    board_mover_ui_guarantee_pct: 3.0,
 };
 
 function parseSimpleYaml(text: string): Record<string, unknown> {

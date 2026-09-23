@@ -210,18 +210,20 @@ export class RadarRescueService {
         const laneBy = new Map(laneMerged.map((l) => [l.symbol, l]));
         const cashSession = isTaipeiCashSession();
 
-        // Top day-change discovery names — Rescue path that does NOT need C top-30.
-        const boardMovers = new Set(
-            [...discovery]
-                .filter(
-                    (d) =>
-                        (d.change_pct ?? 0) >=
-                        this.cfg.board_mover_min_change_pct,
-                )
-                .sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0))
-                .slice(0, this.cfg.board_mover_top_n)
-                .map((d) => d.symbol),
-        );
+        // All discovery day-change movers — Rescue path that does NOT need C top-30.
+        // board_mover_top_n <= 0 means no cap (comprehensive for scanned names).
+        const boardMoverSorted = [...discovery]
+            .filter(
+                (d) =>
+                    (d.change_pct ?? 0) >= this.cfg.board_mover_min_change_pct,
+            )
+            .sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0));
+        const boardMoverPicked =
+            this.cfg.board_mover_top_n > 0
+                ? boardMoverSorted.slice(0, this.cfg.board_mover_top_n)
+                : boardMoverSorted;
+        const boardMovers = new Set(boardMoverPicked.map((d) => d.symbol));
+        const uiGuaranteePct = this.cfg.board_mover_ui_guarantee_pct;
 
         const universe = new Map<string, { name: string }>();
         for (const d of discovery) universe.set(d.symbol, { name: d.name });
@@ -440,6 +442,8 @@ export class RadarRescueService {
                     radarState === 'PULLBACK' ||
                     discHot ||
                     boardMover ||
+                    (disc != null &&
+                        (disc.change_pct ?? 0) >= uiGuaranteePct) ||
                     (radarState === 'WATCH' &&
                         ((c?.intraday_score ?? 0) >= 65 ||
                             opportunity >= 55 ||

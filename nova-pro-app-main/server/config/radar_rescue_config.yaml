@@ -74,8 +74,11 @@ trigger_weights:
 rescue_disc_active_min_change_pct: 1.5
 rescue_disc_active_min_trigger: 40
 rescue_disc_active_min_discovery: 45
-ui_promote_watch_top_n: 40
+ui_promote_watch_top_n: 80
 
-# Bypass C top-30: top discovery by day change → Rescue ACTIVE/Focus/UI
-board_mover_top_n: 40
+# Bypass C top-30: discovery day-change movers → Rescue ACTIVE/Focus/UI
+# 0 = no cap (all above min_change). Comprehensive UI coverage for scanned movers.
+board_mover_top_n: 0
 board_mover_min_change_pct: 1.5
+# Guaranteed UI for any discovery name that already printed +3% (truth-aligned).
+board_mover_ui_guarantee_pct: 3.0
