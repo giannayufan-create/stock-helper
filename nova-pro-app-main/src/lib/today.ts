@@ -20,6 +20,10 @@ export interface TodayDecisionItemDto {
     action: TodayAction;
     action_label: string;
     action_hint: string;
+    suggested_buy_price?: number | null;
+    suggested_buy_zone_low?: number | null;
+    suggested_buy_zone_high?: number | null;
+    suggested_buy_note?: string | null;
     conviction: number;
     why: string[];
     risk: string[];

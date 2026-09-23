@@ -251,6 +251,10 @@ function emptyInput(symbol: string, name: string): TodayInputItem {
         rescue_reasons: [],
         opportunity_score: null,
         pre_plus3: false,
+        suggested_buy_price: null,
+        suggested_buy_zone_low: null,
+        suggested_buy_zone_high: null,
+        suggested_buy_note: null,
     };
 }
 
@@ -396,6 +400,10 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             rescue_reasons: rescue?.reasons ?? [],
             opportunity_score: rescue?.opportunity_score ?? null,
             pre_plus3: rescue?.pre_plus3 === true,
+            suggested_buy_price: rescue?.suggested_buy_price ?? null,
+            suggested_buy_zone_low: rescue?.suggested_buy_zone_low ?? null,
+            suggested_buy_zone_high: rescue?.suggested_buy_zone_high ?? null,
+            suggested_buy_note: rescue?.suggested_buy_note ?? null,
         };
     };
 

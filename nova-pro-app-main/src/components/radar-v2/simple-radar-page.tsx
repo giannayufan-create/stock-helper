@@ -51,6 +51,112 @@ function dedupeCards(cards: RescueCardDto[]): RescueCardDto[] {
     return out;
 }
 
+function stateRank(s: RescueCardDto['radar_state']): number {
+    switch (s) {
+        case 'PRE_ATTACK':
+            return 90;
+        case 'EARLY':
+            return 80;
+        case 'ACTIVE':
+        case 'NEAR_LIMIT':
+        case 'LIMIT_UP':
+            return 85;
+        case 'STALLING':
+            return 55;
+        case 'WATCH':
+            return 50;
+        case 'PULLBACK':
+            return 40;
+        case 'WEAKENING':
+            return 20;
+        case 'EARLY_FAILED':
+        case 'FAKE_BREAKOUT':
+            return 15;
+        default:
+            return 0;
+    }
+}
+
+function attackSortKey(c: RescueCardDto): number {
+    return (
+        stateRank(c.radar_state) * 1000 +
+        (c.true_ask_eating ? 40 : 0) +
+        (c.pre_plus3 ? 40 : 0) +
+        (Number.isFinite(c.push_efficiency) ? (c.push_efficiency ?? 0) * 0.5 : 0) +
+        (Number.isFinite(c.ask_eating_quality)
+            ? (c.ask_eating_quality ?? 0) * 0.35
+            : 0) +
+        (Number.isFinite(c.focus_score) ? c.focus_score : 0) +
+        (Number.isFinite(c.trigger_score) ? c.trigger_score * 0.15 : 0) -
+        (c.data_stale ? 200 : 0)
+    );
+}
+
+function stateBadge(card: RescueCardDto): string {
+    // Stale: last_valid_state is historical only — never show 正在急攻.
+    if (card.data_stale || card.state_label === '資料過舊') {
+        return '👀 資料過舊';
+    }
+    if (card.state_label) {
+        const icon =
+            card.radar_state === 'PRE_ATTACK'
+                ? '⚡⚡'
+                : card.radar_state === 'EARLY'
+                  ? '⚡'
+                  : card.radar_state === 'ACTIVE'
+                    ? '🔥'
+                    : card.radar_state === 'NEAR_LIMIT'
+                      ? '🚀'
+                      : card.radar_state === 'LIMIT_UP'
+                        ? '🔒'
+                        : card.radar_state === 'STALLING'
+                          ? '⚠️'
+                          : card.radar_state === 'EARLY_FAILED'
+                            ? '⚠️'
+                            : card.radar_state === 'FAKE_BREAKOUT'
+                              ? '❌'
+                              : card.radar_state === 'WEAKENING'
+                                ? '🔻'
+                                : card.radar_state === 'WATCH'
+                                  ? '👀'
+                                  : '';
+        const ask =
+            card.ask_eating_quality != null && card.ask_eating_quality > 0
+                ? ` ASK ${Math.round(card.ask_eating_quality)}`
+                : '';
+        return `${icon} ${card.state_label}${ask}`.trim();
+    }
+    switch (card.radar_state) {
+        case 'PRE_ATTACK':
+            return '⚡⚡ 準備發動';
+        case 'EARLY':
+            return card.pre_plus3 ? '⚡ 漲3%前' : '⚡ EARLY';
+        case 'ACTIVE':
+            return '🔥 正在急攻';
+        case 'NEAR_LIMIT':
+            return '🚀 接近漲停';
+        case 'LIMIT_UP':
+            return '🔒 漲停';
+        case 'STALLING':
+            return '⚠️ 攻擊停滯';
+        case 'EARLY_FAILED':
+            return '⚠️ 吃單無效';
+        case 'FAKE_BREAKOUT':
+            return '❌ 假突破';
+        case 'WEAKENING':
+            return '🔻 動能轉弱';
+        case 'PULLBACK':
+            return '🟠 回踩';
+        case 'INSUFFICIENT_DATA':
+        case 'DATA_INCOMPLETE':
+            return '⚠ 資料不足';
+        case 'DATA_STALE':
+            return '👀 資料過舊';
+        default:
+            return card.data_stale ? '👀 資料過舊' : '👀 異常加速';
+    }
+}
+
 function RescueCardView({
     card,
     mode,
@@ -65,18 +171,7 @@ function RescueCardView({
         pct == null
             ? '—'
             : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
-    const badge =
-        card.pre_plus3
-            ? '⚡ 漲3%前'
-            : card.radar_state === 'EARLY'
-              ? '↗ EARLY'
-              : card.radar_state === 'ACTIVE'
-                ? '🔥 ACTIVE'
-                : card.radar_state === 'PULLBACK'
-                  ? '🟠 PULLBACK'
-                  : card.radar_state === 'INSUFFICIENT_DATA'
-                    ? '⚠ 資料不足'
-                    : '👀 WATCH';
+    const badge = stateBadge(card);
 
     return (
         <button
@@ -158,6 +253,27 @@ function RescueCardView({
                     </>
                 )}
             </div>
+            {card.suggested_buy_price != null && !card.data_stale ? (
+                <div
+                    style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        marginBottom: 4,
+                        color: radarColor.strong,
+                    }}
+                >
+                    建議買進{' '}
+                    {card.suggested_buy_zone_low != null &&
+                    card.suggested_buy_zone_high != null &&
+                    card.suggested_buy_zone_low !==
+                        card.suggested_buy_zone_high
+                        ? `${card.suggested_buy_zone_low}～${card.suggested_buy_zone_high}`
+                        : card.suggested_buy_price}
+                    {card.suggested_buy_note
+                        ? ` · ${card.suggested_buy_note}`
+                        : ''}
+                </div>
+            ) : null}
             <div style={{ marginBottom: 4 }}>{layerDots(card.layers)}</div>
             <div style={{ fontSize: 12, opacity: 0.85 }}>
                 {card.reasons.length
@@ -214,19 +330,25 @@ export function SimpleRadarPage({
             ...batch.insufficient,
         ]).sort(
             (a, b) =>
-                (b.change_pct ?? -999) - (a.change_pct ?? -999) ||
-                b.opportunity_score - a.opportunity_score,
+                attackSortKey(b) - attackSortKey(a) ||
+                // Within same attack quality, prefer lower day-change (not chase %)
+                (a.change_pct ?? 99) - (b.change_pct ?? 99),
         );
     }, [batch]);
 
     const focusCards = useMemo(() => {
         if (!batch) return [];
-        const pre = allCards.filter((c) => c.pre_plus3);
+        const launch = allCards.filter(
+            (c) =>
+                c.radar_state === 'PRE_ATTACK' ||
+                c.radar_state === 'EARLY' ||
+                c.pre_plus3,
+        );
         const fromFocus = dedupeCards([
-            ...pre,
+            ...launch,
             ...batch.focus.early,
             ...batch.focus.confirmed,
-        ]);
+        ]).sort((a, b) => attackSortKey(b) - attackSortKey(a));
         if (fromFocus.length > 0) return fromFocus;
         return allCards.slice(0, 12);
     }, [batch, allCards]);
@@ -295,8 +417,8 @@ export function SimpleRadarPage({
             <section style={{ marginBottom: 16 }}>
                 <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>
                     {batch?.market_status === 'AFTER_HOURS'
-                        ? '收盤殘留｜優先觀察'
-                        : '⚡ 漲3%前｜優先觀察'}
+                        ? '收盤殘留｜歷史訊號'
+                        : '⚡ 漲3%前發動'}
                 </h3>
                 {focusCards.length === 0 ? (
                     <div className={s.empty} style={{ padding: 16 }}>
@@ -308,7 +430,10 @@ export function SimpleRadarPage({
                             key={`f-${c.symbol}`}
                             card={c}
                             mode={
-                                c.radar_state === 'EARLY' ? 'early' : 'active'
+                                c.radar_state === 'EARLY' ||
+                                c.radar_state === 'PRE_ATTACK'
+                                    ? 'early'
+                                    : 'active'
                             }
                             onOpen={onOpenSymbol}
                         />
@@ -320,8 +445,8 @@ export function SimpleRadarPage({
                 {(
                     [
                         ['all', '全部'],
-                        ['active', '🔥 發動中'],
-                        ['early', '↗ 剛轉強'],
+                        ['active', '🔥 正在急攻'],
+                        ['early', '⚡ 漲3%前'],
                         ['pullback', '🟠 拉回'],
                         ['watch', '👀 觀察'],
                         ['insufficient', '⚠ 資料不足'],
@@ -365,9 +490,12 @@ export function SimpleRadarPage({
                         key={c.symbol}
                         card={c}
                         mode={
-                            c.radar_state === 'EARLY'
+                            c.radar_state === 'EARLY' ||
+                            c.radar_state === 'PRE_ATTACK'
                                 ? 'early'
                                 : c.radar_state === 'WATCH' ||
+                                    c.radar_state === 'EARLY_FAILED' ||
+                                    c.radar_state === 'WEAKENING' ||
                                     c.radar_state === 'INSUFFICIENT_DATA'
                                   ? 'watch'
                                   : 'active'

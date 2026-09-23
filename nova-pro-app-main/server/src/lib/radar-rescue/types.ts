@@ -37,12 +37,21 @@ export type DiscoveryLane =
 
 export type RescueRadarState =
     | 'EARLY'
+    | 'PRE_ATTACK'
     | 'ACTIVE'
     | 'PULLBACK'
     | 'WATCH'
     | 'INACTIVE'
     | 'INVALID'
-    | 'INSUFFICIENT_DATA';
+    | 'INSUFFICIENT_DATA'
+    | 'EARLY_FAILED'
+    | 'WEAKENING'
+    | 'NEAR_LIMIT'
+    | 'LIMIT_UP'
+    | 'STALLING'
+    | 'FAKE_BREAKOUT'
+    | 'DATA_STALE'
+    | 'DATA_INCOMPLETE';
 
 export type ChaseRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
 export type DataConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -193,6 +202,19 @@ export interface RescueCard {
     move_before_signal_pct: number | null;
     /** Day-change still below +3% but acceleration already firing. */
     pre_plus3: boolean;
+    /** UI label: 漲3%前 / 準備發動 / 正在急攻 … */
+    state_label: string;
+    true_ask_eating: boolean;
+    ask_eating_quality: number;
+    push_efficiency: number;
+    attack_score: number;
+    data_stale: boolean;
+    last_valid_state: RescueRadarState | null;
+    /** Decision-support suggested buy-in (null when not actionable). */
+    suggested_buy_price: number | null;
+    suggested_buy_zone_low: number | null;
+    suggested_buy_zone_high: number | null;
+    suggested_buy_note: string | null;
 }
 
 export interface RescueFocusBlock {

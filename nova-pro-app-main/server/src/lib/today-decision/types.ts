@@ -38,6 +38,11 @@ export interface TodayDecisionItem {
     action_label: string;
     /** One sentence: what to do right now. */
     action_hint: string;
+    /** Suggested buy-in from Rescue (decision support only). */
+    suggested_buy_price: number | null;
+    suggested_buy_zone_low: number | null;
+    suggested_buy_zone_high: number | null;
+    suggested_buy_note: string | null;
     /** Presentation-only merged confidence 0–100 — not a strategy score. */
     conviction: number;
     why: string[];
@@ -145,6 +150,10 @@ export interface TodayInputItem {
     opportunity_score: number | null;
     /** Rescue: accelerating while day-change still under +3%. */
     pre_plus3: boolean;
+    suggested_buy_price: number | null;
+    suggested_buy_zone_low: number | null;
+    suggested_buy_zone_high: number | null;
+    suggested_buy_note: string | null;
 }
 
 export interface TodayBoardInput {

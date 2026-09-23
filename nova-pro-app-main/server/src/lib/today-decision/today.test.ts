@@ -61,6 +61,10 @@ function item(p: Partial<TodayInputItem> & { symbol: string }): TodayInputItem {
         rescue_reasons: p.rescue_reasons ?? [],
         opportunity_score: p.opportunity_score ?? null,
         pre_plus3: p.pre_plus3 ?? false,
+        suggested_buy_price: p.suggested_buy_price ?? null,
+        suggested_buy_zone_low: p.suggested_buy_zone_low ?? null,
+        suggested_buy_zone_high: p.suggested_buy_zone_high ?? null,
+        suggested_buy_note: p.suggested_buy_note ?? null,
     };
 }
 

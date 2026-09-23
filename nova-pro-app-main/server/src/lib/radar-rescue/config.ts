@@ -59,6 +59,16 @@ export interface RadarRescueConfig {
     pre_plus3_min_trigger: number;
     pre_plus3_min_vol_accel: number;
     pre_plus3_focus_top_n: number;
+    /** Quote / last-trade / orderbook freshness (sec). */
+    attack_quote_stale_sec: number;
+    /** Volume / short-cycle metric freshness (sec). */
+    attack_metric_stale_sec: number;
+    /** Cooldown after EARLY_FAILED / FAKE_BREAKOUT (sec). */
+    attack_cooldown_sec: number;
+    /** ACTIVE: hold above breakout this many seconds. */
+    attack_breakout_hold_sec: number;
+    /** ACTIVE: consecutive prints above breakout. */
+    attack_breakout_prints: number;
 }
 
 export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
@@ -128,6 +138,11 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
     pre_plus3_min_trigger: 42,
     pre_plus3_min_vol_accel: 12,
     pre_plus3_focus_top_n: 15,
+    attack_quote_stale_sec: 12,
+    attack_metric_stale_sec: 45,
+    attack_cooldown_sec: 45,
+    attack_breakout_hold_sec: 15,
+    attack_breakout_prints: 3,
 };
 
 function parseSimpleYaml(text: string): Record<string, unknown> {

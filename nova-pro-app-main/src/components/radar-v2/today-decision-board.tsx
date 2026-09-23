@@ -259,6 +259,29 @@ function DecisionRow({
                 {item.action_hint}
             </div>
 
+            {item.suggested_buy_price != null &&
+            item.action !== 'AVOID' ? (
+                <div
+                    style={{
+                        marginTop: 6,
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: vars.color.up,
+                    }}
+                >
+                    建議買進{' '}
+                    {item.suggested_buy_zone_low != null &&
+                    item.suggested_buy_zone_high != null &&
+                    item.suggested_buy_zone_low !==
+                        item.suggested_buy_zone_high
+                        ? `${item.suggested_buy_zone_low}～${item.suggested_buy_zone_high}`
+                        : item.suggested_buy_price}
+                    {item.suggested_buy_note
+                        ? ` · ${item.suggested_buy_note}`
+                        : ''}
+                </div>
+            ) : null}
+
             {item.why.length > 0 && (
                 <div
                     style={{

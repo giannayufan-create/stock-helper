@@ -138,8 +138,18 @@ function resolveAction(
         return { action: 'AVOID', hint: '追高風險極高，現在進場位置太差' };
     }
 
-    // Rescue EARLY / 漲3%前 = 剛轉強 → 優先觀察（不要求已漲 3%）
-    if (it.pre_plus3 || it.rescue_state === 'EARLY') {
+    // Rescue EARLY / PRE_ATTACK / 漲3%前 = 剛轉強 → 優先觀察（不要求已漲 3%）
+    if (
+        it.pre_plus3 ||
+        it.rescue_state === 'EARLY' ||
+        it.rescue_state === 'PRE_ATTACK'
+    ) {
+        if (it.rescue_state === 'PRE_ATTACK') {
+            return {
+                action: 'WATCH',
+                hint: '準備發動：量能強＋吃單有效，盯突破進場',
+            };
+        }
         if (
             it.pre_plus3 &&
             !isHighChase(it.chase_risk) &&
@@ -156,6 +166,19 @@ function resolveAction(
             action: 'WATCH',
             hint: '剛轉強，動能在加速，先觀察確認再進場',
         };
+    }
+
+    if (it.rescue_state === 'EARLY_FAILED') {
+        return { action: 'AVOID', hint: '吃單無效，短線未創高，先避開' };
+    }
+    if (it.rescue_state === 'FAKE_BREAKOUT') {
+        return { action: 'AVOID', hint: '假突破，等重新確認再看' };
+    }
+    if (it.rescue_state === 'STALLING') {
+        return { action: 'WAIT', hint: '攻擊停滯，觀察是否重新放量' };
+    }
+    if (it.rescue_state === 'WEAKENING') {
+        return { action: 'WAIT', hint: '動能轉弱，等結構再確認' };
     }
 
     if (it.decision_status === 'EXTENDED') {
@@ -303,6 +326,9 @@ function buildWhy(it: TodayInputItem): string[] {
         extras.push(`前一日選股分數 ${Math.round(it.a_score)}`);
     }
     if (it.pre_plus3) extras.push('漲3%前｜動能剛加速');
+    if (it.rescue_state === 'PRE_ATTACK') extras.push('準備發動');
+    if (it.rescue_state === 'EARLY_FAILED') extras.push('吃單無效');
+    if (it.rescue_state === 'WEAKENING') extras.push('動能轉弱');
     if (it.focus_rank != null) extras.push(`目前雷達焦點第 ${it.focus_rank} 名`);
     if (it.tradeable_candidate) extras.push('開盤確認已通過');
     if (it.rank != null && (it.rank_change ?? 0) > 0) {
@@ -433,6 +459,10 @@ export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
                       ? '盤前觀察'
                       : ACTION_LABEL[action],
             action_hint: hint,
+            suggested_buy_price: it.suggested_buy_price,
+            suggested_buy_zone_low: it.suggested_buy_zone_low,
+            suggested_buy_zone_high: it.suggested_buy_zone_high,
+            suggested_buy_note: it.suggested_buy_note,
             conviction: conviction(it, action),
             why: buildWhy(it),
             risk: buildRisk(it, input.mode),
