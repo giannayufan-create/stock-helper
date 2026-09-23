@@ -10,7 +10,7 @@ mode: rescue   # rescue | legacy (env RADAR_MODE overrides)
 apply_lane_to_active_watch: false
 lane_quotas:
   LIQUIDITY_LANE: 25
-  ACCELERATION_LANE: 35
+  ACCELERATION_LANE: 40
   REVERSAL_LANE: 15
   BREAKOUT_LANE: 20
   A_PRIOR_LANE: 12
@@ -46,8 +46,8 @@ chase_thresholds:
 news_adjustment_max: 5
 
 # Focus — wider so morning runners reach UI / Today
-early_focus_top_n: 6
-confirmed_focus_top_n: 8
+early_focus_top_n: 8
+confirmed_focus_top_n: 12
 focus_block_low_confidence: false
 
 # Data integrity
@@ -71,7 +71,11 @@ trigger_weights:
   bp_slope: 0.05
 
 # Rescue-only promotion (does not change C ranked pool)
-rescue_disc_active_min_change_pct: 2.0
-rescue_disc_active_min_trigger: 50
-rescue_disc_active_min_discovery: 55
-ui_promote_watch_top_n: 24
+rescue_disc_active_min_change_pct: 1.5
+rescue_disc_active_min_trigger: 40
+rescue_disc_active_min_discovery: 45
+ui_promote_watch_top_n: 40
+
+# Bypass C top-30: top discovery by day change → Rescue ACTIVE/Focus/UI
+board_mover_top_n: 40
+board_mover_min_change_pct: 1.5

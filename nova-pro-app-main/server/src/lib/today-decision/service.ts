@@ -523,13 +523,15 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
     }
     // High-change WATCH that C top-30 missed — still show on Today.
     for (const c of [...(rescueBatch?.watch ?? [])]
-        .filter((x) => (x.change_pct ?? 0) >= 2 || (x.c_score ?? 0) >= 70)
+        .filter(
+            (x) => (x.change_pct ?? 0) >= 1.5 || (x.c_score ?? 0) >= 65,
+        )
         .sort(
             (a, b) =>
                 (b.change_pct ?? 0) - (a.change_pct ?? 0) ||
                 b.opportunity_score - a.opportunity_score,
         )
-        .slice(0, 16)) {
+        .slice(0, 40)) {
         take(c.symbol);
     }
     for (const rq of rqItems.values()) {

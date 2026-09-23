@@ -13,7 +13,7 @@ import type {
 } from './types.ts';
 
 /** Focus slots that count as "shown in priority" for recall (matches widened UI). */
-const FOCUS_RECALL_TOP_N = 8;
+const FOCUS_RECALL_TOP_N = 12;
 
 function ratio(hit: number, total: number): string {
     return `${hit} / ${total}`;

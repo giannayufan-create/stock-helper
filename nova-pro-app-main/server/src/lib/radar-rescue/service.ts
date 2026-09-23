@@ -210,10 +210,27 @@ export class RadarRescueService {
         const laneBy = new Map(laneMerged.map((l) => [l.symbol, l]));
         const cashSession = isTaipeiCashSession();
 
+        // Top day-change discovery names — Rescue path that does NOT need C top-30.
+        const boardMovers = new Set(
+            [...discovery]
+                .filter(
+                    (d) =>
+                        (d.change_pct ?? 0) >=
+                        this.cfg.board_mover_min_change_pct,
+                )
+                .sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0))
+                .slice(0, this.cfg.board_mover_top_n)
+                .map((d) => d.symbol),
+        );
+
         const universe = new Map<string, { name: string }>();
         for (const d of discovery) universe.set(d.symbol, { name: d.name });
         for (const i of cItems) universe.set(i.symbol, { name: i.name });
         for (const l of laneMerged) universe.set(l.symbol, { name: l.name });
+        for (const sym of boardMovers) {
+            const d = discovery.find((x) => x.symbol === sym);
+            if (d) universe.set(sym, { name: d.name });
+        }
 
         const discRank = new Map(discovery.map((d, i) => [d.symbol, i + 1]));
         const cards: RescueCard[] = [];
@@ -292,14 +309,15 @@ export class RadarRescueService {
             });
 
             const discChg = disc?.change_pct ?? 0;
+            const boardMover = boardMovers.has(symbol);
             const discHot =
-                !c &&
-                disc != null &&
-                discChg >= this.cfg.rescue_disc_active_min_change_pct &&
-                (trigger >= this.cfg.rescue_disc_active_min_trigger ||
-                    (disc.discovery_score ?? 0) >=
-                        this.cfg.rescue_disc_active_min_discovery ||
-                    (disc.scanner_ranks?.change ?? 999) <= 40);
+                boardMover ||
+                (disc != null &&
+                    discChg >= this.cfg.rescue_disc_active_min_change_pct &&
+                    (trigger >= this.cfg.rescue_disc_active_min_trigger ||
+                        (disc.discovery_score ?? 0) >=
+                            this.cfg.rescue_disc_active_min_discovery ||
+                        (disc.scanner_ranks?.change ?? 999) <= 50));
 
             const radarState = this.resolveState({
                 stale: !!stale,
@@ -421,10 +439,12 @@ export class RadarRescueService {
                     radarState === 'ACTIVE' ||
                     radarState === 'PULLBACK' ||
                     discHot ||
+                    boardMover ||
                     (radarState === 'WATCH' &&
-                        ((c?.intraday_score ?? 0) >= 70 ||
-                            opportunity >= 60 ||
-                            (disc?.change_pct ?? 0) >= 2)),
+                        ((c?.intraday_score ?? 0) >= 65 ||
+                            opportunity >= 55 ||
+                            (disc?.change_pct ?? 0) >=
+                                this.cfg.board_mover_min_change_pct)),
             });
 
             if (!disc) {
@@ -479,6 +499,27 @@ export class RadarRescueService {
             .sort((a, b) => b.focus_score - a.focus_score)
             .slice(0, this.cfg.confirmed_focus_top_n);
 
+        // Force top board movers into focus first (bypass C top-30 recall hole).
+        {
+            const movers = cards
+                .filter((x) => boardMovers.has(x.symbol))
+                .sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0));
+            const have = new Set<string>();
+            const forced: typeof confirmedFocus = [];
+            for (const m of movers) {
+                if (forced.length >= this.cfg.confirmed_focus_top_n) break;
+                forced.push(m);
+                have.add(m.symbol);
+            }
+            for (const c of confirmedFocus) {
+                if (forced.length >= this.cfg.confirmed_focus_top_n) break;
+                if (have.has(c.symbol)) continue;
+                forced.push(c);
+                have.add(c.symbol);
+            }
+            if (forced.length) confirmedFocus = forced;
+        }
+
         // After hours / degraded: still surface strongest residual names so UI
         // is not an empty "目前沒有符合條件" when C already ranked them.
         if (
@@ -489,16 +530,16 @@ export class RadarRescueService {
             confirmedFocus = [...watchCards]
                 .sort(
                     (a, b) =>
+                        (b.change_pct ?? 0) - (a.change_pct ?? 0) ||
                         (b.c_score ?? 0) - (a.c_score ?? 0) ||
-                        b.opportunity_score - a.opportunity_score ||
-                        b.focus_score - a.focus_score,
+                        b.opportunity_score - a.opportunity_score,
                 )
                 .slice(0, this.cfg.confirmed_focus_top_n);
         }
 
-        // Always promote top WATCH runners into focus if still sparse (< half quota).
+        // Always promote top WATCH runners into focus if still sparse.
         if (
-            confirmedFocus.length < Math.ceil(this.cfg.confirmed_focus_top_n / 2) &&
+            confirmedFocus.length < this.cfg.confirmed_focus_top_n &&
             watchCards.length > 0
         ) {
             const have = new Set(confirmedFocus.map((x) => x.symbol));

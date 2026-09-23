@@ -43,12 +43,15 @@ export interface RadarRescueConfig {
     persist_transitions: boolean;
     eod_truth_enabled: boolean;
     trigger_weights: Record<string, number>;
-    /** Discovery-only morning runner → ACTIVE (rescue UI only). */
+    /** Rescue-only promotion (does not change C ranked pool). */
     rescue_disc_active_min_change_pct: number;
     rescue_disc_active_min_trigger: number;
     rescue_disc_active_min_discovery: number;
     /** Promote top WATCH cards into UI visibility when ACTIVE/EARLY empty. */
     ui_promote_watch_top_n: number;
+    /** Top discovery by change_pct → Force into Rescue ACTIVE/Focus/UI (bypass C). */
+    board_mover_top_n: number;
+    board_mover_min_change_pct: number;
 }
 
 export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
@@ -59,7 +62,7 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
     apply_lane_to_active_watch: false,
     lane_quotas: {
         LIQUIDITY_LANE: 25,
-        ACCELERATION_LANE: 35,
+        ACCELERATION_LANE: 40,
         REVERSAL_LANE: 15,
         BREAKOUT_LANE: 20,
         A_PRIOR_LANE: 12,
@@ -89,8 +92,8 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
         extreme_vwap_ext_pct: 2.5,
     },
     news_adjustment_max: 5,
-    early_focus_top_n: 6,
-    confirmed_focus_top_n: 8,
+    early_focus_top_n: 8,
+    confirmed_focus_top_n: 12,
     focus_block_low_confidence: false,
     coverage_not_ready_below: 30,
     stale_seconds: 60,
@@ -107,10 +110,12 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
         breakout_transition: 0.06,
         bp_slope: 0.05,
     },
-    rescue_disc_active_min_change_pct: 2.0,
-    rescue_disc_active_min_trigger: 50,
-    rescue_disc_active_min_discovery: 55,
-    ui_promote_watch_top_n: 24,
+    rescue_disc_active_min_change_pct: 1.5,
+    rescue_disc_active_min_trigger: 40,
+    rescue_disc_active_min_discovery: 45,
+    ui_promote_watch_top_n: 40,
+    board_mover_top_n: 40,
+    board_mover_min_change_pct: 1.5,
 };
 
 function parseSimpleYaml(text: string): Record<string, unknown> {
