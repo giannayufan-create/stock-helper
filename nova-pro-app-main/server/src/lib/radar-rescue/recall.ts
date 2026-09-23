@@ -8,11 +8,39 @@ import type {
     DropReason,
     EodTruthRow,
     FalsePositiveCase,
+    FunnelTraceRow,
     MissedWinnerCase,
 } from './types.ts';
 
+/** Focus slots that count as "shown in priority" for recall (matches widened UI). */
+const FOCUS_RECALL_TOP_N = 8;
+
 function ratio(hit: number, total: number): string {
     return `${hit} / ${total}`;
+}
+
+function wasUiVisible(f: FunnelTraceRow | null | undefined): boolean {
+    return !!f && (f.ui_visible === true || f.first_ui_visible_at != null);
+}
+
+function wasEarly(f: FunnelTraceRow | null | undefined): boolean {
+    return !!f && (f.early_trigger === true || f.early_trigger_at != null);
+}
+
+function wasActive(f: FunnelTraceRow | null | undefined): boolean {
+    return (
+        !!f &&
+        (f.ever_active === true ||
+            f.radar_state === 'ACTIVE' ||
+            // legacy rows before ever_active existed
+            (f.radar_state === 'WATCH' && f.early_trigger === true && f.ui_visible))
+    );
+}
+
+function wasFocus(f: FunnelTraceRow | null | undefined): boolean {
+    if (!f) return false;
+    const rank = f.best_focus_rank ?? f.focus_rank;
+    return rank != null && rank <= FOCUS_RECALL_TOP_N;
 }
 
 export function buildMissedWinners(
@@ -26,10 +54,10 @@ export function buildMissedWinners(
     const out: MissedWinnerCase[] = [];
     for (const t of movers) {
         const f = funnel.get(t.symbol);
-        const ui = f?.ui_visible === true;
-        const early = f?.early_trigger === true;
-        const active = f?.radar_state === 'ACTIVE';
-        const focus = (f?.focus_rank ?? 99) <= 3;
+        const ui = wasUiVisible(f);
+        const early = wasEarly(f);
+        const active = wasActive(f);
+        const focus = wasFocus(f);
         const stages: Array<[string, boolean, DropReason]> = [
             ['A', !!f?.in_a, 'NOT_IN_A'],
             ['Scanner', !!f?.in_scanner, 'NOT_IN_SCANNER'],
@@ -50,7 +78,7 @@ export function buildMissedWinners(
                 break;
             }
         }
-        if (ui) continue; // shown — not missed for UI recall
+        if (ui) continue; // shown sometime today — not missed for UI recall
         out.push({
             symbol: t.symbol,
             name: f?.name ?? t.symbol,
@@ -87,10 +115,10 @@ export function buildDailyRecall(
     const discovery = count((s) => !!funnel.get(s)?.in_discovery);
     const active = count((s) => !!funnel.get(s)?.in_active_watch);
     const c = count((s) => !!funnel.get(s)?.in_c);
-    const early = count((s) => !!funnel.get(s)?.early_trigger);
-    const activeState = count((s) => funnel.get(s)?.radar_state === 'ACTIVE');
-    const focus = count((s) => (funnel.get(s)?.focus_rank ?? 99) <= 3);
-    const ui = count((s) => !!funnel.get(s)?.ui_visible);
+    const early = count((s) => wasEarly(funnel.get(s)));
+    const activeState = count((s) => wasActive(funnel.get(s)));
+    const focus = count((s) => wasFocus(funnel.get(s)));
+    const ui = count((s) => wasUiVisible(funnel.get(s)));
 
     const stages = [
         ['Scanner', scanner],

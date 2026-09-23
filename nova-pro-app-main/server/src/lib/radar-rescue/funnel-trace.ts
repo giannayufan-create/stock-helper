@@ -59,6 +59,8 @@ export class FunnelTraceService {
             radar_confidence: 'MEDIUM',
             early_trigger: false,
             early_trigger_at: null,
+            ever_active: false,
+            best_focus_rank: null,
             opportunity_score: null,
             chase_risk: null,
             focus_score: null,
@@ -78,6 +80,44 @@ export class FunnelTraceService {
             symbol: partial.symbol,
             updated_at: now,
         };
+        // Sticky day facts — after-hours downgrade must not erase daytime recall.
+        if (prev?.early_trigger || partial.early_trigger === true) {
+            row.early_trigger = true;
+        }
+        if (prev?.in_active_watch || partial.in_active_watch === true) {
+            row.in_active_watch = true;
+        }
+        if (prev?.in_c || partial.in_c === true) {
+            row.in_c = true;
+        }
+        if (prev?.in_discovery || partial.in_discovery === true) {
+            row.in_discovery = true;
+        }
+        if (prev?.in_scanner || partial.in_scanner === true) {
+            row.in_scanner = true;
+        }
+        if (prev?.ui_visible || partial.ui_visible === true) {
+            row.ui_visible = true;
+        }
+        if (
+            partial.radar_state === 'ACTIVE' ||
+            prev?.ever_active ||
+            prev?.radar_state === 'ACTIVE'
+        ) {
+            row.ever_active = true;
+        }
+        const focusCand = [
+            partial.focus_rank,
+            prev?.focus_rank,
+            prev?.best_focus_rank,
+        ].filter((n): n is number => typeof n === 'number' && n > 0);
+        if (focusCand.length) {
+            row.best_focus_rank = Math.min(...focusCand);
+            // Keep current focus_rank from partial if set; else retain best.
+            if (partial.focus_rank == null && row.best_focus_rank != null) {
+                row.focus_rank = row.best_focus_rank;
+            }
+        }
         if (
             partial.early_trigger === true &&
             !prev?.early_trigger_at &&
@@ -85,7 +125,11 @@ export class FunnelTraceService {
         ) {
             row.early_trigger_at = now;
         }
-        if (partial.ui_visible === true && !prev?.first_ui_visible_at) {
+        if (
+            (partial.ui_visible === true || row.ui_visible) &&
+            !prev?.first_ui_visible_at &&
+            !row.first_ui_visible_at
+        ) {
             row.first_ui_visible_at = now;
         }
         this.bySymbol.set(row.symbol, row);
@@ -149,6 +193,16 @@ export class FunnelTraceService {
             if (!line.trim()) continue;
             try {
                 const row = JSON.parse(line) as FunnelTraceRow;
+                // Backfill sticky fields for older jsonl lines.
+                row.ever_active = !!(
+                    row.ever_active ||
+                    row.radar_state === 'ACTIVE'
+                );
+                row.best_focus_rank =
+                    row.best_focus_rank ?? row.focus_rank ?? null;
+                if (row.first_ui_visible_at && !row.ui_visible) {
+                    row.ui_visible = true;
+                }
                 this.bySymbol.set(row.symbol, row);
                 n++;
             } catch {

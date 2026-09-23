@@ -98,6 +98,10 @@ export interface FunnelTraceRow {
     radar_confidence: DataConfidence;
     early_trigger: boolean;
     early_trigger_at: string | null;
+    /** Sticky: true if radar_state was ACTIVE at any point today. */
+    ever_active: boolean;
+    /** Best (lowest) focus_rank seen today; null if never focused. */
+    best_focus_rank: number | null;
     opportunity_score: number | null;
     chase_risk: ChaseRiskLevel | null;
     focus_score: number | null;
