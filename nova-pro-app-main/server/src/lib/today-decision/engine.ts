@@ -138,8 +138,20 @@ function resolveAction(
         return { action: 'AVOID', hint: '追高風險極高，現在進場位置太差' };
     }
 
-    // Rescue EARLY = 剛轉強 → 只觀察（不要求漲幅）
-    if (it.rescue_state === 'EARLY') {
+    // Rescue EARLY / 漲3%前 = 剛轉強 → 優先觀察（不要求已漲 3%）
+    if (it.pre_plus3 || it.rescue_state === 'EARLY') {
+        if (
+            it.pre_plus3 &&
+            !isHighChase(it.chase_risk) &&
+            !it.trap_flags.length &&
+            !it.c_risks.includes('注意股') &&
+            (it.change_pct == null || it.change_pct < 3)
+        ) {
+            return {
+                action: 'WATCH',
+                hint: '漲3%前剛發動，量能／Trigger 加速中，盯進場價',
+            };
+        }
         return {
             action: 'WATCH',
             hint: '剛轉強，動能在加速，先觀察確認再進場',
@@ -290,6 +302,7 @@ function buildWhy(it: TodayInputItem): string[] {
     if (it.c_score == null && it.a_score != null) {
         extras.push(`前一日選股分數 ${Math.round(it.a_score)}`);
     }
+    if (it.pre_plus3) extras.push('漲3%前｜動能剛加速');
     if (it.focus_rank != null) extras.push(`目前雷達焦點第 ${it.focus_rank} 名`);
     if (it.tradeable_candidate) extras.push('開盤確認已通過');
     if (it.rank != null && (it.rank_change ?? 0) > 0) {

@@ -42,6 +42,7 @@ export interface RescueCardDto {
     focus_score: number;
     lanes: string[];
     late_detection: boolean;
+    pre_plus3?: boolean;
 }
 
 export interface RescueBatchDto {

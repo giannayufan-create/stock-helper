@@ -60,6 +60,7 @@ function item(p: Partial<TodayInputItem> & { symbol: string }): TodayInputItem {
         rescue_state: p.rescue_state ?? null,
         rescue_reasons: p.rescue_reasons ?? [],
         opportunity_score: p.opportunity_score ?? null,
+        pre_plus3: p.pre_plus3 ?? false,
     };
 }
 
@@ -553,6 +554,24 @@ function board(
     ]);
     assert.equal(b.items[0]!.action, 'ACTIONABLE');
     pass('T21 — Rescue 焦點 ACTIVE → 可進場');
+}
+
+// ---- T22 漲3%前 → 只觀察（尚未大漲就浮出）----
+{
+    const b = board([
+        item({
+            symbol: '3055',
+            pre_plus3: true,
+            rescue_state: 'EARLY',
+            change_pct: 1.2,
+            chase_risk: 'LOW',
+            opportunity_score: 70,
+        }),
+    ]);
+    assert.equal(b.items[0]!.action, 'WATCH');
+    assert.ok(b.items[0]!.action_hint.includes('漲3%前'));
+    assert.ok(b.items[0]!.why.some((w) => w.includes('漲3%前')));
+    pass('T22 — 漲3%前剛發動 → 今日浮出觀察');
 }
 
 console.log(`\ntoday.test.ts ${passed} passed`);

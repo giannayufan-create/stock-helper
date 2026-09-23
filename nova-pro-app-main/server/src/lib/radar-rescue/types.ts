@@ -191,6 +191,8 @@ export interface RescueCard {
     lanes: DiscoveryLane[];
     late_detection: boolean;
     move_before_signal_pct: number | null;
+    /** Day-change still below +3% but acceleration already firing. */
+    pre_plus3: boolean;
 }
 
 export interface RescueFocusBlock {

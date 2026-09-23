@@ -54,6 +54,11 @@ export interface RadarRescueConfig {
     board_mover_min_change_pct: number;
     /** Any discovery already ≥ this day-change gets ui_visible (comprehensive catch). */
     board_mover_ui_guarantee_pct: number;
+    /** Catch before +3%: still-small day move + accelerating trigger. */
+    pre_plus3_max_change_pct: number;
+    pre_plus3_min_trigger: number;
+    pre_plus3_min_vol_accel: number;
+    pre_plus3_focus_top_n: number;
 }
 
 export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
@@ -119,6 +124,10 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
     board_mover_top_n: 0,
     board_mover_min_change_pct: 1.5,
     board_mover_ui_guarantee_pct: 3.0,
+    pre_plus3_max_change_pct: 3.0,
+    pre_plus3_min_trigger: 42,
+    pre_plus3_min_vol_accel: 12,
+    pre_plus3_focus_top_n: 15,
 };
 
 function parseSimpleYaml(text: string): Record<string, unknown> {

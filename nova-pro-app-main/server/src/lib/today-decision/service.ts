@@ -250,6 +250,7 @@ function emptyInput(symbol: string, name: string): TodayInputItem {
         rescue_state: null,
         rescue_reasons: [],
         opportunity_score: null,
+        pre_plus3: false,
     };
 }
 
@@ -394,6 +395,7 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             rescue_state: rescue?.radar_state ?? null,
             rescue_reasons: rescue?.reasons ?? [],
             opportunity_score: rescue?.opportunity_score ?? null,
+            pre_plus3: rescue?.pre_plus3 === true,
         };
     };
 
@@ -516,6 +518,12 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         take(c.symbol);
     }
     for (const c of rescueBatch?.focus.early ?? []) take(c.symbol);
+    // 漲3%前：early/active with pre_plus3 first
+    for (const c of [...(rescueBatch?.early ?? []), ...(rescueBatch?.active ?? [])]
+        .filter((x) => x.pre_plus3)
+        .sort((a, b) => b.trigger_score - a.trigger_score)) {
+        take(c.symbol);
+    }
     for (const c of [...(rescueBatch?.early ?? [])].sort(
         (a, b) => b.trigger_score - a.trigger_score,
     )) {

@@ -82,3 +82,9 @@ board_mover_top_n: 0
 board_mover_min_change_pct: 1.5
 # Guaranteed UI for any discovery name that already printed +3% (truth-aligned).
 board_mover_ui_guarantee_pct: 3.0
+
+# Catch BEFORE +3%: high Trigger / volume / BP while day-change still < 3%
+pre_plus3_max_change_pct: 3.0
+pre_plus3_min_trigger: 42
+pre_plus3_min_vol_accel: 12
+pre_plus3_focus_top_n: 15

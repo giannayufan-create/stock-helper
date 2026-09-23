@@ -66,15 +66,17 @@ function RescueCardView({
             ? '—'
             : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
     const badge =
-        card.radar_state === 'EARLY'
-            ? '↗ EARLY'
-            : card.radar_state === 'ACTIVE'
-              ? '🔥 ACTIVE'
-              : card.radar_state === 'PULLBACK'
-                ? '🟠 PULLBACK'
-                : card.radar_state === 'INSUFFICIENT_DATA'
-                  ? '⚠ 資料不足'
-                  : '👀 WATCH';
+        card.pre_plus3
+            ? '⚡ 漲3%前'
+            : card.radar_state === 'EARLY'
+              ? '↗ EARLY'
+              : card.radar_state === 'ACTIVE'
+                ? '🔥 ACTIVE'
+                : card.radar_state === 'PULLBACK'
+                  ? '🟠 PULLBACK'
+                  : card.radar_state === 'INSUFFICIENT_DATA'
+                    ? '⚠ 資料不足'
+                    : '👀 WATCH';
 
     return (
         <button
@@ -219,12 +221,13 @@ export function SimpleRadarPage({
 
     const focusCards = useMemo(() => {
         if (!batch) return [];
+        const pre = allCards.filter((c) => c.pre_plus3);
         const fromFocus = dedupeCards([
-            ...batch.focus.confirmed,
+            ...pre,
             ...batch.focus.early,
+            ...batch.focus.confirmed,
         ]);
         if (fromFocus.length > 0) return fromFocus;
-        // No focus slot left: show top movers from full list (no empty wall).
         return allCards.slice(0, 12);
     }, [batch, allCards]);
 
@@ -293,7 +296,7 @@ export function SimpleRadarPage({
                 <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>
                     {batch?.market_status === 'AFTER_HOURS'
                         ? '收盤殘留｜優先觀察'
-                        : '目前優先觀察'}
+                        : '⚡ 漲3%前｜優先觀察'}
                 </h3>
                 {focusCards.length === 0 ? (
                     <div className={s.empty} style={{ padding: 16 }}>

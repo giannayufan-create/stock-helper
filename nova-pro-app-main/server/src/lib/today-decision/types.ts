@@ -143,6 +143,8 @@ export interface TodayInputItem {
     rescue_state: string | null;
     rescue_reasons: string[];
     opportunity_score: number | null;
+    /** Rescue: accelerating while day-change still under +3%. */
+    pre_plus3: boolean;
 }
 
 export interface TodayBoardInput {

@@ -278,7 +278,8 @@ export class RadarRescueService {
                 bp,
                 dataConfidence,
                 coreReady,
-                stale: !!stale,
+                // Cash session: don't let residual stale block the before-+3% catch.
+                stale: cashSession ? false : !!stale,
                 bpRising,
                 vwapReclaim:
                     (c?.metrics?.vwap_pos_pct ??
@@ -300,13 +301,15 @@ export class RadarRescueService {
                 newsAdj: news.opportunityAdj,
             });
 
+            const dayChg =
+                c?.change_pct ?? bp?.change_pct ?? disc?.change_pct ?? null;
             const chase = computeChaseRisk(this.cfg, {
-                changePct: c?.change_pct ?? bp?.change_pct ?? disc?.change_pct,
+                changePct: dayChg,
                 vwapExtPct:
                     c?.metrics?.vwap_pos_pct ?? bp?.distance_from_vwap_pct,
                 moveCompletedPct:
-                    c?.change_pct != null
-                        ? Math.min(1, Math.max(0, c.change_pct / 10))
+                    dayChg != null
+                        ? Math.min(1, Math.max(0, dayChg / 10))
                         : null,
             });
 
@@ -321,17 +324,37 @@ export class RadarRescueService {
                             this.cfg.rescue_disc_active_min_discovery ||
                         (disc.scanner_ranks?.change ?? 999) <= 50));
 
+            const volAccel =
+                c?.metrics?.volume_acceleration ??
+                bp?.volume_acceleration ??
+                null;
+            const rankVel = c?.rank_velocity ?? bp?.rank_velocity ?? 0;
+            const prePlus3 =
+                dayChg != null &&
+                dayChg < this.cfg.pre_plus3_max_change_pct &&
+                dayChg > -3 &&
+                (early.early ||
+                    trigger >= this.cfg.pre_plus3_min_trigger ||
+                    (volAccel != null &&
+                        volAccel >= this.cfg.pre_plus3_min_vol_accel) ||
+                    bpRising ||
+                    rankVel >= 5 ||
+                    bp?.primary_state === 'BUY_SURGE' ||
+                    bp?.primary_state === 'ASK_EATING' ||
+                    bp?.primary_state === 'EARLY');
+
             const radarState = this.resolveState({
                 stale: !!stale,
                 dataConfidence,
                 coreReady,
-                early: early.early || discHot,
+                early: early.early || discHot || prePlus3,
                 c,
                 bp,
                 newsState: news.state,
                 cashSession,
                 discHot,
                 trigger,
+                prePlus3,
             });
 
             const focusScore = this.computeFocusScore(
@@ -341,12 +364,23 @@ export class RadarRescueService {
                 dataConfidence,
             );
 
+            const reasons = this.buildReasons(
+                early.evidence,
+                c,
+                bp,
+                news.state,
+            );
+            if (prePlus3) {
+                reasons.unshift(
+                    `漲3%前｜日漲 ${dayChg!.toFixed(1)}% · Trigger ${Math.round(trigger)}`,
+                );
+            }
+
             const card: RescueCard = {
                 symbol,
                 name: c?.name ?? bp?.name ?? meta.name,
                 last_price: c?.last_price ?? bp?.last_price ?? null,
-                change_pct:
-                    c?.change_pct ?? bp?.change_pct ?? disc?.change_pct ?? null,
+                change_pct: dayChg,
                 radar_state: radarState,
                 opportunity_score: opportunity,
                 chase_risk: chase,
@@ -362,15 +396,11 @@ export class RadarRescueService {
                 bp_trend: bp?.volume_acceleration_slope ?? null,
                 news_state: news.state,
                 news_confidence: news.confidence,
-                reasons: this.buildReasons(
-                    early.evidence,
-                    c,
-                    bp,
-                    news.state,
-                ).slice(0, 3),
+                reasons: reasons.slice(0, 3),
                 layers: {
                     stock:
                         early.early ||
+                        prePlus3 ||
                         radarState === 'ACTIVE' ||
                         (c?.intraday_score ?? 0) >= 60,
                     sector: sectorHot.has(symbol),
@@ -383,10 +413,11 @@ export class RadarRescueService {
                 data_confidence: dataConfidence,
                 core_feature_ready: coreReady,
                 coverage_score: coverage,
-                focus_score: focusScore,
+                focus_score: focusScore + (prePlus3 ? 12 : 0),
                 lanes: lane?.lanes ?? [],
                 late_detection: false,
                 move_before_signal_pct: null,
+                pre_plus3: prePlus3,
             };
 
             const chg = card.change_pct ?? 0;
@@ -431,7 +462,11 @@ export class RadarRescueService {
                 bp_trend: bp?.volume_acceleration_slope ?? null,
                 radar_state: radarState,
                 radar_confidence: dataConfidence,
-                early_trigger: early.early || radarState === 'EARLY' || discHot,
+                early_trigger:
+                    early.early ||
+                    radarState === 'EARLY' ||
+                    discHot ||
+                    prePlus3,
                 opportunity_score: opportunity,
                 chase_risk: chase,
                 news_state: news.state,
@@ -442,6 +477,7 @@ export class RadarRescueService {
                     radarState === 'PULLBACK' ||
                     discHot ||
                     boardMover ||
+                    prePlus3 ||
                     (disc != null &&
                         (disc.change_pct ?? 0) >= uiGuaranteePct) ||
                     (radarState === 'WATCH' &&
@@ -465,6 +501,7 @@ export class RadarRescueService {
             .filter((x) => x.radar_state === 'EARLY')
             .sort(
                 (a, b) =>
+                    Number(b.pre_plus3) - Number(a.pre_plus3) ||
                     b.trigger_score - a.trigger_score ||
                     (b.rank_change ?? 0) - (a.rank_change ?? 0),
             );
@@ -487,13 +524,32 @@ export class RadarRescueService {
                 x.radar_state === 'INVALID',
         );
 
-        const earlyFocus = earlyCards
+        const earlyFocus = [
+            ...cards
+                .filter((x) => x.pre_plus3)
+                .sort(
+                    (a, b) =>
+                        b.trigger_score - a.trigger_score ||
+                        (a.change_pct ?? 99) - (b.change_pct ?? 99),
+                ),
+            ...earlyCards.filter((x) => !x.pre_plus3),
+        ]
             .filter(
                 (x) =>
                     !this.cfg.focus_block_low_confidence ||
                     x.data_confidence !== 'LOW',
             )
-            .slice(0, this.cfg.early_focus_top_n);
+            .filter(
+                (x, i, arr) =>
+                    arr.findIndex((y) => y.symbol === x.symbol) === i,
+            )
+            .slice(
+                0,
+                Math.max(
+                    this.cfg.early_focus_top_n,
+                    this.cfg.pre_plus3_focus_top_n,
+                ),
+            );
         let confirmedFocus = [...activeCards, ...pullbackCards]
             .filter(
                 (x) =>
@@ -631,6 +687,8 @@ export class RadarRescueService {
         /** Discovery-only morning runner (not yet in C top pool). */
         discHot: boolean;
         trigger: number;
+        /** Accelerating now while day-change still < +3%. */
+        prePlus3: boolean;
     }): RescueRadarState {
         // Hard fail only when quotes are blocked or we have no usable core.
         if (opts.c?.data_blocked) return 'INSUFFICIENT_DATA';
@@ -639,7 +697,8 @@ export class RadarRescueService {
             opts.dataConfidence === 'LOW' &&
             !opts.c &&
             !opts.bp &&
-            !opts.discHot
+            !opts.discHot &&
+            !opts.prePlus3
         ) {
             return 'INSUFFICIENT_DATA';
         }
@@ -663,7 +722,13 @@ export class RadarRescueService {
             );
 
         // Stale residual with no momentum → watch/insufficient; keep residual WATCH.
-        if (opts.stale && !hasMomentum && !bpHot && !opts.discHot) {
+        if (
+            opts.stale &&
+            !hasMomentum &&
+            !bpHot &&
+            !opts.discHot &&
+            !opts.prePlus3
+        ) {
             return opts.c || opts.bp ? 'WATCH' : 'INSUFFICIENT_DATA';
         }
 
@@ -672,13 +737,23 @@ export class RadarRescueService {
             opts.newsState === 'POSITIVE_UNCONFIRMED' &&
             !hasMomentum &&
             !bpHot &&
-            !opts.discHot
+            !opts.discHot &&
+            !opts.prePlus3
         ) {
-            if (opts.early) return 'EARLY';
+            if (opts.early || opts.prePlus3) return 'EARLY';
             return opts.c || opts.bp || opts.discHot ? 'WATCH' : 'INACTIVE';
         }
 
         if (pullbackReady && (hasMomentum || bpHot)) return 'PULLBACK';
+
+        // BEFORE +3%: surface as EARLY first (cash session), not wait for big print.
+        if (opts.prePlus3 && opts.cashSession) {
+            if (hasMomentum || bpHot || opts.trigger >= 60) return 'ACTIVE';
+            return 'EARLY';
+        }
+        if (opts.prePlus3 && !opts.cashSession) {
+            return 'WATCH';
+        }
 
         // Clear C strength / BP surge / discovery morning runner.
         if (hasMomentum || bpHot || opts.discHot) {
@@ -699,7 +774,7 @@ export class RadarRescueService {
             }
         }
 
-        if (opts.early) return 'EARLY';
+        if (opts.early || opts.prePlus3) return 'EARLY';
         if (opts.c || opts.bp || opts.discHot) return 'WATCH';
         return 'INACTIVE';
     }
