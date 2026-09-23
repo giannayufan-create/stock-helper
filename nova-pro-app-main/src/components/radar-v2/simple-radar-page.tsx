@@ -191,6 +191,33 @@ export function SimpleRadarPage({
         return () => clearInterval(t);
     }, [reload]);
 
+    useEffect(() => {
+        if (!batch) return;
+        // After hours / empty ACTIVE: default to 觀察 so radar is not a blank page.
+        if (
+            tab === 'active' &&
+            batch.count.active === 0 &&
+            batch.count.watch > 0
+        ) {
+            setTab('watch');
+        }
+    }, [batch, tab]);
+
+    const sessionNote = (() => {
+        if (!batch) return null;
+        if (batch.market_status === 'AFTER_HOURS') {
+            return '非交易時段：下面是收盤殘留觀察，開盤後才會出現「發動中／可進場」。';
+        }
+        if (
+            batch.data_status === 'DEGRADED' &&
+            batch.count.active === 0 &&
+            batch.count.watch > 0
+        ) {
+            return '資料降級中：先看觀察名單；條件齊全後會進「發動中」。';
+        }
+        return null;
+    })();
+
     const list: RescueCardDto[] = (() => {
         if (!batch) return [];
         if (tab === 'active') return batch.active;
@@ -216,23 +243,48 @@ export function SimpleRadarPage({
                 }}
             >
                 資料 {batch?.data_status ?? '…'}
+                {batch?.market_status
+                    ? ` · ${
+                          batch.market_status === 'CASH_LIVE'
+                              ? '盤中'
+                              : '休市'
+                      }`
+                    : ''}
                 {batch?.as_of
                     ? ` · ${new Date(batch.as_of).toLocaleTimeString('zh-TW')}`
                     : ''}
                 {err ? (
                     <div style={{ color: radarColor.healthBad }}>{err}</div>
                 ) : null}
+                {sessionNote ? (
+                    <div
+                        style={{
+                            marginTop: 8,
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            border: `1px solid ${radarColor.glassBorder}`,
+                            background: radarColor.glass,
+                            lineHeight: 1.45,
+                        }}
+                    >
+                        {sessionNote}
+                    </div>
+                ) : null}
             </div>
 
             {/* Focus */}
             <section style={{ marginBottom: 16 }}>
                 <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>
-                    目前優先觀察
+                    {batch?.market_status === 'AFTER_HOURS'
+                        ? '收盤殘留｜優先觀察'
+                        : '目前優先觀察'}
                 </h3>
                 {(batch?.focus.confirmed.length ?? 0) === 0 &&
                 (batch?.focus.early.length ?? 0) === 0 ? (
                     <div className={s.empty} style={{ padding: 16 }}>
-                        目前沒有符合條件
+                        {batch
+                            ? '目前沒有符合條件的優先標的'
+                            : '讀取中…'}
                     </div>
                 ) : (
                     <>

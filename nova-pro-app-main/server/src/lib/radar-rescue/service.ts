@@ -36,6 +36,23 @@ function clamp(n: number, lo = 0, hi = 100): number {
     return Math.max(lo, Math.min(hi, n));
 }
 
+/** Taipei cash session 09:00–13:30 — used only for presentation state, not strategy. */
+function isTaipeiCashSession(now = new Date()): boolean {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Taipei',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        weekday: 'short',
+    }).formatToParts(now);
+    const wd = parts.find((p) => p.type === 'weekday')?.value ?? '';
+    if (wd === 'Sat' || wd === 'Sun') return false;
+    const hh = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+    const mm = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+    const minutes = hh * 60 + mm;
+    return minutes >= 9 * 60 && minutes < 13 * 60 + 30;
+}
+
 export class RadarRescueService {
     readonly cfg: RadarRescueConfig;
     private timer: ReturnType<typeof setInterval> | null = null;
@@ -191,6 +208,7 @@ export class RadarRescueService {
             newsSymbols,
         });
         const laneBy = new Map(laneMerged.map((l) => [l.symbol, l]));
+        const cashSession = isTaipeiCashSession();
 
         const universe = new Map<string, { name: string }>();
         for (const d of discovery) universe.set(d.symbol, { name: d.name });
@@ -278,6 +296,7 @@ export class RadarRescueService {
                 c,
                 bp,
                 newsState: news.state,
+                cashSession,
             });
 
             const focusScore = this.computeFocusScore(
@@ -426,7 +445,7 @@ export class RadarRescueService {
                     x.data_confidence !== 'LOW',
             )
             .slice(0, this.cfg.early_focus_top_n);
-        const confirmedFocus = [...activeCards, ...pullbackCards]
+        let confirmedFocus = [...activeCards, ...pullbackCards]
             .filter(
                 (x) =>
                     !this.cfg.focus_block_low_confidence ||
@@ -434,6 +453,23 @@ export class RadarRescueService {
             )
             .sort((a, b) => b.focus_score - a.focus_score)
             .slice(0, this.cfg.confirmed_focus_top_n);
+
+        // After hours / degraded: still surface strongest residual names so UI
+        // is not an empty "目前沒有符合條件" when C already ranked them.
+        if (
+            confirmedFocus.length === 0 &&
+            earlyFocus.length === 0 &&
+            watchCards.length > 0
+        ) {
+            confirmedFocus = [...watchCards]
+                .sort(
+                    (a, b) =>
+                        (b.c_score ?? 0) - (a.c_score ?? 0) ||
+                        b.opportunity_score - a.opportunity_score ||
+                        b.focus_score - a.focus_score,
+                )
+                .slice(0, this.cfg.confirmed_focus_top_n);
+        }
 
         earlyFocus.forEach((x, i) =>
             this.funnel.upsert({
@@ -465,7 +501,7 @@ export class RadarRescueService {
             version: RESCUE_VERSION,
             mode: this.cfg.mode,
             mutates_strategy: false,
-            market_status: null,
+            market_status: cashSession ? 'CASH_LIVE' : 'AFTER_HOURS',
             data_status: lowRatio > 0.6 ? 'DEGRADED' : 'OK',
             focus: { early: earlyFocus, confirmed: confirmedFocus },
             early: earlyCards,
@@ -501,8 +537,11 @@ export class RadarRescueService {
         c: IntradayRankItem | null;
         bp: BuyPressureItem | null;
         newsState: NewsMarketState;
+        cashSession: boolean;
     }): RescueRadarState {
-        if (opts.stale || (!opts.coreReady && opts.dataConfidence === 'LOW')) {
+        // Hard fail only when quotes are blocked or we have no usable core.
+        if (opts.c?.data_blocked) return 'INSUFFICIENT_DATA';
+        if (!opts.coreReady && opts.dataConfidence === 'LOW' && !opts.c && !opts.bp) {
             return 'INSUFFICIENT_DATA';
         }
         if (opts.c?.state === 'INVALID') return 'INVALID';
@@ -524,6 +563,11 @@ export class RadarRescueService {
                 opts.bp.primary_state,
             );
 
+        // Stale residual with no momentum → insufficient; with C strength → keep WATCH.
+        if (opts.stale && !hasMomentum && !bpHot) {
+            return opts.c || opts.bp ? 'WATCH' : 'INSUFFICIENT_DATA';
+        }
+
         // News alone cannot force ACTIVE
         if (opts.newsState === 'POSITIVE_UNCONFIRMED' && !hasMomentum && !bpHot) {
             if (opts.early) return 'EARLY';
@@ -532,8 +576,21 @@ export class RadarRescueService {
 
         if (pullbackReady && (hasMomentum || bpHot)) return 'PULLBACK';
 
-        if ((hasMomentum || bpHot) && opts.dataConfidence !== 'LOW') {
-            return 'ACTIVE';
+        // Clear C strength must surface as ACTIVE in cash session even if
+        // coverage is LOW (after-hours residual stays WATCH — don't fake 發動中).
+        if (hasMomentum || bpHot) {
+            if (opts.cashSession) {
+                if (
+                    opts.dataConfidence !== 'LOW' ||
+                    (opts.c?.intraday_score ?? 0) >= 70
+                ) {
+                    return 'ACTIVE';
+                }
+            } else if (hasMomentum) {
+                return 'WATCH';
+            } else if (opts.dataConfidence !== 'LOW') {
+                return 'ACTIVE';
+            }
         }
 
         if (opts.early) return 'EARLY';

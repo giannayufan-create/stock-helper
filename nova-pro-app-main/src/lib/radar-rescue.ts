@@ -48,6 +48,7 @@ export interface RescueBatchDto {
     as_of: string;
     version: string;
     mode: string;
+    market_status?: string | null;
     data_status: string;
     focus: { early: RescueCardDto[]; confirmed: RescueCardDto[] };
     early: RescueCardDto[];
