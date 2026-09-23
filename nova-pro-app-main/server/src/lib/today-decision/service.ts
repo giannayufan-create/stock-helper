@@ -280,9 +280,10 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
     const rankBy = new Map(rankItems.map((c) => [c.symbol, c]));
 
     const rescueBatch = ctx.radarRescue?.getLastBatch() ?? null;
-    // Focus confirmed first so Map keeps the strongest card per symbol.
+    // Strongest card wins in Map (confirmed last so it overwrites).
     const rescueBy = new Map(
         [
+            ...(rescueBatch?.watch ?? []),
             ...(rescueBatch?.early ?? []),
             ...(rescueBatch?.active ?? []),
             ...(rescueBatch?.focus.early ?? []),
@@ -507,8 +508,30 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         }
     }
     for (const c of rescueBatch?.focus.confirmed ?? []) take(c.symbol);
-    for (const c of rescueBatch?.active ?? []) take(c.symbol);
+    for (const c of [...(rescueBatch?.active ?? [])].sort(
+        (a, b) =>
+            b.opportunity_score - a.opportunity_score ||
+            (b.change_pct ?? 0) - (a.change_pct ?? 0),
+    )) {
+        take(c.symbol);
+    }
     for (const c of rescueBatch?.focus.early ?? []) take(c.symbol);
+    for (const c of [...(rescueBatch?.early ?? [])].sort(
+        (a, b) => b.trigger_score - a.trigger_score,
+    )) {
+        take(c.symbol);
+    }
+    // High-change WATCH that C top-30 missed — still show on Today.
+    for (const c of [...(rescueBatch?.watch ?? [])]
+        .filter((x) => (x.change_pct ?? 0) >= 2 || (x.c_score ?? 0) >= 70)
+        .sort(
+            (a, b) =>
+                (b.change_pct ?? 0) - (a.change_pct ?? 0) ||
+                b.opportunity_score - a.opportunity_score,
+        )
+        .slice(0, 16)) {
+        take(c.symbol);
+    }
     for (const rq of rqItems.values()) {
         if (rq.is_focus) take(rq.symbol);
     }

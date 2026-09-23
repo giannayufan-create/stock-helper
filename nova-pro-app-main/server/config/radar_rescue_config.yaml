@@ -9,19 +9,19 @@ mode: rescue   # rescue | legacy (env RADAR_MODE overrides)
 # Multi-lane Active Watch quotas (comparison only unless apply_lane_to_active_watch)
 apply_lane_to_active_watch: false
 lane_quotas:
-  LIQUIDITY_LANE: 20
-  ACCELERATION_LANE: 25
+  LIQUIDITY_LANE: 25
+  ACCELERATION_LANE: 35
   REVERSAL_LANE: 15
-  BREAKOUT_LANE: 15
-  A_PRIOR_LANE: 10
-  B_OPEN_LANE: 10
-  SECTOR_LEADER_LANE: 10
-  NEWS_EVENT_LANE: 10
+  BREAKOUT_LANE: 20
+  A_PRIOR_LANE: 12
+  B_OPEN_LANE: 12
+  SECTOR_LEADER_LANE: 12
+  NEWS_EVENT_LANE: 12
 
 # Early Trigger — evidence count (NOT absolute C/BP/heat thresholds)
-early_min_evidence: 2
+early_min_evidence: 1
 early_block_stale: true
-early_block_low_confidence: true
+early_block_low_confidence: false
 
 # Opportunity vs Chase (separate — chase never subtracts from opportunity)
 opportunity_weights:
@@ -45,14 +45,14 @@ chase_thresholds:
 # News context adjustment capped
 news_adjustment_max: 5
 
-# Focus
-early_focus_top_n: 3
-confirmed_focus_top_n: 3
-focus_block_low_confidence: true
+# Focus — wider so morning runners reach UI / Today
+early_focus_top_n: 6
+confirmed_focus_top_n: 8
+focus_block_low_confidence: false
 
 # Data integrity
-coverage_not_ready_below: 40
-stale_seconds: 45
+coverage_not_ready_below: 30
+stale_seconds: 60
 
 # Persistence — stage transitions only (never every tick)
 persist_transitions: true
@@ -69,3 +69,9 @@ trigger_weights:
   vwap_transition: 0.08
   breakout_transition: 0.06
   bp_slope: 0.05
+
+# Rescue-only promotion (does not change C ranked pool)
+rescue_disc_active_min_change_pct: 2.0
+rescue_disc_active_min_trigger: 50
+rescue_disc_active_min_discovery: 55
+ui_promote_watch_top_n: 24

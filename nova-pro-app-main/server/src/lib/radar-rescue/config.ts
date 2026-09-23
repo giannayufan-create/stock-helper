@@ -43,6 +43,12 @@ export interface RadarRescueConfig {
     persist_transitions: boolean;
     eod_truth_enabled: boolean;
     trigger_weights: Record<string, number>;
+    /** Discovery-only morning runner → ACTIVE (rescue UI only). */
+    rescue_disc_active_min_change_pct: number;
+    rescue_disc_active_min_trigger: number;
+    rescue_disc_active_min_discovery: number;
+    /** Promote top WATCH cards into UI visibility when ACTIVE/EARLY empty. */
+    ui_promote_watch_top_n: number;
 }
 
 export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
@@ -52,18 +58,18 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
     mode: 'rescue',
     apply_lane_to_active_watch: false,
     lane_quotas: {
-        LIQUIDITY_LANE: 20,
-        ACCELERATION_LANE: 25,
+        LIQUIDITY_LANE: 25,
+        ACCELERATION_LANE: 35,
         REVERSAL_LANE: 15,
-        BREAKOUT_LANE: 15,
-        A_PRIOR_LANE: 10,
-        B_OPEN_LANE: 10,
-        SECTOR_LEADER_LANE: 10,
-        NEWS_EVENT_LANE: 10,
+        BREAKOUT_LANE: 20,
+        A_PRIOR_LANE: 12,
+        B_OPEN_LANE: 12,
+        SECTOR_LEADER_LANE: 12,
+        NEWS_EVENT_LANE: 12,
     },
-    early_min_evidence: 2,
+    early_min_evidence: 1,
     early_block_stale: true,
-    early_block_low_confidence: true,
+    early_block_low_confidence: false,
     opportunity_weights: {
         momentum: 0.18,
         volume_acceleration: 0.18,
@@ -83,11 +89,11 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
         extreme_vwap_ext_pct: 2.5,
     },
     news_adjustment_max: 5,
-    early_focus_top_n: 3,
-    confirmed_focus_top_n: 3,
-    focus_block_low_confidence: true,
-    coverage_not_ready_below: 40,
-    stale_seconds: 45,
+    early_focus_top_n: 6,
+    confirmed_focus_top_n: 8,
+    focus_block_low_confidence: false,
+    coverage_not_ready_below: 30,
+    stale_seconds: 60,
     persist_transitions: true,
     eod_truth_enabled: true,
     trigger_weights: {
@@ -101,6 +107,10 @@ export const DEFAULT_RESCUE_CONFIG: RadarRescueConfig = {
         breakout_transition: 0.06,
         bp_slope: 0.05,
     },
+    rescue_disc_active_min_change_pct: 2.0,
+    rescue_disc_active_min_trigger: 50,
+    rescue_disc_active_min_discovery: 55,
+    ui_promote_watch_top_n: 24,
 };
 
 function parseSimpleYaml(text: string): Record<string, unknown> {

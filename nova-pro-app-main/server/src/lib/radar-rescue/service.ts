@@ -164,7 +164,7 @@ export class RadarRescueService {
         const bpBy = new Map<string, BuyPressureItem>();
         if (this.buyPressure) {
             try {
-                const bpBatch = this.buyPressure.list({ limit: 80 });
+                const bpBatch = this.buyPressure.list({ limit: 150 });
                 for (const it of bpBatch.items ?? []) bpBy.set(it.symbol, it);
             } catch {
                 /* ignore */
@@ -229,8 +229,11 @@ export class RadarRescueService {
                 c?.data_health === 'stale' ||
                 c?.data_health === 'disconnected';
             const coverage =
-                c?.score_coverage_pct ?? (bp ? 70 : disc ? 40 : 20);
-            const coreReady = Boolean(c?.last_price || bp?.last_price);
+                c?.score_coverage_pct ??
+                (bp ? 70 : disc?.change_pct != null ? 55 : disc ? 40 : 20);
+            const coreReady = Boolean(
+                c?.last_price || bp?.last_price || disc?.change_pct != null,
+            );
             let dataConfidence: DataConfidence =
                 coverage >= 90 ? 'HIGH' : coverage >= 70 ? 'MEDIUM' : 'LOW';
             if (stale || coverage < this.cfg.coverage_not_ready_below) {
@@ -288,15 +291,27 @@ export class RadarRescueService {
                         : null,
             });
 
+            const discChg = disc?.change_pct ?? 0;
+            const discHot =
+                !c &&
+                disc != null &&
+                discChg >= this.cfg.rescue_disc_active_min_change_pct &&
+                (trigger >= this.cfg.rescue_disc_active_min_trigger ||
+                    (disc.discovery_score ?? 0) >=
+                        this.cfg.rescue_disc_active_min_discovery ||
+                    (disc.scanner_ranks?.change ?? 999) <= 40);
+
             const radarState = this.resolveState({
                 stale: !!stale,
                 dataConfidence,
                 coreReady,
-                early: early.early,
+                early: early.early || discHot,
                 c,
                 bp,
                 newsState: news.state,
                 cashSession,
+                discHot,
+                trigger,
             });
 
             const focusScore = this.computeFocusScore(
@@ -380,7 +395,12 @@ export class RadarRescueService {
                 discovery_rank: discRank.get(symbol) ?? null,
                 trigger_score: trigger,
                 lanes: card.lanes,
-                in_active_watch: !!c,
+                // Rescue-shadow active: lane/disc-hot counts even if C top-30 missed.
+                in_active_watch:
+                    !!c ||
+                    discHot ||
+                    radarState === 'ACTIVE' ||
+                    radarState === 'EARLY',
                 in_c: !!c,
                 c_score: c?.intraday_score ?? null,
                 c_rank: c?.rank ?? null,
@@ -391,7 +411,7 @@ export class RadarRescueService {
                 bp_trend: bp?.volume_acceleration_slope ?? null,
                 radar_state: radarState,
                 radar_confidence: dataConfidence,
-                early_trigger: early.early || radarState === 'EARLY',
+                early_trigger: early.early || radarState === 'EARLY' || discHot,
                 opportunity_score: opportunity,
                 chase_risk: chase,
                 news_state: news.state,
@@ -399,7 +419,12 @@ export class RadarRescueService {
                 ui_visible:
                     radarState === 'EARLY' ||
                     radarState === 'ACTIVE' ||
-                    radarState === 'PULLBACK',
+                    radarState === 'PULLBACK' ||
+                    discHot ||
+                    (radarState === 'WATCH' &&
+                        ((c?.intraday_score ?? 0) >= 70 ||
+                            opportunity >= 60 ||
+                            (disc?.change_pct ?? 0) >= 2)),
             });
 
             if (!disc) {
@@ -471,6 +496,26 @@ export class RadarRescueService {
                 .slice(0, this.cfg.confirmed_focus_top_n);
         }
 
+        // Always promote top WATCH runners into focus if still sparse (< half quota).
+        if (
+            confirmedFocus.length < Math.ceil(this.cfg.confirmed_focus_top_n / 2) &&
+            watchCards.length > 0
+        ) {
+            const have = new Set(confirmedFocus.map((x) => x.symbol));
+            for (const w of [...watchCards]
+                .sort(
+                    (a, b) =>
+                        (b.change_pct ?? 0) - (a.change_pct ?? 0) ||
+                        b.opportunity_score - a.opportunity_score,
+                )
+                .slice(0, this.cfg.ui_promote_watch_top_n)) {
+                if (have.has(w.symbol)) continue;
+                confirmedFocus.push(w);
+                have.add(w.symbol);
+                if (confirmedFocus.length >= this.cfg.confirmed_focus_top_n) break;
+            }
+        }
+
         earlyFocus.forEach((x, i) =>
             this.funnel.upsert({
                 symbol: x.symbol,
@@ -538,10 +583,19 @@ export class RadarRescueService {
         bp: BuyPressureItem | null;
         newsState: NewsMarketState;
         cashSession: boolean;
+        /** Discovery-only morning runner (not yet in C top pool). */
+        discHot: boolean;
+        trigger: number;
     }): RescueRadarState {
         // Hard fail only when quotes are blocked or we have no usable core.
         if (opts.c?.data_blocked) return 'INSUFFICIENT_DATA';
-        if (!opts.coreReady && opts.dataConfidence === 'LOW' && !opts.c && !opts.bp) {
+        if (
+            !opts.coreReady &&
+            opts.dataConfidence === 'LOW' &&
+            !opts.c &&
+            !opts.bp &&
+            !opts.discHot
+        ) {
             return 'INSUFFICIENT_DATA';
         }
         if (opts.c?.state === 'INVALID') return 'INVALID';
@@ -563,30 +617,37 @@ export class RadarRescueService {
                 opts.bp.primary_state,
             );
 
-        // Stale residual with no momentum → insufficient; with C strength → keep WATCH.
-        if (opts.stale && !hasMomentum && !bpHot) {
+        // Stale residual with no momentum → watch/insufficient; keep residual WATCH.
+        if (opts.stale && !hasMomentum && !bpHot && !opts.discHot) {
             return opts.c || opts.bp ? 'WATCH' : 'INSUFFICIENT_DATA';
         }
 
         // News alone cannot force ACTIVE
-        if (opts.newsState === 'POSITIVE_UNCONFIRMED' && !hasMomentum && !bpHot) {
+        if (
+            opts.newsState === 'POSITIVE_UNCONFIRMED' &&
+            !hasMomentum &&
+            !bpHot &&
+            !opts.discHot
+        ) {
             if (opts.early) return 'EARLY';
-            return opts.c || opts.bp ? 'WATCH' : 'INACTIVE';
+            return opts.c || opts.bp || opts.discHot ? 'WATCH' : 'INACTIVE';
         }
 
         if (pullbackReady && (hasMomentum || bpHot)) return 'PULLBACK';
 
-        // Clear C strength must surface as ACTIVE in cash session even if
-        // coverage is LOW (after-hours residual stays WATCH — don't fake 發動中).
-        if (hasMomentum || bpHot) {
+        // Clear C strength / BP surge / discovery morning runner.
+        if (hasMomentum || bpHot || opts.discHot) {
             if (opts.cashSession) {
                 if (
                     opts.dataConfidence !== 'LOW' ||
-                    (opts.c?.intraday_score ?? 0) >= 70
+                    (opts.c?.intraday_score ?? 0) >= 70 ||
+                    opts.discHot ||
+                    opts.trigger >= this.cfg.rescue_disc_active_min_trigger
                 ) {
                     return 'ACTIVE';
                 }
-            } else if (hasMomentum) {
+            } else if (hasMomentum || opts.discHot) {
+                // After hours: don't fake 發動中
                 return 'WATCH';
             } else if (opts.dataConfidence !== 'LOW') {
                 return 'ACTIVE';
@@ -594,7 +655,7 @@ export class RadarRescueService {
         }
 
         if (opts.early) return 'EARLY';
-        if (opts.c || opts.bp) return 'WATCH';
+        if (opts.c || opts.bp || opts.discHot) return 'WATCH';
         return 'INACTIVE';
     }
 
