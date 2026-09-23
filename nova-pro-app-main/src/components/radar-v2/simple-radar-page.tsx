@@ -1,7 +1,7 @@
 // src/components/radar-v2/simple-radar-page.tsx
-// SIMPLE RADAR UI v2 — no frontend secondary stock picking.
+// SIMPLE RADAR UI v2 — no frontend secondary stock picking / no UI caps.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     fetchRadarRescue,
     fetchRadarRescueRecall,
@@ -12,7 +12,7 @@ import {
 import { radarColor } from './tokens';
 import * as s from './radar.css';
 
-type InnerTab = 'active' | 'early' | 'pullback' | 'watch' | 'all';
+type InnerTab = 'all' | 'active' | 'early' | 'pullback' | 'watch' | 'insufficient';
 
 function newsLabel(state: string): string | null {
     switch (state) {
@@ -38,6 +38,17 @@ function layerDots(layers: RescueCardDto['layers']) {
             <span title="新聞">{layers.news ? '●' : '○'} 新聞</span>
         </span>
     );
+}
+
+function dedupeCards(cards: RescueCardDto[]): RescueCardDto[] {
+    const seen = new Set<string>();
+    const out: RescueCardDto[] = [];
+    for (const c of cards) {
+        if (seen.has(c.symbol)) continue;
+        seen.add(c.symbol);
+        out.push(c);
+    }
+    return out;
 }
 
 function RescueCardView({
@@ -165,9 +176,9 @@ export function SimpleRadarPage({
 }) {
     const [batch, setBatch] = useState<RescueBatchDto | null>(null);
     const [err, setErr] = useState<string | null>(null);
-    const [tab, setTab] = useState<InnerTab>('active');
+    // Default ALL — never land on an empty ACTIVE tab.
+    const [tab, setTab] = useState<InnerTab>('all');
     const [recall, setRecall] = useState<DailyRecallDto | null>(null);
-    const [showAdvanced, setShowAdvanced] = useState(false);
 
     const reload = useCallback(() => {
         void fetchRadarRescue()
@@ -191,46 +202,51 @@ export function SimpleRadarPage({
         return () => clearInterval(t);
     }, [reload]);
 
-    useEffect(() => {
-        if (!batch) return;
-        // After hours / empty ACTIVE: default to 觀察 so radar is not a blank page.
-        if (
-            tab === 'active' &&
-            batch.count.active === 0 &&
-            batch.count.watch > 0
-        ) {
-            setTab('watch');
-        }
-    }, [batch, tab]);
-
-    const sessionNote = (() => {
-        if (!batch) return null;
-        if (batch.market_status === 'AFTER_HOURS') {
-            return '非交易時段：下面是收盤殘留觀察，開盤後才會出現「發動中／可進場」。';
-        }
-        if (
-            batch.data_status === 'DEGRADED' &&
-            batch.count.active === 0 &&
-            batch.count.watch > 0
-        ) {
-            return '資料降級中：先看觀察名單；條件齊全後會進「發動中」。';
-        }
-        return null;
-    })();
-
-    const list: RescueCardDto[] = (() => {
+    const allCards = useMemo(() => {
         if (!batch) return [];
-        if (tab === 'active') return batch.active;
-        if (tab === 'early') return batch.early;
-        if (tab === 'pullback') return batch.pullback;
-        if (tab === 'watch') return batch.watch;
-        return [
+        return dedupeCards([
             ...batch.active,
             ...batch.early,
             ...batch.pullback,
             ...batch.watch,
-        ];
+            ...batch.insufficient,
+        ]).sort(
+            (a, b) =>
+                (b.change_pct ?? -999) - (a.change_pct ?? -999) ||
+                b.opportunity_score - a.opportunity_score,
+        );
+    }, [batch]);
+
+    const focusCards = useMemo(() => {
+        if (!batch) return [];
+        const fromFocus = dedupeCards([
+            ...batch.focus.confirmed,
+            ...batch.focus.early,
+        ]);
+        if (fromFocus.length > 0) return fromFocus;
+        // No focus slot left: show top movers from full list (no empty wall).
+        return allCards.slice(0, 12);
+    }, [batch, allCards]);
+
+    const list: RescueCardDto[] = (() => {
+        if (!batch) return [];
+        if (tab === 'all') return allCards;
+        if (tab === 'active') return batch.active;
+        if (tab === 'early') return batch.early;
+        if (tab === 'pullback') return batch.pullback;
+        if (tab === 'watch') return batch.watch;
+        return batch.insufficient;
     })();
+
+    const sessionNote = (() => {
+        if (!batch) return null;
+        if (batch.market_status === 'AFTER_HOURS') {
+            return '非交易時段：下方為收盤殘留名單（已取消畫面過濾上限）。';
+        }
+        return null;
+    })();
+
+    const totalCount = allCards.length;
 
     return (
         <div>
@@ -253,6 +269,7 @@ export function SimpleRadarPage({
                 {batch?.as_of
                     ? ` · ${new Date(batch.as_of).toLocaleTimeString('zh-TW')}`
                     : ''}
+                {totalCount > 0 ? ` · 共 ${totalCount} 檔` : ''}
                 {err ? (
                     <div style={{ color: radarColor.healthBad }}>{err}</div>
                 ) : null}
@@ -272,50 +289,39 @@ export function SimpleRadarPage({
                 ) : null}
             </div>
 
-            {/* Focus */}
             <section style={{ marginBottom: 16 }}>
                 <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>
                     {batch?.market_status === 'AFTER_HOURS'
                         ? '收盤殘留｜優先觀察'
                         : '目前優先觀察'}
                 </h3>
-                {(batch?.focus.confirmed.length ?? 0) === 0 &&
-                (batch?.focus.early.length ?? 0) === 0 ? (
+                {focusCards.length === 0 ? (
                     <div className={s.empty} style={{ padding: 16 }}>
-                        {batch
-                            ? '目前沒有符合條件的優先標的'
-                            : '讀取中…'}
+                        {batch ? '名單載入中或尚無資料' : '讀取中…'}
                     </div>
                 ) : (
-                    <>
-                        {batch?.focus.confirmed.map((c) => (
-                            <RescueCardView
-                                key={`f-${c.symbol}`}
-                                card={c}
-                                mode="active"
-                                onOpen={onOpenSymbol}
-                            />
-                        ))}
-                        {batch?.focus.early.map((c) => (
-                            <RescueCardView
-                                key={`fe-${c.symbol}`}
-                                card={c}
-                                mode="early"
-                                onOpen={onOpenSymbol}
-                            />
-                        ))}
-                    </>
+                    focusCards.map((c) => (
+                        <RescueCardView
+                            key={`f-${c.symbol}`}
+                            card={c}
+                            mode={
+                                c.radar_state === 'EARLY' ? 'early' : 'active'
+                            }
+                            onOpen={onOpenSymbol}
+                        />
+                    ))
                 )}
             </section>
 
             <div className={s.quickBar} style={{ marginBottom: 12 }}>
                 {(
                     [
+                        ['all', '全部'],
                         ['active', '🔥 發動中'],
                         ['early', '↗ 剛轉強'],
                         ['pullback', '🟠 拉回'],
                         ['watch', '👀 觀察'],
-                        ['all', '全部'],
+                        ['insufficient', '⚠ 資料不足'],
                     ] as const
                 ).map(([id, label]) => (
                     <button
@@ -329,18 +335,17 @@ export function SimpleRadarPage({
                         {label}
                         {batch
                             ? ` ${
-                                  id === 'active'
-                                      ? batch.count.active
-                                      : id === 'early'
-                                        ? batch.count.early
-                                        : id === 'pullback'
-                                          ? batch.count.pullback
-                                          : id === 'watch'
-                                            ? batch.count.watch
-                                            : batch.count.active +
-                                              batch.count.early +
-                                              batch.count.pullback +
-                                              batch.count.watch
+                                  id === 'all'
+                                      ? totalCount
+                                      : id === 'active'
+                                        ? batch.count.active
+                                        : id === 'early'
+                                          ? batch.count.early
+                                          : id === 'pullback'
+                                            ? batch.count.pullback
+                                            : id === 'watch'
+                                              ? batch.count.watch
+                                              : batch.insufficient.length
                               }`
                             : ''}
                     </button>
@@ -349,7 +354,7 @@ export function SimpleRadarPage({
 
             {list.length === 0 ? (
                 <div className={s.empty} style={{ padding: 24 }}>
-                    目前沒有符合條件
+                    {batch ? '此分類目前沒有標的，改看「全部」' : '讀取中…'}
                 </div>
             ) : (
                 list.map((c) => (
@@ -359,24 +364,14 @@ export function SimpleRadarPage({
                         mode={
                             c.radar_state === 'EARLY'
                                 ? 'early'
-                                : c.radar_state === 'WATCH'
+                                : c.radar_state === 'WATCH' ||
+                                    c.radar_state === 'INSUFFICIENT_DATA'
                                   ? 'watch'
                                   : 'active'
                         }
                         onOpen={onOpenSymbol}
                     />
                 ))
-            )}
-
-            {(batch?.insufficient.length ?? 0) > 0 && (
-                <section style={{ marginTop: 20, opacity: 0.55 }}>
-                    <h3 style={{ fontSize: 14 }}>⚠ 資料不足</h3>
-                    {batch!.insufficient.slice(0, 20).map((c) => (
-                        <div key={c.symbol} style={{ fontSize: 12, padding: 4 }}>
-                            {c.name} {c.symbol} · {c.radar_state}
-                        </div>
-                    ))}
-                </section>
             )}
 
             {recall && (
@@ -394,7 +389,7 @@ export function SimpleRadarPage({
                     <div>
                         最大流失關卡：{recall.largest_recall_loss_stage}
                     </div>
-                    {recall.missed.slice(0, 5).map((m) => (
+                    {recall.missed.slice(0, 8).map((m) => (
                         <div key={m.symbol} style={{ opacity: 0.8 }}>
                             Missed {m.symbol} +{m.max_return_pct.toFixed(1)}% →{' '}
                             {m.first_drop_stage}/{m.first_drop_reason}
@@ -402,29 +397,6 @@ export function SimpleRadarPage({
                     ))}
                 </section>
             )}
-
-            <div style={{ marginTop: 16 }}>
-                <button
-                    type="button"
-                    className={s.linkBtn}
-                    onClick={() => setShowAdvanced((v) => !v)}
-                >
-                    {showAdvanced ? '收合進階篩選' : '進階篩選（預設關閉）'}
-                </button>
-                {showAdvanced && (
-                    <div
-                        style={{
-                            fontSize: 12,
-                            opacity: 0.7,
-                            padding: 8,
-                        }}
-                    >
-                        legacy onlyHot / minC / minHeat / looksLikeBoardMover
-                        已移出主雷達，預設 OFF。切回舊 UI：設
-                        VITE_RADAR_MODE=legacy。
-                    </div>
-                )}
-            </div>
         </div>
     );
 }

@@ -402,7 +402,7 @@ function buildHeadline(
 }
 
 export function buildTodayBoard(input: TodayBoardInput): TodayDecisionBoard {
-    const limit = input.limit ?? 12;
+    const limit = input.limit ?? 80;
 
     const scored: TodayDecisionItem[] = input.items.map((it) => {
         const { action, hint } = resolveAction(it, input.mode);

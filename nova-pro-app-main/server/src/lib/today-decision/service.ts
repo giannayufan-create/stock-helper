@@ -433,7 +433,7 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
             seen.add(sym);
             out.push(mergeSymbol(sym));
         }
-        return out.slice(0, 24);
+        return out.slice(0, 80);
     }
 
     // Opening: B already evaluates A-pool every 3s. Don't wait for C.
@@ -479,7 +479,7 @@ function collectInputs(ctx: AppContext, mode: TodayMode): TodayInputItem[] {
         }
         for (const c of rankItems) take(c.symbol);
         for (const sym of rescueBy.keys()) take(sym);
-        return out.slice(0, 24);
+        return out.slice(0, 80);
     }
 
     // Intraday / closing: same order Radar would surface as “可進”

@@ -350,7 +350,7 @@ export function TodayDecisionBoard({
     useEffect(() => {
         let cancelled = false;
         const load = () =>
-            void fetchTodayDecision(30)
+            void fetchTodayDecision(80)
                 .then((b) => {
                     if (cancelled) return;
                     setBoard(b);
@@ -370,8 +370,8 @@ export function TodayDecisionBoard({
 
     const hotItems = useMemo(() => {
         if (!board) return [];
-        // No frontend secondary filter — trust backend actions.
-        return board.items.slice(0, 16);
+        // No frontend secondary filter / no display cap — trust backend list.
+        return board.items;
     }, [board]);
 
     const grouped = useMemo(() => {

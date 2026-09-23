@@ -86,7 +86,7 @@ export const TODAY_ACTION_COLOR: Record<TodayAction, string> = {
 };
 
 export function fetchTodayDecision(
-    limit = 12,
+    limit = 80,
 ): Promise<TodayDecisionBoardDto> {
     return apiGet<TodayDecisionBoardDto>(
         `/api/v1/today/decision?limit=${limit}`,
