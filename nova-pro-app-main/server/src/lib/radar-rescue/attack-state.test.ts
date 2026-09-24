@@ -19,10 +19,11 @@ function assert(cond: boolean, msg: string): void {
 }
 
 function threeDistinctPrints(bo = 101) {
+    const now = Date.now();
     return [
-        { trade_key: 't1', ts_ms: 1_000, price: bo + 0.5 },
-        { trade_key: 't2', ts_ms: 2_000, price: bo + 0.8 },
-        { trade_key: 't3', ts_ms: 3_500, price: bo + 1.0 },
+        { trade_key: 't1', ts_ms: now - 3_000, price: bo + 0.5 },
+        { trade_key: 't2', ts_ms: now - 2_000, price: bo + 0.8 },
+        { trade_key: 't3', ts_ms: now - 1_000, price: bo + 1.0 },
     ];
 }
 
@@ -682,9 +683,9 @@ console.log('\n=== M: 同一筆成交重送三次 → 不得當連續三筆 ==='
 console.log('\n=== N: 三筆不同時間站上＋量價向上 → ACTIVE ===');
 {
     const samples = [
-        { trade_key: 'A1', ts_ms: 1_000, price: 101.5 },
-        { trade_key: 'A2', ts_ms: 4_000, price: 101.8 },
-        { trade_key: 'A3', ts_ms: 8_000, price: 102.2 },
+        { trade_key: 'A1', ts_ms: Date.now() - 3_000, price: 101.5 },
+        { trade_key: 'A2', ts_ms: Date.now() - 2_000, price: 101.8 },
+        { trade_key: 'A3', ts_ms: Date.now() - 1_000, price: 102.2 },
     ];
     const input = {
         change_pct: 2.3,
@@ -706,6 +707,40 @@ console.log('\n=== N: 三筆不同時間站上＋量價向上 → ACTIVE ===');
     console.log('N expected', expected, '實際', r.state, r.label);
     assert(countDistinctBreakoutPrints(samples) === 3, 'N distinct=3');
     assert(r.state === 'ACTIVE', 'N → ACTIVE');
+}
+
+console.log('\n=== R: 過期或低於突破價的逐筆不可確認 ACTIVE ===');
+{
+    const now = Date.now();
+    const invalid = [
+        { trade_key: 'old', ts_ms: now - 30_000, price: 102 },
+        { trade_key: 'below', ts_ms: now - 2_000, price: 100.5 },
+        { trade_key: 'fresh', ts_ms: now - 1_000, price: 101.5 },
+    ];
+    const r = decide(baseFeatures({
+        last_price: 101.5, breakout_type: 'breakout', breakout_price: 101,
+        volume_accel: 22, return_30s: 0.2, return_1m: 0.4,
+        breakout_print_samples: invalid,
+    }), { nowMs: now });
+    assert(r.state !== 'ACTIVE', 'R invalid prints cannot confirm ACTIVE');
+}
+
+console.log('\n=== S: BP 重算時間不能掩蓋最後成交過期 ===');
+{
+    const now = Date.now();
+    const f = buildAttackFeatures({
+        c: null,
+        bp: {
+            updated_at: new Date(now).toISOString(),
+            last_tick_at: new Date(now - 30_000).toISOString(),
+            last_bidask_at: new Date(now - 1_000).toISOString(),
+        } as Parameters<typeof buildAttackFeatures>[0]['bp'],
+        trigger: 0, changePct: 1, prevVwapPos: null, nowMs: now,
+        overrides: { last_price: 101, volume_accel: 18 },
+    });
+    assert(f.last_trade_age_sec === 30, 'S actual tick age used');
+    const r = decide(f, { nowMs: now });
+    assert(r.state === 'WATCH' && r.label === '資料過舊', 'S stale despite fresh recompute');
 }
 
 console.log('\n=== O: 30s 內跌回＋賣壓 → FAKE_BREAKOUT + cooldown ===');

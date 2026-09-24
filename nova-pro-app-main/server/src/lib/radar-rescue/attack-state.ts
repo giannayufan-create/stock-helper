@@ -403,7 +403,15 @@ function hadFreshTradesDuringHold(
     nowMs: number,
     quoteTtlSec: number,
 ): boolean {
-    const fromSamples = countDistinctBreakoutPrints(f.breakout_print_samples);
+    const fromSamples = countDistinctBreakoutPrints(
+        (f.breakout_print_samples ?? []).filter((s) =>
+            track?.breakout_price != null &&
+            s.price >= track.breakout_price &&
+            s.ts_ms >= (track.breakout_at_ms ?? 0) &&
+            s.ts_ms <= nowMs &&
+            nowMs - s.ts_ms <= quoteTtlSec * 1000,
+        ),
+    );
     if (fromSamples >= 2) return true;
     const fromTrack = track?.distinct_print_keys?.length ?? 0;
     if (fromTrack >= 2) return true;
@@ -440,7 +448,16 @@ export function isBreakoutPersistent(
     if (!hasFreshTradeNow(cfg, f)) return false;
 
     // A: distinct prints
-    const fromSamples = countDistinctBreakoutPrints(f.breakout_print_samples);
+    const breakout = finite(f.breakout_price) ?? finite(track?.breakout_price);
+    const fromSamples = countDistinctBreakoutPrints(
+        (f.breakout_print_samples ?? []).filter((s) =>
+            breakout != null &&
+            s.price >= breakout &&
+            s.ts_ms >= (track?.breakout_at_ms ?? 0) &&
+            s.ts_ms <= nowMs &&
+            nowMs - s.ts_ms <= qTtl * 1000,
+        ),
+    );
     const fromTrack = track?.distinct_print_keys?.length ?? 0;
     if (Math.max(fromSamples, fromTrack) >= needPrints) return true;
 
@@ -618,6 +635,8 @@ export function buildAttackFeatures(opts: {
 
     const cAge = ageSec(c?.updated_at, now);
     const bpAge = ageSec(bp?.updated_at, now);
+    const bpTradeAge = ageSec(bp?.last_tick_at, now);
+    const bpBookAge = ageSec(bp?.last_bidask_at, now);
 
     const base: AttackFeatures = {
         change_pct: change,
@@ -647,9 +666,9 @@ export function buildAttackFeatures(opts: {
         trigger: Number.isFinite(opts.trigger) ? opts.trigger : 0,
         near_limit: nearLimit,
         limit_up: limitUp,
-        last_trade_age_sec: cAge ?? bpAge,
+        last_trade_age_sec: bp ? (bpTradeAge ?? cAge) : cAge,
         quote_age_sec: cAge ?? bpAge,
-        orderbook_age_sec: bpAge ?? cAge,
+        orderbook_age_sec: bp ? (bpBookAge ?? bpAge) : cAge,
         volume_age_sec: cAge ?? bpAge,
         breakout_price: null,
         prints_above_breakout: 0,
