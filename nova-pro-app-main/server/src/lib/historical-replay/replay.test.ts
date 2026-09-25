@@ -307,7 +307,7 @@ async function testFullThenPartialEarlyReport(): Promise<void> {
         assert.equal(part!.coverage, 'partial');
         assert.equal(part!.until_label, '10:15');
         assert.ok(!api.sources.includes('live'));
-        assert.equal(api.live_pipeline.wired, false);
+        assert.equal(api.live_pipeline.wired, true);
 
         console.log(
             `OK full+partial early reports preserved full=${full.replay_run_id} partial=${partial.replay_run_id}`,

@@ -24,6 +24,16 @@ export {
     expectedSessionEndKnownAt,
 } from './early-backtest.ts';
 export {
+    EarlyLiveShadowStore,
+    sampleToBarKnownAt,
+} from './early-live-shadow.ts';
+export type {
+    LiveEarlyShadowRecord,
+    LiveEarlySettleResult,
+    LivePriceFeedSource,
+    DayReferenceSource,
+} from './early-live-shadow.ts';
+export {
     buildEarlyDailyReport,
     EarlyDailyReportStore,
     formatRateLabel,

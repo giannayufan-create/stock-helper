@@ -17,6 +17,7 @@ import {
     type EarlyTrack,
 } from './attack-state.ts';
 import { EarlySignalStore } from './early-signal-store.ts';
+import { EarlyLiveShadowStore } from './early-live-shadow.ts';
 import { evaluateEarlyTrigger } from './early-trigger.ts';
 import { EodTruthService } from './eod-truth.ts';
 import { FunnelTraceService } from './funnel-trace.ts';
@@ -25,6 +26,7 @@ import {
     type EarlyDailyReport,
     type EarlyReportSource,
 } from './early-daily-report.ts';
+import { expectedSessionEndKnownAt } from './early-backtest.ts';
 import { buildMultiLaneCandidates } from './multi-lane.ts';
 import { judgeNewsForSymbol } from './news-judge.ts';
 import {
@@ -79,6 +81,7 @@ export class RadarRescueService {
     private prevVwap = new Map<string, number>();
     private earlyTracks = new Map<string, EarlyTrack>();
     private earlySignals: EarlySignalStore;
+    private earlyLiveShadow: EarlyLiveShadowStore;
     private earlyReports: EarlyDailyReportStore;
     private transitionFlushAt = 0;
 
@@ -95,6 +98,7 @@ export class RadarRescueService {
         this.funnel = new FunnelTraceService(dataDir);
         this.eod = new EodTruthService(dataDir);
         this.earlySignals = new EarlySignalStore(dataDir);
+        this.earlyLiveShadow = new EarlyLiveShadowStore(dataDir);
         this.earlyReports = new EarlyDailyReportStore(dataDir);
         this.funnel.loadToday();
     }
@@ -183,6 +187,7 @@ export class RadarRescueService {
                 ...(this.intradayRank.getLastBatch()?.items.map((i) => i.symbol) ??
                     []),
                 ...this.funnel.list().map((f) => f.symbol),
+                ...this.earlyLiveShadow.list().map((r) => r.symbol),
             ];
         const truth = await this.eod.buildForSymbols(pool);
         const ymd =
@@ -193,7 +198,60 @@ export class RadarRescueService {
         const report = buildDailyRecall(ymd, truth, this.funnel);
         persistRecall(this.dataDir, report);
         this.lastRecall = report;
+
+        // Patch day refs from EOD when live shadow lacked prev_close; then settle.
+        const truthBy = new Map(truth.map((t) => [t.symbol, t]));
+        let eodFetchFailed = false;
+        for (const row of this.earlyLiveShadow.list(ymd)) {
+            const t = truthBy.get(row.symbol);
+            if (!t || t.data_status !== 'ok') {
+                eodFetchFailed = true;
+                continue;
+            }
+            if (
+                (row.day_reference_price == null ||
+                    !(row.day_reference_price > 0)) &&
+                t.prev_close != null &&
+                t.prev_close > 0
+            ) {
+                this.earlyLiveShadow.patchDayReference(
+                    row.signal_id,
+                    t.prev_close,
+                    'eod_yahoo',
+                );
+            }
+        }
+        const sessionEnded =
+            Date.now() >= expectedSessionEndKnownAt(ymd);
+        if (sessionEnded) {
+            this.earlyLiveShadow.settleAndPersist({
+                trade_date: ymd,
+                sessionEnded: true,
+                eodFetchFailed,
+            });
+        }
+
         return report;
+    }
+
+    /** Manual / test hook: settle live EARLY day shadow into a live daily report. */
+    settleLiveEarlyDaily(opts?: {
+        trade_date?: string;
+        sessionEnded?: boolean;
+        eodFetchFailed?: boolean;
+        nowMs?: number;
+    }) {
+        const trade_date =
+            opts?.trade_date ??
+            new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Taipei',
+            }).format(new Date());
+        return this.earlyLiveShadow.settleAndPersist({
+            trade_date,
+            sessionEnded: opts?.sessionEnded,
+            eodFetchFailed: opts?.eodFetchFailed,
+            nowMs: opts?.nowMs,
+        });
     }
 
     async evaluate(): Promise<RescueBatch | null> {
@@ -419,7 +477,12 @@ export class RadarRescueService {
                 (!prevTrack ||
                     attack.track.triggered_at_ms !== prevTrack.triggered_at_ms)
             ) {
-                this.earlySignals.recordTrigger({
+                const ms = this.openGate?.getMarketState(symbol);
+                const dayRef =
+                    ms?.prev_close != null && ms.prev_close > 0
+                        ? ms.prev_close
+                        : null;
+                const signalId = this.earlySignals.recordTrigger({
                     symbol,
                     name: c?.name ?? bp?.name ?? meta.name,
                     timestamp: new Date(
@@ -437,12 +500,48 @@ export class RadarRescueService {
                     trigger_score: trigger,
                     state: radarState,
                 });
+                this.earlyLiveShadow.recordTrigger({
+                    signal_id: signalId,
+                    symbol,
+                    name: c?.name ?? bp?.name ?? meta.name,
+                    triggered_at_ms: attack.track.triggered_at_ms,
+                    trigger_price: attack.track.trigger_price,
+                    change_pct_at_trigger: dayChg,
+                    state_at_trigger: radarState,
+                    trigger_score: trigger,
+                    day_reference_price: dayRef,
+                    day_reference_source:
+                        dayRef != null ? 'opengate_prev_close' : 'none',
+                    price_feed_source: ms ? 'opengate_last' : 'c_last',
+                });
             }
+            const feed =
+                this.openGate?.getMarketState(symbol) != null
+                    ? 'opengate_last'
+                    : c?.last_price != null
+                      ? 'c_last'
+                      : 'bp_last';
             this.earlySignals.sample(
                 symbol,
                 features.last_price,
                 radarState,
             );
+            this.earlyLiveShadow.samplePrice(
+                symbol,
+                features.last_price,
+                Date.now(),
+                feed,
+            );
+            if (
+                radarState === 'ACTIVE' ||
+                radarState === 'NEAR_LIMIT' ||
+                radarState === 'LIMIT_UP'
+            ) {
+                for (const row of this.earlyLiveShadow.list()) {
+                    if (row.symbol !== symbol || row.settled) continue;
+                    this.earlyLiveShadow.noteState(row.signal_id, radarState);
+                }
+            }
 
             const focusScore = this.computeFocusScore(
                 radarState,

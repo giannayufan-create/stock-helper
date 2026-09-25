@@ -17,7 +17,6 @@ import {
     EarlyDailyReportStore,
     formatRateLabel,
     isValidTradeDate,
-    LIVE_EARLY_DAILY_REPORT_MESSAGE,
     LIVE_EARLY_DAILY_REPORT_WIRED,
     resolveTradeDateParam,
     gateEarlyDailyReportDate,
@@ -478,13 +477,18 @@ function testInvalidDateRejected(): void {
     console.log('OK invalid dates rejected → HTTP 400; store path-safe');
 }
 
-function testLiveNotWiredNoRates(): void {
-    assert.equal(LIVE_EARLY_DAILY_REPORT_WIRED, false);
+function testLiveWiredShowsWrittenReportsOnly(): void {
+    assert.equal(LIVE_EARLY_DAILY_REPORT_WIRED, true);
 
     const dir = mkdtempSync(join(tmpdir(), 'early-live-'));
     const store = new EarlyDailyReportStore(dir);
 
-    // Even if a live file is written (tests / manual), default API hides it.
+    const apiEmpty = store.listForApi('2026-06-15');
+    assert.equal(apiEmpty.live_pipeline.wired, true);
+    assert.equal(apiEmpty.live_pipeline.message, null);
+    assert.equal(apiEmpty.reports.length, 0);
+    assert.ok(!apiEmpty.sources.includes('live'));
+
     const live = buildEarlyDailyReport(
         summaryFrom([
             fakeOutcome({
@@ -498,28 +502,18 @@ function testLiveNotWiredNoRates(): void {
                 },
             }),
         ]),
-        meta({ run_id: 'live_manual', source: 'live' }),
+        meta({ run_id: 'live_2026-06-15_eod', source: 'live' }),
     );
     store.save(live);
 
     const api = store.listForApi('2026-06-15');
-    assert.equal(api.live_pipeline.wired, false);
-    assert.equal(
-        api.live_pipeline.message,
-        LIVE_EARLY_DAILY_REPORT_MESSAGE,
-    );
-    assert.equal(api.reports.length, 0);
-    assert.ok(!api.sources.includes('live'));
-    assert.equal(store.loadLatestFull('2026-06-15', 'live'), null);
-    assert.ok(api.note.includes(LIVE_EARLY_DAILY_REPORT_MESSAGE));
-
-    // Explicit include still allows forensic load
-    const forced = store.listRuns('2026-06-15', { includeLive: true });
-    assert.equal(forced.length, 1);
-    assert.equal(forced[0]!.source, 'live');
+    assert.ok(api.sources.includes('live'));
+    assert.equal(api.reports.length, 1);
+    assert.equal(api.reports[0]!.source, 'live');
+    assert.equal(store.loadLatestFull('2026-06-15', 'live')!.run_id, 'live_2026-06-15_eod');
 
     rmSync(dir, { recursive: true, force: true });
-    console.log('OK live not wired → no live success rates in default API');
+    console.log('OK live wired → only written live reports appear; no empty rates');
 }
 
 testFormatRateInsufficient();
@@ -530,6 +524,6 @@ testSourcesNotMixed();
 testSyntheticLabel();
 testFullThenPartialPreserved();
 testInvalidDateRejected();
-testLiveNotWiredNoRates();
+testLiveWiredShowsWrittenReportsOnly();
 assert.ok(typeof EarlyBacktestSession === 'function');
 console.log('\nAll early-daily-report tests passed');

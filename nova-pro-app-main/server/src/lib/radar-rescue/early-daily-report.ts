@@ -22,10 +22,10 @@ export type EarlyReportSource = 'replay' | 'synthetic' | 'live';
 export type EarlyReportCoverage = 'full' | 'partial';
 
 /**
- * Flip to true only when a production path writes source=live EARLY daily reports.
- * While false, API/UI must not imply live rates will appear by waiting.
+ * True once the live EARLY shadow settle path writes source=live daily reports
+ * (see EarlyLiveShadowStore.settleAndPersist + RadarRescueService.runEodTruthAndRecall).
  */
-export const LIVE_EARLY_DAILY_REPORT_WIRED = false as const;
+export const LIVE_EARLY_DAILY_REPORT_WIRED = true as const;
 
 export const LIVE_EARLY_DAILY_REPORT_MESSAGE = '實盤日報尚未接入';
 
@@ -524,7 +524,9 @@ export class EarlyDailyReportStore {
         opts?: { includePartial?: boolean },
     ): EarlyDailyReportListResult {
         const includePartial = opts?.includePartial === true;
-        const all = this.listRuns(date, { includeLive: false });
+        const all = this.listRuns(date, {
+            includeLive: LIVE_EARLY_DAILY_REPORT_WIRED,
+        });
         const reports = all.filter(
             (r) => r.coverage === 'full' && r.evaluable,
         );
@@ -549,7 +551,7 @@ export class EarlyDailyReportStore {
             note:
                 '預設只列出完整且可評估的日報。部分重播見 partial_reports，不可與完整成功率混算。' +
                 (LIVE_EARLY_DAILY_REPORT_WIRED
-                    ? ''
+                    ? ' 實盤來源僅在當日有寫入的 live 日報時出現，與重播／模擬分開統計。'
                     : ` ${LIVE_EARLY_DAILY_REPORT_MESSAGE}，不顯示實盤成功率。`),
         };
     }
