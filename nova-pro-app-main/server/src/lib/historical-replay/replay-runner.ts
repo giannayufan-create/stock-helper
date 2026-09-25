@@ -583,7 +583,20 @@ export async function runHistoricalReplay(
     );
     const outcomeSvc = new SignalOutcomeService(outcomeRepo);
     const outcomes = outcomeSvc.settleReplayDay(signals, dayBarsBySymbol);
-    const early_backtest = earlySession.finalize(dayBarsBySymbol);
+    const dayReferenceBySymbol = new Map<string, number | null>();
+    const sessionEndKnownAtBySymbol = new Map<string, number>();
+    for (const d of stockDays) {
+        dayReferenceBySymbol.set(
+            d.symbol,
+            d.prev_close != null && d.prev_close > 0 ? d.prev_close : null,
+        );
+        const last = d.bars[d.bars.length - 1];
+        if (last) sessionEndKnownAtBySymbol.set(d.symbol, last.known_at);
+    }
+    const early_backtest = earlySession.finalize(dayBarsBySymbol, {
+        dayReferenceBySymbol,
+        sessionEndKnownAtBySymbol,
+    });
 
     runtime.stop();
 
@@ -766,9 +779,12 @@ export function formatReplayReport(r: ReplayRunReport): string {
         `  complete/ambiguous=${r.outcomes.complete} ambiguous=${r.outcomes.ambiguous} partial=${r.outcomes.partial}`,
         '',
         'EARLY backtest:',
-        `  triggers=${r.early_backtest.triggers} complete=${r.early_backtest.complete} incomplete=${r.early_backtest.incomplete}`,
-        `  hit+3%=${r.early_backtest.hit_plus_3pct} (rate=${r.early_backtest.hit_plus_3pct_rate ?? 'n/a'})`,
-        `  hit+5%=${r.early_backtest.hit_plus_5pct} reached_ACTIVE=${r.early_backtest.reached_active} (rate=${r.early_backtest.reached_active_rate ?? 'n/a'})`,
+        `  signals=${r.early_backtest.signal_count} unique_symbols=${r.early_backtest.unique_symbol_count}`,
+        `  day+3%: SUCCESS=${r.early_backtest.day_plus_3pct.success} FAIL=${r.early_backtest.day_plus_3pct.fail} INCOMPLETE=${r.early_backtest.day_plus_3pct.incomplete} UNKNOWN=${r.early_backtest.day_plus_3pct.unknown} rate=${r.early_backtest.day_plus_3pct.rate ?? 'n/a'}`,
+        `  day+5%: SUCCESS=${r.early_backtest.day_plus_5pct.success} FAIL=${r.early_backtest.day_plus_5pct.fail} rate=${r.early_backtest.day_plus_5pct.rate ?? 'n/a'}`,
+        `  post-trigger+3%: SUCCESS=${r.early_backtest.post_trigger_plus_3pct.success} FAIL=${r.early_backtest.post_trigger_plus_3pct.fail} rate=${r.early_backtest.post_trigger_plus_3pct.rate ?? 'n/a'}`,
+        `  ACTIVE upgrade (not win-rate): SUCCESS=${r.early_backtest.active_upgrade.success} FAIL=${r.early_backtest.active_upgrade.fail} rate=${r.early_backtest.active_upgrade.rate ?? 'n/a'}`,
+        `  data_completeness_rate=${r.early_backtest.data_completeness_rate ?? 'n/a'}`,
     ];
     return lines.filter((l) => l !== undefined).join('\n');
 }
