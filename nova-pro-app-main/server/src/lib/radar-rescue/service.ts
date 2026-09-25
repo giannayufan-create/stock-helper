@@ -580,7 +580,8 @@ export class RadarRescueService {
                 features.last_price,
                 radarState,
             );
-            // Live day bars: only confirmed prints with timestamp (never bare last_price).
+            // Live day bars: apply every fresh print in the batch (not only latest)
+            // so bar high is not understated when multiple trades arrive together.
             const nowMs = Date.now();
             const msState = this.openGate?.getMarketState(symbol);
             const prints = printsFromRecentPrices(
@@ -588,15 +589,16 @@ export class RadarRescueService {
                 nowMs,
                 90_000,
             );
-            const latestPrint = prints.length
-                ? prints.reduce((a, b) => (a.ts_ms >= b.ts_ms ? a : b))
-                : null;
-            if (latestPrint) {
-                this.earlyLiveShadow.sampleTrade(symbol, {
-                    price: latestPrint.price,
-                    trade_ts_ms: latestPrint.ts_ms,
-                    source: feed,
-                }, nowMs);
+            if (prints.length) {
+                this.earlyLiveShadow.sampleTrades(
+                    symbol,
+                    prints.map((p) => ({
+                        price: p.price,
+                        trade_ts_ms: p.ts_ms,
+                        source: feed,
+                    })),
+                    nowMs,
+                );
             } else {
                 this.earlyLiveShadow.markSilentGaps(symbol, nowMs);
             }

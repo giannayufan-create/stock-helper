@@ -7,6 +7,7 @@ import {
     mkdirSync,
     readFileSync,
     writeFileSync,
+    readdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -255,8 +256,30 @@ export class EarlyLiveShadowStore {
     }
 
     private hydrateToday(): void {
-        const date = taipeiYmdFromMs(this.now());
-        this.loadDate(date);
+        // Load today + any unsettled prior days so next-day restart can catch up.
+        this.hydrateUnsettledFromDisk();
+    }
+
+    /**
+     * Scan on-disk shadow files and load unsettled (or all recent) trade dates into memory.
+     * Critical for 「隔天重啟補跑昨天未結算」.
+     */
+    hydrateUnsettledFromDisk(): void {
+        const root = this.dir();
+        if (!existsSync(root)) {
+            this.loadDate(taipeiYmdFromMs(this.now()));
+            return;
+        }
+        const today = taipeiYmdFromMs(this.now());
+        this.loadDate(today);
+        for (const name of readdirSync(root)) {
+            if (!name.endsWith('.json')) continue;
+            if (name.endsWith('.settle.json')) continue;
+            if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(name)) continue;
+            const date = name.slice(0, -'.json'.length);
+            if (date === today) continue;
+            this.loadDate(date);
+        }
     }
 
     loadDate(date: string): LiveEarlyShadowRecord[] {
@@ -393,6 +416,31 @@ export class EarlyLiveShadowStore {
     }
 
     /**
+     * Accept a batch of prints in time order so the bar high reflects every trade.
+     */
+    sampleTrades(
+        symbol: string,
+        ticks: Array<Partial<LiveTradeTick>>,
+        nowMs = this.now(),
+    ): { accepted: number; rejected: number } {
+        const ordered = [...ticks].sort((a, b) => {
+            const ta = Number(a.trade_ts_ms ?? 0);
+            const tb = Number(b.trade_ts_ms ?? 0);
+            if (ta !== tb) return ta - tb;
+            return Number(a.price ?? 0) - Number(b.price ?? 0);
+        });
+        let accepted = 0;
+        let rejected = 0;
+        for (const tick of ordered) {
+            const r = this.sampleTrade(symbol, tick, nowMs);
+            if (r.accepted) accepted += 1;
+            else rejected += 1;
+        }
+        if (!ordered.length) this.markSilentGaps(symbol, nowMs);
+        return { accepted, rejected };
+    }
+
+    /**
      * Accept only fresh, timestamped trades into 1m bars.
      * Stale quotes / duplicate last_price are rejected; silence → DATA_MISSING.
      */
@@ -519,13 +567,40 @@ export class EarlyLiveShadowStore {
 
     /**
      * Trade dates that still need post-close settlement (unsettled rows, session ended).
+     * Re-scans disk so a next-day process still sees yesterday's files.
      */
     datesNeedingSettlement(nowMs = this.now()): string[] {
+        this.hydrateUnsettledFromDisk();
         const dates = new Set<string>();
         for (const row of this.byId.values()) {
             if (row.settled) continue;
             if (nowMs >= expectedSessionEndKnownAt(row.trade_date)) {
                 dates.add(row.trade_date);
+            }
+        }
+        // Also: settle.json marked pending with session ended (EOD failed earlier).
+        const root = this.dir();
+        if (existsSync(root)) {
+            for (const name of readdirSync(root)) {
+                if (!name.endsWith('.settle.json')) continue;
+                const date = name.slice(0, -'.settle.json'.length);
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+                if (nowMs < expectedSessionEndKnownAt(date)) continue;
+                try {
+                    const meta = JSON.parse(
+                        readFileSync(join(root, name), 'utf8'),
+                    ) as LiveSettlementState;
+                    if (
+                        meta.status === 'pending' ||
+                        meta.live_report_ready === false
+                    ) {
+                        this.loadDate(date);
+                        const rows = this.list(date);
+                        if (rows.some((r) => !r.settled)) dates.add(date);
+                    }
+                } catch {
+                    /* ignore */
+                }
             }
         }
         return [...dates].sort();
@@ -838,15 +913,28 @@ export class EarlyLiveShadowStore {
             report_path = store.save(report);
             live_report_written = true;
 
-            for (const row of rows) {
-                row.settled = true;
-                row.settlement_run_id = run_id;
+            // EOD failure: write provisional report but keep unsettled so retry can patch refs.
+            if (!opts.eodFetchFailed) {
+                for (const row of rows) {
+                    row.settled = true;
+                    row.settlement_run_id = run_id;
+                }
+                this.persistDate(opts.trade_date);
+                this.markSettlementAttempt(opts.trade_date, nowMs, {
+                    live_report_ready: true,
+                    run_id,
+                });
+            } else {
+                for (const row of rows) {
+                    row.settled = false;
+                    row.settlement_run_id = run_id;
+                }
+                this.persistDate(opts.trade_date);
+                this.markSettlementAttempt(opts.trade_date, nowMs, {
+                    live_report_ready: false,
+                    run_id,
+                });
             }
-            this.persistDate(opts.trade_date);
-            this.markSettlementAttempt(opts.trade_date, nowMs, {
-                live_report_ready: true,
-                run_id,
-            });
         } else if (rows.length > 0) {
             for (const row of rows) {
                 row.settlement_run_id = null;

@@ -310,7 +310,26 @@ function testEodMissingIncomplete(): void {
     assert.equal(persisted.live_report_written, true);
     assert.equal(persisted.report!.source, 'live');
     assert.ok(persisted.report!.note.includes('INCOMPLETE') || persisted.report!.note.includes('失敗'));
-    console.log('OK EOD/tracking missing → INCOMPLETE not FAIL; live report written');
+    assert.equal(store.get('early_2330_eod')!.settled, false, 'EOD fail keeps unsettled for retry');
+    assert.deepEqual(store.datesNeedingSettlement(now), [TRADE_DATE]);
+
+    // Retry after EOD recovers: patch day ref and settle for real.
+    store.patchDayReference('early_2330_eod', 100, 'eod_yahoo');
+    const retried = store.settleAndPersist({
+        trade_date: TRADE_DATE,
+        nowMs: now + 1000,
+        sessionEnded: true,
+        eodFetchFailed: false,
+        reportsDir: dir,
+    });
+    assert.equal(retried.live_report_written, true);
+    assert.equal(store.get('early_2330_eod')!.settled, true);
+    assert.equal(store.datesNeedingSettlement(now + 1000).length, 0);
+    assert.equal(
+        store.getSettlementStatus(TRADE_DATE, now + 1000).live_report_ready,
+        true,
+    );
+    console.log('OK EOD/tracking missing → INCOMPLETE; retry settles after EOD ok');
     rmSync(dir, { recursive: true, force: true });
 }
 
@@ -402,7 +421,81 @@ testStalePriceRejected();
 testDuplicateQuoteNotNewTrade();
 testEodPreviousDayRejected();
 testPendingSettleAndRestartCatchUp();
+testNextDayRestartLoadsYesterday();
+testBatchTradesCaptureHigh();
 console.log('\nAll early-live-shadow tests passed');
+
+function testNextDayRestartLoadsYesterday(): void {
+    let now = expectedSessionEndKnownAt(TRADE_DATE) + 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-nextday-'));
+    const day1 = new EarlyLiveShadowStore(dir, () => now);
+    day1.recordTrigger({
+        signal_id: 'early_2330_yday',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    fillBarsToClose(day1, '2330', T0, () => 100);
+    assert.deepEqual(day1.datesNeedingSettlement(now), [TRADE_DATE]);
+
+    // Next calendar day restart — must still see yesterday unsettled.
+    const nextDayMs = Date.parse('2026-06-16T02:00:00.000Z');
+    const day2 = new EarlyLiveShadowStore(dir, () => nextDayMs);
+    assert.ok(
+        day2.get('early_2330_yday'),
+        'yesterday track hydrated on next-day restart',
+    );
+    assert.deepEqual(day2.datesNeedingSettlement(nextDayMs), [TRADE_DATE]);
+    const result = day2.settleAndPersist({
+        trade_date: TRADE_DATE,
+        nowMs: nextDayMs,
+        sessionEnded: true,
+        reportsDir: dir,
+    });
+    assert.equal(result.live_report_written, true);
+    assert.equal(day2.get('early_2330_yday')!.settled, true);
+    assert.equal(day2.datesNeedingSettlement(nextDayMs).length, 0);
+    console.log('OK next-day restart catch-up settles yesterday EARLY');
+    rmSync(dir, { recursive: true, force: true });
+}
+
+function testBatchTradesCaptureHigh(): void {
+    let now = T0 + 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-batch-'));
+    const store = new EarlyLiveShadowStore(dir, () => now);
+    store.recordTrigger({
+        signal_id: 'early_2330_batch',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    const base = now;
+    // Same poll batch: mid print is highest — must not keep only the last print.
+    const batch = store.sampleTrades(
+        '2330',
+        [
+            { price: 101, trade_ts_ms: base, source: 'opengate_last' },
+            { price: 108, trade_ts_ms: base + 200, source: 'opengate_last' },
+            { price: 103, trade_ts_ms: base + 400, source: 'opengate_last' },
+        ],
+        now,
+    );
+    assert.equal(batch.accepted, 3);
+    const bar = store
+        .get('early_2330_batch')!
+        .bars.find((b) => b.gap_kind == null)!;
+    assert.ok(bar);
+    assert.equal(bar.high, 108, 'batch must record peak print as bar high');
+    assert.equal(bar.close, 103);
+    console.log('OK batch prints capture high=108 not only last=103');
+    rmSync(dir, { recursive: true, force: true });
+}
 
 function testStalePriceRejected(): void {
     let now = T0 + 60_000;
