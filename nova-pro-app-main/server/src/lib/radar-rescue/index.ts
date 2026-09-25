@@ -27,6 +27,7 @@ export {
     EarlyLiveShadowStore,
     sampleToBarKnownAt,
     evaluateLiveTradeTick,
+    catchUpLiveEarlyDate,
     LIVE_TRADE_MAX_AGE_MS,
 } from './early-live-shadow.ts';
 export type {
@@ -37,6 +38,7 @@ export type {
     LiveTradeTick,
     LiveSettlementState,
     LiveSettlementStatus,
+    LiveEodTruthRow,
 } from './early-live-shadow.ts';
 export {
     buildEarlyDailyReport,

@@ -11,6 +11,7 @@ import { EarlyDailyReportStore } from './early-daily-report.ts';
 import { EarlySignalStore } from './early-signal-store.ts';
 import {
     EarlyLiveShadowStore,
+    catchUpLiveEarlyDate,
     evaluateLiveTradeTick,
     sampleToBarKnownAt,
 } from './early-live-shadow.ts';
@@ -309,9 +310,24 @@ function testEodMissingIncomplete(): void {
     });
     assert.equal(persisted.live_report_written, true);
     assert.equal(persisted.report!.source, 'live');
+    assert.equal(persisted.report!.evaluable, false, 'EOD fail provisional not evaluable');
+    assert.equal(persisted.report!.day_plus_3pct.rate, null);
+    assert.equal(persisted.report!.day_plus_3pct.rate_label, '資料不足');
     assert.ok(persisted.report!.note.includes('INCOMPLETE') || persisted.report!.note.includes('失敗'));
     assert.equal(store.get('early_2330_eod')!.settled, false, 'EOD fail keeps unsettled for retry');
     assert.deepEqual(store.datesNeedingSettlement(now), [TRADE_DATE]);
+
+    const apiPending = new EarlyDailyReportStore(dir).listForApi(TRADE_DATE);
+    assert.equal(
+        apiPending.reports.filter((r) => r.source === 'live').length,
+        0,
+        'provisional live not in default evaluable list',
+    );
+    assert.ok(
+        apiPending.partial_reports.some(
+            (r) => r.source === 'live' && r.evaluable === false,
+        ),
+    );
 
     // Retry after EOD recovers: patch day ref and settle for real.
     store.patchDayReference('early_2330_eod', 100, 'eod_yahoo');
@@ -323,12 +339,15 @@ function testEodMissingIncomplete(): void {
         reportsDir: dir,
     });
     assert.equal(retried.live_report_written, true);
+    assert.equal(retried.report!.evaluable, true);
     assert.equal(store.get('early_2330_eod')!.settled, true);
     assert.equal(store.datesNeedingSettlement(now + 1000).length, 0);
     assert.equal(
         store.getSettlementStatus(TRADE_DATE, now + 1000).live_report_ready,
         true,
     );
+    const apiOk = new EarlyDailyReportStore(dir).listForApi(TRADE_DATE);
+    assert.equal(apiOk.reports.filter((r) => r.source === 'live').length, 1);
     console.log('OK EOD/tracking missing → INCOMPLETE; retry settles after EOD ok');
     rmSync(dir, { recursive: true, force: true });
 }
@@ -409,21 +428,158 @@ function testDuplicateSettleNoDoubleCount(): void {
     rmSync(dir, { recursive: true, force: true });
 }
 
-testTwoEarlySameSymbol();
-testEarlyToActive();
-testPlus3AfterFiveMinutes();
-testRestartNoBackfill();
-testMissingDayRefUnknown();
-testEodMissingIncomplete();
-testMidSessionNoFail();
-testDuplicateSettleNoDoubleCount();
-testStalePriceRejected();
-testDuplicateQuoteNotNewTrade();
-testEodPreviousDayRejected();
-testPendingSettleAndRestartCatchUp();
-testNextDayRestartLoadsYesterday();
-testBatchTradesCaptureHigh();
-console.log('\nAll early-live-shadow tests passed');
+async function main(): Promise<void> {
+    testTwoEarlySameSymbol();
+    testEarlyToActive();
+    testPlus3AfterFiveMinutes();
+    testRestartNoBackfill();
+    testMissingDayRefUnknown();
+    testEodMissingIncomplete();
+    testMidSessionNoFail();
+    testDuplicateSettleNoDoubleCount();
+    testStalePriceRejected();
+    testDuplicateQuoteNotNewTrade();
+    testEodPreviousDayRejected();
+    testPendingSettleAndRestartCatchUp();
+    testNextDayRestartLoadsYesterday();
+    testBatchTradesCaptureHigh();
+    await testEodThrowThenRetrySuccess();
+    testPendingReportNotInDefaultList();
+    console.log('\nAll early-live-shadow tests passed');
+}
+
+void main();
+
+async function testEodThrowThenRetrySuccess(): Promise<void> {
+    let now = expectedSessionEndKnownAt(TRADE_DATE) + 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-eod-throw-'));
+    const store = new EarlyLiveShadowStore(dir, () => now);
+    store.recordTrigger({
+        signal_id: 'early_2330_throw',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: null,
+        day_reference_source: 'none',
+        trade_date: TRADE_DATE,
+    });
+    fillBarsToClose(store, '2330', T0, () => 103);
+
+    let fetches = 0;
+    const first = await catchUpLiveEarlyDate({
+        store,
+        tradeDate: TRADE_DATE,
+        nowMs: now,
+        reportsDir: dir,
+        fetchEod: async () => {
+            fetches += 1;
+            throw new Error('yahoo_timeout');
+        },
+    });
+    assert.equal(fetches, 1);
+    assert.equal(first.live_report_written, true);
+    assert.equal(first.report!.evaluable, false);
+    assert.equal(first.report!.day_plus_3pct.rate_label, '資料不足');
+    assert.equal(store.get('early_2330_throw')!.settled, false);
+    assert.equal(
+        store.getSettlementStatus(TRADE_DATE, now).status,
+        'pending',
+    );
+    assert.deepEqual(store.datesNeedingSettlement(now), [TRADE_DATE]);
+    const api1 = new EarlyDailyReportStore(dir).listForApi(TRADE_DATE);
+    assert.equal(api1.reports.filter((r) => r.source === 'live').length, 0);
+
+    // Second catch-up: EOD recovers → evaluable + settled.
+    now += 1000;
+    const second = await catchUpLiveEarlyDate({
+        store,
+        tradeDate: TRADE_DATE,
+        nowMs: now,
+        reportsDir: dir,
+        fetchEod: async () => {
+            fetches += 1;
+            return [
+                {
+                    symbol: '2330',
+                    trade_date: TRADE_DATE,
+                    data_status: 'ok',
+                    prev_close: 100,
+                },
+            ];
+        },
+    });
+    assert.equal(fetches, 2);
+    assert.equal(second.report!.evaluable, true);
+    assert.ok(
+        second.report!.day_plus_3pct.rate_label !== '資料不足',
+        'successful settle shows rates',
+    );
+    assert.equal(store.get('early_2330_throw')!.settled, true);
+    assert.equal(store.get('early_2330_throw')!.day_reference_price, 100);
+    assert.equal(
+        store.getSettlementStatus(TRADE_DATE, now).live_report_ready,
+        true,
+    );
+    assert.equal(store.datesNeedingSettlement(now).length, 0);
+    const api2 = new EarlyDailyReportStore(dir).listForApi(TRADE_DATE);
+    assert.equal(api2.reports.filter((r) => r.source === 'live').length, 1);
+    assert.notEqual(api2.reports[0]!.day_plus_3pct.rate_label, '資料不足');
+    console.log('OK EOD throw → pending; retry success → evaluable');
+    rmSync(dir, { recursive: true, force: true });
+}
+
+function testPendingReportNotInDefaultList(): void {
+    let now = expectedSessionEndKnownAt(TRADE_DATE) + 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-pending-list-'));
+    const store = new EarlyLiveShadowStore(dir, () => now);
+    store.recordTrigger({
+        signal_id: 'early_2330_pend',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    fillBarsToClose(store, '2330', T0, () => 104);
+
+    const pending = store.settleAndPersist({
+        trade_date: TRADE_DATE,
+        nowMs: now,
+        sessionEnded: true,
+        eodFetchFailed: true,
+        reportsDir: dir,
+    });
+    assert.equal(pending.report!.evaluable, false);
+    assert.equal(pending.report!.day_plus_3pct.rate, null);
+    assert.equal(pending.report!.day_plus_3pct.rate_label, '資料不足');
+    assert.equal(pending.report!.post_trigger_plus_3pct.rate_label, '資料不足');
+    assert.equal(pending.report!.active_upgrade.rate_label, '資料不足');
+
+    const api = new EarlyDailyReportStore(dir).listForApi(TRADE_DATE);
+    assert.equal(api.reports.length, 0);
+    assert.ok(!api.sources.includes('live'));
+    assert.equal(api.partial_reports.length, 1);
+    assert.equal(api.partial_reports[0]!.evaluable, false);
+    assert.equal(api.partial_reports[0]!.day_plus_3pct.rate_label, '資料不足');
+
+    // Successful settle replaces same run_id → enters default list with rates.
+    const ok = store.settleAndPersist({
+        trade_date: TRADE_DATE,
+        nowMs: now + 1,
+        sessionEnded: true,
+        eodFetchFailed: false,
+        reportsDir: dir,
+    });
+    assert.equal(ok.report!.evaluable, true);
+    const apiOk = new EarlyDailyReportStore(dir).listForApi(TRADE_DATE);
+    assert.equal(apiOk.reports.length, 1);
+    assert.ok(apiOk.sources.includes('live'));
+    assert.equal(apiOk.reports[0]!.evaluable, true);
+    console.log('OK pending live report excluded from default list; no rates');
+    rmSync(dir, { recursive: true, force: true });
+}
 
 function testNextDayRestartLoadsYesterday(): void {
     let now = expectedSessionEndKnownAt(TRADE_DATE) + 60_000;

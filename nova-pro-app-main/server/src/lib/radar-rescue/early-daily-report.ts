@@ -280,6 +280,17 @@ export interface BuildEarlyDailyReportOpts {
     until_label?: string | null;
     symbols: string[];
     created_at?: string;
+    /**
+     * Override default (coverage === 'full').
+     * Use false for provisional live reports (e.g. EOD fetch failed) so they
+     * never enter the default evaluable list or show success rates.
+     */
+    evaluable?: boolean;
+}
+
+/** Hide rate fields — used for non-evaluable / provisional reports. */
+function withoutRates(view: MetricBucketView): MetricBucketView {
+    return { ...view, rate: null, rate_label: RATE_INSUFFICIENT };
 }
 
 /**
@@ -302,13 +313,22 @@ export function buildEarlyDailyReport(
     const completenessDenom = resolved + summary.day_plus_3pct.incomplete;
     const data_completeness_rate = summary.data_completeness_rate;
     const active = toBucketView(summary.active_upgrade);
-    const evaluable = opts.coverage === 'full';
+    const evaluable =
+        opts.evaluable !== undefined
+            ? opts.evaluable
+            : opts.coverage === 'full';
     const symbols = [...opts.symbols].map(String).sort();
 
     const partialNote =
         opts.coverage === 'partial'
             ? '【部分重播】觀測截止早於收盤，不可與完整日報混算成功率。'
             : '';
+    const provisionalNote = !evaluable
+        ? '【暫存／未可評估】尚未完成結算，不顯示成功率，不可列入預設完整清單。'
+        : '';
+
+    const day3Out = evaluable ? day3 : withoutRates(day3);
+    const activeOut = evaluable ? active : withoutRates(active);
 
     return {
         trade_date: opts.trade_date,
@@ -326,24 +346,32 @@ export function buildEarlyDailyReport(
         created_at: opts.created_at ?? new Date().toISOString(),
         signal_count: summary.signal_count,
         unique_symbol_count: summary.unique_symbol_count,
-        data_completeness_rate,
+        data_completeness_rate: evaluable ? data_completeness_rate : null,
         data_completeness_label:
+            !evaluable ||
             resolved <= 0 ||
             completenessDenom <= 0 ||
             data_completeness_rate == null
                 ? RATE_INSUFFICIENT
                 : `${(data_completeness_rate * 100).toFixed(1)}%`,
-        day_plus_3pct: day3,
-        day_plus_5pct: toBucketView(summary.day_plus_5pct),
-        post_trigger_plus_3pct: toBucketView(summary.post_trigger_plus_3pct),
-        post_trigger_plus_5pct: toBucketView(summary.post_trigger_plus_5pct),
+        day_plus_3pct: day3Out,
+        day_plus_5pct: evaluable
+            ? toBucketView(summary.day_plus_5pct)
+            : withoutRates(toBucketView(summary.day_plus_5pct)),
+        post_trigger_plus_3pct: evaluable
+            ? toBucketView(summary.post_trigger_plus_3pct)
+            : withoutRates(toBucketView(summary.post_trigger_plus_3pct)),
+        post_trigger_plus_5pct: evaluable
+            ? toBucketView(summary.post_trigger_plus_5pct)
+            : withoutRates(toBucketView(summary.post_trigger_plus_5pct)),
         active_upgrade: {
-            ...active,
+            ...activeOut,
             kind: 'state_upgrade_rate',
             label: '狀態升級率',
         },
         signals: summary.outcomes.map(rowFrom),
         note:
+            provisionalNote +
             partialNote +
             '成功率 = SUCCESS / (SUCCESS + FAIL)。INCOMPLETE／UNKNOWN 不進分母。' +
             'ACTIVE 為狀態升級率，不是交易勝率。' +

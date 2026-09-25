@@ -17,7 +17,10 @@ import {
     type EarlyTrack,
 } from './attack-state.ts';
 import { EarlySignalStore } from './early-signal-store.ts';
-import { EarlyLiveShadowStore } from './early-live-shadow.ts';
+import {
+    EarlyLiveShadowStore,
+    catchUpLiveEarlyDate,
+} from './early-live-shadow.ts';
 import { evaluateEarlyTrigger } from './early-trigger.ts';
 import { EodTruthService } from './eod-truth.ts';
 import { FunnelTraceService } from './funnel-trace.ts';
@@ -203,56 +206,37 @@ export class RadarRescueService {
     /**
      * Post-close auto settle + restart catch-up.
      * Safe to call repeatedly; settleAndPersist overwrites same run_id (no double count).
+     * EOD fetch throws → pending retry recorded; promise does not reject (safe for void/).
      */
     async catchUpLiveEarlySettlement(nowMs = Date.now()): Promise<void> {
         const dates = this.earlyLiveShadow.datesNeedingSettlement(nowMs);
         for (const ymd of dates) {
-            this.earlyLiveShadow.markSettlementAttempt(ymd, nowMs, {
-                live_report_ready: false,
-                run_id: null,
-            });
-            const symbols = [
-                ...new Set(
-                    this.earlyLiveShadow.list(ymd).map((r) => r.symbol),
-                ),
-            ];
-            let eodFetchFailed = false;
-            if (symbols.length) {
-                const truth = await this.eod.buildForSymbols(symbols, ymd);
-                const truthBy = new Map(truth.map((t) => [t.symbol, t]));
-                for (const row of this.earlyLiveShadow.list(ymd)) {
-                    const t = truthBy.get(row.symbol);
-                    // Exact trade_date match only (buildForSymbols no longer substitutes other days).
-                    if (
-                        !t ||
-                        t.trade_date !== ymd ||
-                        t.data_status !== 'ok' ||
-                        t.prev_close == null ||
-                        !(t.prev_close > 0)
-                    ) {
-                        eodFetchFailed = true;
-                        continue;
-                    }
-                    if (
-                        row.day_reference_price == null ||
-                        !(row.day_reference_price > 0)
-                    ) {
-                        this.earlyLiveShadow.patchDayReference(
-                            row.signal_id,
-                            t.prev_close,
-                            'eod_yahoo',
-                        );
-                    }
+            try {
+                await catchUpLiveEarlyDate({
+                    store: this.earlyLiveShadow,
+                    tradeDate: ymd,
+                    nowMs,
+                    fetchEod: (symbols, date) =>
+                        this.eod.buildForSymbols(symbols, date),
+                });
+            } catch {
+                // Last resort: keep pending so next tick/restart can retry.
+                // Never let a background void catchUp become an unhandled rejection.
+                try {
+                    this.earlyLiveShadow.markSettlementAttempt(ymd, nowMs, {
+                        live_report_ready: false,
+                        run_id: null,
+                    });
+                    this.earlyLiveShadow.settleAndPersist({
+                        trade_date: ymd,
+                        nowMs,
+                        sessionEnded: true,
+                        eodFetchFailed: true,
+                    });
+                } catch {
+                    /* swallow */
                 }
-            } else {
-                eodFetchFailed = true;
             }
-            this.earlyLiveShadow.settleAndPersist({
-                trade_date: ymd,
-                nowMs,
-                sessionEnded: true,
-                eodFetchFailed,
-            });
         }
     }
 

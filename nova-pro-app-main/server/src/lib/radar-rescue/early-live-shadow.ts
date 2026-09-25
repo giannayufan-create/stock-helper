@@ -885,11 +885,13 @@ export class EarlyLiveShadowStore {
         let live_report_written = false;
 
         if (sessionEnded && rows.length > 0) {
+            // EOD failure → provisional report: not evaluable, no success rates.
             report = buildEarlyDailyReport(summary, {
                 trade_date: opts.trade_date,
                 source: 'live',
                 run_id,
                 coverage: 'full',
+                evaluable: !opts.eodFetchFailed,
                 observation_cutoff_ms: sessionEnd,
                 until_label: null,
                 symbols: [...new Set(rows.map((r) => r.symbol))].sort(),
@@ -899,7 +901,7 @@ export class EarlyLiveShadowStore {
             const tracked = summary.outcomes.filter((o) => o.tracking_to_close)
                 .length;
             const eodNote = opts.eodFetchFailed
-                ? '盤後價格抓取失敗→未達標項為 INCOMPLETE。'
+                ? '盤後價格抓取失敗→未達標項為 INCOMPLETE；暫存日報不可評估。'
                 : '';
             report.note =
                 `實盤影子觀察。價格來源=${feeds.join(',')}` +
@@ -955,4 +957,79 @@ export class EarlyLiveShadowStore {
             retried,
         };
     }
+}
+
+/** Minimal EOD row shape needed to patch day refs during live settle. */
+export interface LiveEodTruthRow {
+    symbol: string;
+    trade_date: string;
+    data_status: string;
+    prev_close: number | null;
+}
+
+/**
+ * One-date catch-up: fetch EOD → patch refs → settleAndPersist.
+ * EOD fetch exceptions are swallowed into eodFetchFailed (pending retry);
+ * the returned promise never rejects due to EOD throw.
+ */
+export async function catchUpLiveEarlyDate(opts: {
+    store: EarlyLiveShadowStore;
+    tradeDate: string;
+    nowMs: number;
+    fetchEod: (
+        symbols: string[],
+        tradeDate: string,
+    ) => Promise<LiveEodTruthRow[]>;
+    reportsDir?: string;
+}): Promise<LiveEarlySettleResult> {
+    const ymd = opts.tradeDate;
+    opts.store.markSettlementAttempt(ymd, opts.nowMs, {
+        live_report_ready: false,
+        run_id: null,
+    });
+    const symbols = [
+        ...new Set(opts.store.list(ymd).map((r) => r.symbol)),
+    ];
+    let eodFetchFailed = false;
+    if (!symbols.length) {
+        eodFetchFailed = true;
+    } else {
+        try {
+            const truth = await opts.fetchEod(symbols, ymd);
+            const truthBy = new Map(truth.map((t) => [t.symbol, t]));
+            for (const row of opts.store.list(ymd)) {
+                const t = truthBy.get(row.symbol);
+                if (
+                    !t ||
+                    t.trade_date !== ymd ||
+                    t.data_status !== 'ok' ||
+                    t.prev_close == null ||
+                    !(t.prev_close > 0)
+                ) {
+                    eodFetchFailed = true;
+                    continue;
+                }
+                if (
+                    row.day_reference_price == null ||
+                    !(row.day_reference_price > 0)
+                ) {
+                    opts.store.patchDayReference(
+                        row.signal_id,
+                        t.prev_close,
+                        'eod_yahoo',
+                    );
+                }
+            }
+        } catch {
+            // Record pending / provisional settle; do not rethrow (no unhandled rejection).
+            eodFetchFailed = true;
+        }
+    }
+    return opts.store.settleAndPersist({
+        trade_date: ymd,
+        nowMs: opts.nowMs,
+        sessionEnded: true,
+        eodFetchFailed,
+        reportsDir: opts.reportsDir,
+    });
 }
