@@ -15,11 +15,11 @@ import {
     EarlyBacktestSession,
     evaluatePriceTarget,
     isTrackingCompleteToClose,
+    type EarlyTrackingBar,
 } from './early-backtest.ts';
 import { EarlySignalStore } from './early-signal-store.ts';
 import { printsFromRecentPrices } from './print-samples.ts';
 import type { IntradayRankItem } from '../intraday-rank/types.ts';
-import type { PriceBar } from '../signal-outcome/types.ts';
 
 function stubC(partial: Partial<IntradayRankItem> = {}): IntradayRankItem {
     return {
@@ -134,8 +134,13 @@ function baseFeatures(over: Partial<AttackFeatures> = {}): AttackFeatures {
 
 function barsFrom(
     triggerMs: number,
-    specs: Array<{ afterMin: number; high: number; close?: number }>,
-): PriceBar[] {
+    specs: Array<{
+        afterMin: number;
+        high: number;
+        close?: number;
+        gap_kind?: EarlyTrackingBar['gap_kind'];
+    }>,
+): EarlyTrackingBar[] {
     return specs.map((s) => {
         const t = triggerMs + s.afterMin * 60_000;
         const close = s.close ?? s.high;
@@ -145,8 +150,31 @@ function barsFrom(
             high: s.high,
             low: close - 0.5,
             close,
+            gap_kind: s.gap_kind ?? null,
         };
     });
+}
+
+/** Continuous 1m bars minute 1..n after trigger. */
+function continuousBars(
+    triggerMs: number,
+    minutes: number,
+    highAt: (m: number) => number,
+    gapAt?: (m: number) => EarlyTrackingBar['gap_kind'],
+): EarlyTrackingBar[] {
+    const out: EarlyTrackingBar[] = [];
+    for (let m = 1; m <= minutes; m++) {
+        const high = highAt(m);
+        out.push({
+            t: triggerMs + m * 60_000,
+            open: high,
+            high,
+            low: high - 0.3,
+            close: high,
+            gap_kind: gapAt?.(m) ?? null,
+        });
+    }
+    return out;
 }
 
 function testPrintsFromRecent(): void {
@@ -236,17 +264,9 @@ function testT_DayPlus3VsPostTrigger(): void {
     const triggerPx = 101; // 已漲 +1%
     // Day +3.2% → high >= 103.2; post-trigger +3% → high >= 101*1.03 = 104.03
     const sessionEnd = triggerMs + 50 * 60_000;
-    const padded: PriceBar[] = [];
-    for (let m = 1; m <= 50; m++) {
-        const high = m === 5 ? 103.2 : 102.5; // touches day+3.2%, never post-trigger+3
-        padded.push({
-            t: triggerMs + m * 60_000,
-            open: 102,
-            high,
-            low: 101.5,
-            close: 102.5,
-        });
-    }
+    const padded = continuousBars(triggerMs, 50, (m) =>
+        m === 5 ? 103.2 : 102.5,
+    );
     assert.equal(
         isTrackingCompleteToClose(triggerMs, padded, sessionEnd),
         true,
@@ -264,7 +284,7 @@ function testT_DayPlus3VsPostTrigger(): void {
     });
     const summary = session.finalize(new Map([['2330', padded]]), {
         dayReferenceBySymbol: new Map([['2330', dayRef]]),
-        defaultSessionEndKnownAt: sessionEnd,
+        expectedSessionEndKnownAt: sessionEnd,
     });
     const o = summary.outcomes[0]!;
     assert.equal(o.day_plus_3pct.verdict, 'SUCCESS', 'T day+3 SUCCESS');
@@ -311,7 +331,7 @@ function testU_IncompleteSparseBars(): void {
     });
     const summary = session.finalize(new Map([['2330', future]]), {
         dayReferenceBySymbol: new Map([['2330', 100]]),
-        defaultSessionEndKnownAt: sessionEnd,
+        expectedSessionEndKnownAt: sessionEnd,
     });
     assert.equal(summary.outcomes[0]!.day_plus_3pct.verdict, 'INCOMPLETE');
     assert.equal(summary.day_plus_3pct.fail, 0);
@@ -324,16 +344,7 @@ function testU_IncompleteSparseBars(): void {
 function testV_FailToClose(): void {
     const triggerMs = Date.parse('2026-06-15T01:10:00.000Z');
     const sessionEnd = triggerMs + 50 * 60_000;
-    const future: PriceBar[] = [];
-    for (let m = 1; m <= 50; m++) {
-        future.push({
-            t: triggerMs + m * 60_000,
-            open: 100.5,
-            high: 101.5,
-            low: 100,
-            close: 101,
-        });
-    }
+    const future = continuousBars(triggerMs, 50, () => 101.5);
     const session = new EarlyBacktestSession();
     session.injectSignal({
         signal_id: 'v_sig',
@@ -346,7 +357,7 @@ function testV_FailToClose(): void {
     });
     const summary = session.finalize(new Map([['2330', future]]), {
         dayReferenceBySymbol: new Map([['2330', 100]]),
-        defaultSessionEndKnownAt: sessionEnd,
+        expectedSessionEndKnownAt: sessionEnd,
     });
     const o = summary.outcomes[0]!;
     assert.equal(o.tracking_to_close, true);
@@ -360,16 +371,7 @@ function testV_FailToClose(): void {
 function testW_UnknownWithoutDayRef(): void {
     const triggerMs = Date.parse('2026-06-15T01:10:00.000Z');
     const sessionEnd = triggerMs + 50 * 60_000;
-    const future: PriceBar[] = [];
-    for (let m = 1; m <= 50; m++) {
-        future.push({
-            t: triggerMs + m * 60_000,
-            open: 105,
-            high: 110,
-            low: 104,
-            close: 108,
-        });
-    }
+    const future = continuousBars(triggerMs, 50, () => 110);
     const session = new EarlyBacktestSession();
     session.injectSignal({
         signal_id: 'w_sig',
@@ -382,7 +384,7 @@ function testW_UnknownWithoutDayRef(): void {
     });
     const summary = session.finalize(new Map([['2330', future]]), {
         dayReferenceBySymbol: new Map([['2330', null]]),
-        defaultSessionEndKnownAt: sessionEnd,
+        expectedSessionEndKnownAt: sessionEnd,
     });
     const o = summary.outcomes[0]!;
     assert.equal(o.day_reference_price, null);
@@ -512,7 +514,7 @@ function testX_SingleSignalThroughActive(): void {
     session.injectActive(sid, t0 + 160_000); // second ACTIVE ignored
     const summary = session.finalize(new Map(), {
         dayReferenceBySymbol: new Map([['2330', 100]]),
-        defaultSessionEndKnownAt: t0 + 200 * 60_000,
+        expectedSessionEndKnownAt: t0 + 200 * 60_000,
     });
     assert.equal(summary.signal_count, 1);
     assert.equal(summary.unique_symbol_count, 1);
@@ -617,6 +619,167 @@ function testZ_MinutePrecisionFromBarHigh(): void {
     );
 }
 
+/** AA: one DATA_MISSING minute in the middle → INCOMPLETE, not FAIL */
+function testAA_DataMissingMinuteIncomplete(): void {
+    const triggerMs = Date.parse('2026-06-15T01:10:00.000Z');
+    const sessionEnd = triggerMs + 30 * 60_000;
+    const bars = continuousBars(
+        triggerMs,
+        30,
+        () => 101,
+        (m) => (m === 10 ? 'DATA_MISSING' : null),
+    );
+    assert.equal(
+        isTrackingCompleteToClose(triggerMs, bars, sessionEnd),
+        false,
+        'AA tracking false when DATA_MISSING present',
+    );
+    const session = new EarlyBacktestSession();
+    session.injectSignal({
+        signal_id: 'aa_sig',
+        symbol: '2330',
+        triggered_at_ms: triggerMs,
+        trigger_price: 100.5,
+        change_pct_at_trigger: 0.5,
+        state_at_trigger: 'EARLY',
+        trigger_score: 60,
+    });
+    const summary = session.finalize(new Map([['2330', bars]]), {
+        dayReferenceBySymbol: new Map([['2330', 100]]),
+        expectedSessionEndKnownAt: sessionEnd,
+    });
+    const o = summary.outcomes[0]!;
+    assert.equal(o.tracking_to_close, false);
+    assert.equal(o.day_plus_3pct.verdict, 'INCOMPLETE');
+    assert.equal(summary.day_plus_3pct.fail, 0);
+    console.log(
+        `AA PASS: DATA_MISSING mid-window → ${o.day_plus_3pct.verdict} (fail=${summary.day_plus_3pct.fail})`,
+    );
+}
+
+/** AB: bars stop before expected session end → INCOMPLETE */
+function testAB_EarlyDataCutIncomplete(): void {
+    const triggerMs = Date.parse('2026-06-15T01:10:00.000Z');
+    const sessionEnd = triggerMs + 100 * 60_000; // expected close far later
+    const bars = continuousBars(triggerMs, 20, () => 101.2); // stops at +20m
+    assert.equal(
+        isTrackingCompleteToClose(triggerMs, bars, sessionEnd),
+        false,
+    );
+    // Critically: must NOT treat last available bar as "close"
+    assert.equal(
+        isTrackingCompleteToClose(
+            triggerMs,
+            bars,
+            bars[bars.length - 1]!.t, // wrong: last bar as end
+        ),
+        true,
+        'sanity: if wrongly using last bar as end, would look complete',
+    );
+    const session = new EarlyBacktestSession();
+    session.injectSignal({
+        signal_id: 'ab_sig',
+        symbol: '2330',
+        triggered_at_ms: triggerMs,
+        trigger_price: 100.5,
+        change_pct_at_trigger: 0.5,
+        state_at_trigger: 'EARLY',
+        trigger_score: 60,
+    });
+    const summary = session.finalize(new Map([['2330', bars]]), {
+        dayReferenceBySymbol: new Map([['2330', 100]]),
+        expectedSessionEndKnownAt: sessionEnd,
+    });
+    assert.equal(summary.outcomes[0]!.day_plus_3pct.verdict, 'INCOMPLETE');
+    assert.equal(summary.day_plus_3pct.fail, 0);
+    console.log('AB PASS: early data cut → INCOMPLETE (not FAIL via last-bar)');
+}
+
+/** AC: partial --until cutoff before a later threshold hit → no future peek SUCCESS */
+function testAC_PartialUntilNoFuturePeek(): void {
+    const triggerMs = Date.parse('2026-06-15T01:10:00.000Z');
+    const sessionEnd = triggerMs + 60 * 60_000;
+    const cutoff = triggerMs + 15 * 60_000;
+    // Day +3% first touched at minute 40 (after cutoff)
+    const full = continuousBars(triggerMs, 60, (m) => (m >= 40 ? 104 : 101));
+    const session = new EarlyBacktestSession();
+    session.injectSignal({
+        signal_id: 'ac_sig',
+        symbol: '2330',
+        triggered_at_ms: triggerMs,
+        trigger_price: 100.5,
+        change_pct_at_trigger: 0.5,
+        state_at_trigger: 'EARLY',
+        trigger_score: 60,
+    });
+    // Without cutoff would SUCCESS
+    const fullSummary = session.finalize(new Map([['2330', full]]), {
+        dayReferenceBySymbol: new Map([['2330', 100]]),
+        expectedSessionEndKnownAt: sessionEnd,
+    });
+    assert.equal(fullSummary.outcomes[0]!.day_plus_3pct.verdict, 'SUCCESS');
+
+    const session2 = new EarlyBacktestSession();
+    session2.injectSignal({
+        signal_id: 'ac_sig2',
+        symbol: '2330',
+        triggered_at_ms: triggerMs,
+        trigger_price: 100.5,
+        change_pct_at_trigger: 0.5,
+        state_at_trigger: 'EARLY',
+        trigger_score: 60,
+    });
+    const clipped = session2.finalize(new Map([['2330', full]]), {
+        dayReferenceBySymbol: new Map([['2330', 100]]),
+        expectedSessionEndKnownAt: sessionEnd,
+        observationCutoffMs: cutoff,
+    });
+    const o = clipped.outcomes[0]!;
+    assert.equal(o.day_plus_3pct.verdict, 'INCOMPLETE', 'AC no peek past until');
+    assert.ok(
+        (o.max_price ?? 0) < 103,
+        `AC max_price must not use post-cutoff highs, got ${o.max_price}`,
+    );
+    console.log(
+        `AC PASS: until cutoff → ${o.day_plus_3pct.verdict}, max=${o.max_price}`,
+    );
+}
+
+/** AD: continuous NO_TRADE minutes to close, no hit → FAIL (reliable empty tape) */
+function testAD_NoTradeMinutesCanFail(): void {
+    const triggerMs = Date.parse('2026-06-15T01:10:00.000Z');
+    const sessionEnd = triggerMs + 40 * 60_000;
+    const bars = continuousBars(
+        triggerMs,
+        40,
+        () => 101,
+        () => 'NO_TRADE',
+    );
+    assert.equal(
+        isTrackingCompleteToClose(triggerMs, bars, sessionEnd),
+        true,
+        'AD NO_TRADE path is complete',
+    );
+    const session = new EarlyBacktestSession();
+    session.injectSignal({
+        signal_id: 'ad_sig',
+        symbol: '2330',
+        triggered_at_ms: triggerMs,
+        trigger_price: 100.5,
+        change_pct_at_trigger: 0.5,
+        state_at_trigger: 'EARLY',
+        trigger_score: 60,
+    });
+    const summary = session.finalize(new Map([['2330', bars]]), {
+        dayReferenceBySymbol: new Map([['2330', 100]]),
+        expectedSessionEndKnownAt: sessionEnd,
+    });
+    assert.equal(summary.outcomes[0]!.tracking_to_close, true);
+    assert.equal(summary.outcomes[0]!.day_plus_3pct.verdict, 'FAIL');
+    assert.equal(summary.day_plus_3pct.fail, 1);
+    console.log('AD PASS: full NO_TRADE track → FAIL (not INCOMPLETE)');
+}
+
 testPrintsFromRecent();
 testBuildAttackFeaturesFillsPrints();
 testSignalIdNoOverwrite();
@@ -627,4 +790,8 @@ testW_UnknownWithoutDayRef();
 testX_SingleSignalThroughActive();
 testY_RestartPreservesHorizons();
 testZ_MinutePrecisionFromBarHigh();
-console.log('\nAll early-validation tests passed (incl. T–Z)');
+testAA_DataMissingMinuteIncomplete();
+testAB_EarlyDataCutIncomplete();
+testAC_PartialUntilNoFuturePeek();
+testAD_NoTradeMinutesCanFail();
+console.log('\nAll early-validation tests passed (incl. T–Z + AA–AD)');

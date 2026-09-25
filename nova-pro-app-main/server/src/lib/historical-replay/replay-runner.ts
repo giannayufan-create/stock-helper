@@ -30,6 +30,7 @@ import {
 import {
     EarlyBacktestSession,
     type EarlyBacktestSummary,
+    type EarlyTrackingBar,
 } from '../radar-rescue/early-backtest.ts';
 import { fetchTwDailyBarsBatch } from '../tw-daily-bars.ts';
 import {
@@ -563,14 +564,37 @@ export async function runHistoricalReplay(
 
     clock.status = 'completed';
 
-    // Outcome: after signals formed — may look at future bars (B/C already done)
+    // Outcome / EARLY: only bars known at-or-before replay cutoff (no future peek).
     const signals: StrategySignal[] = [...signalBridge.created];
-    const dayBarsBySymbol = new Map<string, PriceBar[]>();
+    const expectedSessionEnd = untilKnownAt(input.date); // full day 13:30 known_at
+    const observationCutoff = endKnownAt; // may be earlier when --until is set
+    const dayBarsBySymbol = new Map<string, EarlyTrackingBar[]>();
     for (const d of stockDays) {
         dayBarsBySymbol.set(
             d.symbol,
-            d.bars.map((b) => ({
-                t: b.known_at,
+            d.bars
+                .filter((b) => b.known_at <= observationCutoff)
+                .map((b) => ({
+                    t: b.known_at,
+                    open: b.open,
+                    high: b.high,
+                    low: b.low,
+                    close: b.close,
+                    gap_kind: b.gap_kind ?? null,
+                })),
+        );
+    }
+    const outcomeRepo = new JsonlSignalOutcomeRepository(
+        input.outcomesDir,
+    );
+    const outcomeSvc = new SignalOutcomeService(outcomeRepo);
+    // Strategy outcomes also must not peek past --until.
+    const outcomeBars = new Map<string, PriceBar[]>();
+    for (const [sym, bars] of dayBarsBySymbol) {
+        outcomeBars.set(
+            sym,
+            bars.map((b) => ({
+                t: b.t,
                 open: b.open,
                 high: b.high,
                 low: b.low,
@@ -578,24 +602,18 @@ export async function runHistoricalReplay(
             })),
         );
     }
-    const outcomeRepo = new JsonlSignalOutcomeRepository(
-        input.outcomesDir,
-    );
-    const outcomeSvc = new SignalOutcomeService(outcomeRepo);
-    const outcomes = outcomeSvc.settleReplayDay(signals, dayBarsBySymbol);
+    const outcomes = outcomeSvc.settleReplayDay(signals, outcomeBars);
     const dayReferenceBySymbol = new Map<string, number | null>();
-    const sessionEndKnownAtBySymbol = new Map<string, number>();
     for (const d of stockDays) {
         dayReferenceBySymbol.set(
             d.symbol,
             d.prev_close != null && d.prev_close > 0 ? d.prev_close : null,
         );
-        const last = d.bars[d.bars.length - 1];
-        if (last) sessionEndKnownAtBySymbol.set(d.symbol, last.known_at);
     }
     const early_backtest = earlySession.finalize(dayBarsBySymbol, {
         dayReferenceBySymbol,
-        sessionEndKnownAtBySymbol,
+        expectedSessionEndKnownAt: expectedSessionEnd,
+        observationCutoffMs: observationCutoff,
     });
 
     runtime.stop();

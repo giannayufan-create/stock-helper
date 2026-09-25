@@ -4,7 +4,10 @@
 
 import type { BuyPressureItem } from '../buy-pressure/types.ts';
 import type { IntradayRankItem } from '../intraday-rank/types.ts';
-import type { PriceBar } from '../signal-outcome/types.ts';
+import {
+    parseBarTs,
+    SESSION_END_MIN,
+} from '../historical-replay/historical-data-loader.ts';
 import {
     buildAttackFeatures,
     resolveAttackState,
@@ -16,6 +19,19 @@ import { computeTriggerScore } from './trigger-score.ts';
 
 /** SUCCESS / FAIL enter rate denominator; INCOMPLETE / UNKNOWN do not. */
 export type MetricVerdict = 'SUCCESS' | 'FAIL' | 'INCOMPLETE' | 'UNKNOWN';
+
+export type GapKind = 'NO_TRADE' | 'DATA_MISSING';
+
+/** 1m bar used for EARLY outcome tracking (gap_kind from DayBars fill). */
+export interface EarlyTrackingBar {
+    t: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    /** NO_TRADE = reliable flat carry; DATA_MISSING = unusable for FAIL. */
+    gap_kind?: GapKind | null;
+}
 
 export interface TargetMetric {
     verdict: MetricVerdict;
@@ -82,9 +98,6 @@ export interface EarlyBacktestSummary {
     outcomes: EarlyBacktestOutcome[];
 }
 
-/** Max gap between consecutive 1m bars before tracking is incomplete. */
-const MAX_BAR_GAP_MS = 3 * 60_000;
-
 function newSignalId(symbol: string, atMs: number, seq: number): string {
     return `early_${symbol}_${atMs}_${seq}`;
 }
@@ -120,11 +133,12 @@ function emptyTarget(verdict: MetricVerdict): TargetMetric {
 /**
  * Evaluate absolute price threshold against future 1m highs.
  * Hit time is minute-precision (bar known_at), never fake seconds.
+ * DATA_MISSING bars never count as hits.
  */
 export function evaluatePriceTarget(opts: {
     threshold: number | null;
     triggerMs: number;
-    futureBars: PriceBar[];
+    futureBars: EarlyTrackingBar[];
     trackingToClose: boolean;
     /** When false, return UNKNOWN (day ref missing). */
     referenceAvailable: boolean;
@@ -134,6 +148,7 @@ export function evaluatePriceTarget(opts: {
     }
     const thr = opts.threshold;
     for (const b of opts.futureBars) {
+        if (b.gap_kind === 'DATA_MISSING') continue;
         if (b.high >= thr) {
             const afterMin = Math.floor((b.t - opts.triggerMs) / 60_000);
             return {
@@ -148,21 +163,58 @@ export function evaluatePriceTarget(opts: {
     return emptyTarget('INCOMPLETE');
 }
 
-/** Reliable 1m path continues from trigger through session end without large gaps. */
+/**
+ * Expected cash-session last bar known_at for a Taipei trade date (13:30 bar end).
+ * Never derive this from "last available bar" — that would mis-mark early data cuts as FAIL.
+ */
+export function expectedSessionEndKnownAt(date: string): number {
+    const endH = String(Math.floor(SESSION_END_MIN / 60)).padStart(2, '0');
+    const endM = String(SESSION_END_MIN % 60).padStart(2, '0');
+    return parseBarTs(`${date} ${endH}:${endM}:00`) + 60_000;
+}
+
+/**
+ * Next 1m bar known_at strictly after triggerMs (bars are known at bar_end).
+ */
+function firstExpectedKnownAtAfter(triggerMs: number): number {
+    // known_at grid is typically :00 + 60s offsets from bar starts; snap to next 60s boundary after trigger.
+    return Math.floor(triggerMs / 60_000) * 60_000 + 60_000;
+}
+
+/**
+ * Reliable path from trigger through expected session end (or observation cutoff).
+ * - DATA_MISSING in the window → incomplete (cannot FAIL).
+ * - NO_TRADE fills are reliable and allowed.
+ * - Every expected minute must be present; no 3-minute gap allowance.
+ * - observationCutoffMs < sessionEnd → incomplete for FAIL purposes (partial replay).
+ */
 export function isTrackingCompleteToClose(
     triggerMs: number,
-    futureBars: PriceBar[],
+    futureBars: EarlyTrackingBar[],
     sessionEndKnownAt: number,
+    observationCutoffMs?: number,
 ): boolean {
-    if (!futureBars.length) return false;
-    const last = futureBars[futureBars.length - 1]!;
-    // Must reach (or pass) the last session minute's known_at.
-    if (last.t < sessionEndKnownAt - 60_000) return false;
-    if (futureBars[0]!.t - triggerMs > MAX_BAR_GAP_MS) return false;
-    for (let i = 1; i < futureBars.length; i++) {
-        if (futureBars[i]!.t - futureBars[i - 1]!.t > MAX_BAR_GAP_MS) {
-            return false;
-        }
+    const cutoff =
+        observationCutoffMs != null
+            ? Math.min(observationCutoffMs, sessionEndKnownAt)
+            : sessionEndKnownAt;
+
+    // Partial / truncated observation cannot be scored as FAIL-to-close.
+    if (cutoff < sessionEndKnownAt) return false;
+
+    const byT = new Map<number, EarlyTrackingBar>();
+    for (const b of futureBars) {
+        if (b.t > triggerMs && b.t <= cutoff) byT.set(b.t, b);
+    }
+
+    const first = firstExpectedKnownAtAfter(triggerMs);
+    if (first > cutoff) return false;
+
+    for (let t = first; t <= cutoff; t += 60_000) {
+        const bar = byT.get(t);
+        if (!bar) return false;
+        if (bar.gap_kind === 'DATA_MISSING') return false;
+        // NO_TRADE and normal traded bars are fine.
     }
     return true;
 }
@@ -285,34 +337,56 @@ export class EarlyBacktestSession {
     }
 
     finalize(
-        dayBarsBySymbol: Map<string, PriceBar[]>,
+        dayBarsBySymbol: Map<string, EarlyTrackingBar[]>,
         opts?: {
             /** Valid day reference (typically prior close). Missing → day metrics UNKNOWN. */
             dayReferenceBySymbol?: Map<string, number | null>;
-            /** Last bar known_at of the cash session (e.g. 13:30 bar end). */
-            sessionEndKnownAtBySymbol?: Map<string, number>;
-            /** Fallback session end when per-symbol map omitted. */
+            /**
+             * Expected cash-session end known_at (calendar). Required for FAIL.
+             * Do NOT pass last-available-bar time here.
+             */
+            expectedSessionEndKnownAt?: number;
+            /** @deprecated use expectedSessionEndKnownAt */
             defaultSessionEndKnownAt?: number;
+            /**
+             * Observation cutoff (e.g. --until). Bars after this are ignored;
+             * tracking cannot be FAIL-complete if cutoff < expected session end.
+             */
+            observationCutoffMs?: number;
         },
     ): EarlyBacktestSummary {
         const outcomes: EarlyBacktestOutcome[] = [];
+        const expectedEnd =
+            opts?.expectedSessionEndKnownAt ??
+            opts?.defaultSessionEndKnownAt ??
+            null;
+
         for (const t of this.triggers) {
             const allBars = dayBarsBySymbol.get(t.symbol) ?? [];
-            const futureBars = allBars.filter((b) => b.t > t.triggered_at_ms);
+            const cutoff =
+                opts?.observationCutoffMs != null
+                    ? opts.observationCutoffMs
+                    : expectedEnd;
+
+            // Never peek past observation cutoff (partial replay / until).
+            const futureBars = allBars.filter((b) => {
+                if (!(b.t > t.triggered_at_ms)) return false;
+                if (cutoff != null && b.t > cutoff) return false;
+                return true;
+            });
+
             const dayRef =
                 opts?.dayReferenceBySymbol?.get(t.symbol) ?? null;
-            const sessionEnd =
-                opts?.sessionEndKnownAtBySymbol?.get(t.symbol) ??
-                opts?.defaultSessionEndKnownAt ??
-                (allBars.length
-                    ? allBars[allBars.length - 1]!.t
-                    : t.triggered_at_ms);
 
-            const trackingToClose = isTrackingCompleteToClose(
-                t.triggered_at_ms,
-                futureBars,
-                sessionEnd,
-            );
+            // Without a calendar session end, we cannot claim FAIL-to-close.
+            const trackingToClose =
+                expectedEnd != null &&
+                isTrackingCompleteToClose(
+                    t.triggered_at_ms,
+                    futureBars,
+                    expectedEnd,
+                    opts?.observationCutoffMs,
+                );
 
             const dayOk = dayRef != null && dayRef > 0;
             const day_plus_3pct = evaluatePriceTarget({
@@ -345,17 +419,23 @@ export class EarlyBacktestSession {
             });
 
             const activeMs = this.activeAt.get(t.signal_id);
+            // Ignore ACTIVE recorded after observation cutoff (should not happen if step is clipped).
+            const activeInView =
+                activeMs != null &&
+                (cutoff == null || activeMs <= cutoff)
+                    ? activeMs
+                    : null;
+
             let active_upgrade: TargetMetric & { reached: boolean };
-            if (activeMs != null) {
+            if (activeInView != null) {
                 const afterMin = Math.floor(
-                    (activeMs - t.triggered_at_ms) / 60_000,
+                    (activeInView - t.triggered_at_ms) / 60_000,
                 );
                 active_upgrade = {
                     verdict: 'SUCCESS',
                     reached: true,
-                    first_hit_bar_known_at_ms: activeMs,
+                    first_hit_bar_known_at_ms: activeInView,
                     first_hit_after_min: Math.max(0, afterMin),
-                    // ACTIVE comes from evaluate ticks; still report minute floor.
                     time_precision: '1m_bar',
                 };
             } else if (trackingToClose) {
@@ -371,7 +451,10 @@ export class EarlyBacktestSession {
             }
 
             let peak = t.trigger_price;
-            for (const b of futureBars) peak = Math.max(peak, b.high);
+            for (const b of futureBars) {
+                if (b.gap_kind === 'DATA_MISSING') continue;
+                peak = Math.max(peak, b.high);
+            }
             const max_return_vs_trigger_pct =
                 t.trigger_price > 0
                     ? Math.round(
@@ -391,7 +474,9 @@ export class EarlyBacktestSession {
                 post_trigger_plus_3pct,
                 post_trigger_plus_5pct,
                 active_upgrade,
-                max_price: futureBars.length ? peak : null,
+                max_price: futureBars.some((b) => b.gap_kind !== 'DATA_MISSING')
+                    ? peak
+                    : null,
                 max_return_vs_trigger_pct,
                 max_return_vs_day_ref_pct,
                 tracking_to_close: trackingToClose,

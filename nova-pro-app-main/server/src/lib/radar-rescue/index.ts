@@ -17,7 +17,12 @@ export { buildMultiLaneCandidates } from './multi-lane.ts';
 export { FunnelTraceService } from './funnel-trace.ts';
 export { EodTruthService } from './eod-truth.ts';
 export { EarlySignalStore } from './early-signal-store.ts';
-export { EarlyBacktestSession, evaluatePriceTarget, isTrackingCompleteToClose } from './early-backtest.ts';
+export {
+    EarlyBacktestSession,
+    evaluatePriceTarget,
+    isTrackingCompleteToClose,
+    expectedSessionEndKnownAt,
+} from './early-backtest.ts';
 export { printsFromRecentPrices } from './print-samples.ts';
 export { computeSuggestedBuy } from './suggested-buy.ts';
 export { buildDailyRecall, buildMissedWinners } from './recall.ts';
