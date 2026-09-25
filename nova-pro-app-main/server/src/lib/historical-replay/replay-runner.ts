@@ -32,6 +32,10 @@ import {
     type EarlyBacktestSummary,
     type EarlyTrackingBar,
 } from '../radar-rescue/early-backtest.ts';
+import {
+    buildEarlyDailyReport,
+    EarlyDailyReportStore,
+} from '../radar-rescue/early-daily-report.ts';
 import { fetchTwDailyBarsBatch } from '../tw-daily-bars.ts';
 import {
     DEFAULT_BAR_TIMESTAMP_SEMANTICS,
@@ -70,6 +74,8 @@ export interface ReplayRunInput {
     /** Optional isolated data dirs for tests. */
     signalsDir?: string;
     outcomesDir?: string;
+    /** Persist EARLY daily validation report JSON here (optional). */
+    earlyReportsDir?: string;
 }
 
 export interface ReplayTimelinePoint {
@@ -615,6 +621,16 @@ export async function runHistoricalReplay(
         expectedSessionEndKnownAt: expectedSessionEnd,
         observationCutoffMs: observationCutoff,
     });
+
+    // Persist single-source daily report (replay vs synthetic never mixed).
+    if (input.earlyReportsDir) {
+        const source = input.synthetic ? 'synthetic' : 'replay';
+        const report = buildEarlyDailyReport(early_backtest, {
+            trade_date: input.date,
+            source,
+        });
+        new EarlyDailyReportStore(input.earlyReportsDir).save(report);
+    }
 
     runtime.stop();
 

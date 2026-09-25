@@ -16,12 +16,70 @@ import {
     weightedRate,
     type OutcomeSummaryDto,
 } from '../../lib/outcomes';
+import {
+    fetchEarlyDailyReportList,
+    type EarlyDailyReportDto,
+    type EarlyMetricBucketDto,
+    type EarlyReportSource,
+} from '../../lib/radar-rescue';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 
-type PerfTab = 'signals' | 'shadow' | 'context' | 'history';
+type PerfTab = 'signals' | 'early' | 'shadow' | 'context' | 'history';
 type ContextSub = 'market' | 'sector' | 'events' | 'combo';
 
+function taipeiToday(): string {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Taipei',
+    }).format(new Date());
+}
+
+function BucketBlock({
+    title,
+    bucket,
+    upgradeNote,
+    rateNoun = '成功率',
+}: {
+    title: string;
+    bucket: EarlyMetricBucketDto;
+    upgradeNote?: string;
+    /** ACTIVE uses 狀態升級率 — never call it trading win-rate. */
+    rateNoun?: string;
+}) {
+    return (
+        <div className={s.glass} style={{ padding: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>{title}</div>
+            {upgradeNote && (
+                <div
+                    style={{
+                        marginTop: 4,
+                        fontSize: 11,
+                        color: vars.color.mutedForeground,
+                    }}
+                >
+                    {upgradeNote}
+                </div>
+            )}
+            <div
+                style={{
+                    marginTop: 8,
+                    fontSize: 12,
+                    fontFamily: vars.font.mono,
+                    color: vars.color.mutedForeground,
+                    lineHeight: 1.6,
+                }}
+            >
+                SUCCESS {bucket.success} · FAIL {bucket.fail} · INCOMPLETE{' '}
+                {bucket.incomplete} · UNKNOWN {bucket.unknown}
+                <br />
+                有效分母 {bucket.denominator} · {rateNoun}{' '}
+                <strong style={{ color: vars.color.foreground }}>
+                    {bucket.rate_label}
+                </strong>
+            </div>
+        </div>
+    );
+}
 const SIGNAL_TYPE_LABEL: Record<string, string> = {
     OPEN_PASS: '開盤通過',
     STRONG_ENTER: '強勢進場',
@@ -41,6 +99,12 @@ export function PerformancePage() {
     const [signalType, setSignalType] = useState('SURGE');
     const [outcomes, setOutcomes] = useState<OutcomeSummaryDto | null>(null);
     const [outcomesErr, setOutcomesErr] = useState<string | null>(null);
+    const [earlyDate, setEarlyDate] = useState(taipeiToday);
+    const [earlySource, setEarlySource] = useState<EarlyReportSource | ''>('');
+    const [earlyReports, setEarlyReports] = useState<EarlyDailyReportDto[]>([]);
+    const [earlySources, setEarlySources] = useState<EarlyReportSource[]>([]);
+    const [earlyErr, setEarlyErr] = useState<string | null>(null);
+    const [earlyOpenId, setEarlyOpenId] = useState<string | null>(null);
 
     useEffect(() => {
         if (tab !== 'signals') return;
@@ -60,6 +124,36 @@ export function PerformancePage() {
             cancelled = true;
         };
     }, [tab]);
+
+    useEffect(() => {
+        if (tab !== 'early') return;
+        let cancelled = false;
+        void fetchEarlyDailyReportList(earlyDate)
+            .then((d) => {
+                if (cancelled) return;
+                setEarlySources(d.sources ?? []);
+                setEarlyReports(d.reports ?? []);
+                setEarlyErr(null);
+                if (!earlySource && d.sources?.length) {
+                    setEarlySource(d.sources[0]!);
+                } else if (
+                    earlySource &&
+                    d.sources &&
+                    !d.sources.includes(earlySource)
+                ) {
+                    setEarlySource(d.sources[0] ?? '');
+                }
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setEarlyReports([]);
+                setEarlySources([]);
+                setEarlyErr('EARLY 日報暫時無法載入');
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [tab, earlyDate]);
 
     useEffect(() => {
         if (tab !== 'context') return;
@@ -120,6 +214,7 @@ export function PerformancePage() {
                 {(
                     [
                         ['signals', '訊號結果'],
+                        ['early', 'EARLY 日報'],
                         ['shadow', '影子實驗'],
                         ['context', 'Context Lab'],
                         ['history', '歷史紀錄'],
@@ -308,6 +403,336 @@ export function PerformancePage() {
                                 尚無已量測訊號。追蹤啟動後，盤中訊號才會累積到這裡。
                             </div>
                         )}
+                </div>
+            )}
+
+            {tab === 'early' && (
+                <div className={s.glass} style={{ padding: 16 }}>
+                    <div style={{ fontSize: 14, color: vars.color.mutedForeground }}>
+                        EARLY 每日驗證（依資料來源分開，不可混算成功率）
+                    </div>
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 10,
+                            marginTop: 12,
+                            alignItems: 'center',
+                        }}
+                    >
+                        <label style={{ fontSize: 13 }}>
+                            日期{' '}
+                            <input
+                                type="date"
+                                value={earlyDate}
+                                onChange={(e) => setEarlyDate(e.target.value)}
+                                style={{
+                                    marginLeft: 6,
+                                    padding: '4px 8px',
+                                    borderRadius: 6,
+                                    border: `1px solid ${vars.color.border}`,
+                                    background: 'transparent',
+                                    color: vars.color.foreground,
+                                }}
+                            />
+                        </label>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {earlySources.length === 0 && (
+                                <span
+                                    style={{
+                                        fontSize: 12,
+                                        color: vars.color.mutedForeground,
+                                    }}
+                                >
+                                    尚無已存來源
+                                </span>
+                            )}
+                            {earlySources.map((src) => (
+                                <button
+                                    key={src}
+                                    type="button"
+                                    className={`${s.tabChip} ${earlySource === src ? s.tabChipOn : ''}`}
+                                    onClick={() => setEarlySource(src)}
+                                >
+                                    {src === 'replay'
+                                        ? '歷史重播'
+                                        : src === 'synthetic'
+                                          ? '模擬資料'
+                                          : '實盤歷史'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {earlyErr && (
+                        <p
+                            style={{
+                                marginTop: 12,
+                                fontSize: 13,
+                                color: '#fca5a5',
+                            }}
+                        >
+                            {earlyErr}
+                        </p>
+                    )}
+                    {(() => {
+                        const report =
+                            earlyReports.find((r) => r.source === earlySource) ??
+                            null;
+                        if (!report) {
+                            return (
+                                <div
+                                    className={s.empty}
+                                    style={{ marginTop: 14, padding: 8 }}
+                                >
+                                    此日期尚無 EARLY 日報。請先跑歷史重播（會寫入
+                                    early_daily_reports），或等待實盤日報產出。
+                                </div>
+                            );
+                        }
+                        return (
+                            <>
+                                <div
+                                    className={s.twoCol}
+                                    style={{ marginTop: 14 }}
+                                >
+                                    <Metric
+                                        lab="來源"
+                                        val={report.source_label}
+                                    />
+                                    <Metric
+                                        lab="訊號數"
+                                        val={String(report.signal_count)}
+                                    />
+                                    <Metric
+                                        lab="不同股票"
+                                        val={String(report.unique_symbol_count)}
+                                    />
+                                    <Metric
+                                        lab="資料完整率"
+                                        val={report.data_completeness_label}
+                                    />
+                                </div>
+                                <div
+                                    style={{
+                                        display: 'grid',
+                                        gap: 8,
+                                        marginTop: 12,
+                                    }}
+                                >
+                                    <BucketBlock
+                                        title="當日 +3%"
+                                        bucket={report.day_plus_3pct}
+                                    />
+                                    <BucketBlock
+                                        title="當日 +5%"
+                                        bucket={report.day_plus_5pct}
+                                    />
+                                    <BucketBlock
+                                        title="觸發後再漲 3%"
+                                        bucket={report.post_trigger_plus_3pct}
+                                    />
+                                    <BucketBlock
+                                        title="觸發後再漲 5%"
+                                        bucket={report.post_trigger_plus_5pct}
+                                    />
+                                    <BucketBlock
+                                        title="升級 ACTIVE"
+                                        bucket={report.active_upgrade}
+                                        upgradeNote="狀態升級率（不是交易勝率）"
+                                        rateNoun="狀態升級率"
+                                    />
+                                </div>
+                                <p
+                                    style={{
+                                        marginTop: 12,
+                                        fontSize: 12,
+                                        color: vars.color.mutedForeground,
+                                        lineHeight: 1.5,
+                                    }}
+                                >
+                                    {report.note}
+                                </p>
+                                <div
+                                    style={{
+                                        marginTop: 14,
+                                        fontSize: 13,
+                                        fontWeight: 700,
+                                    }}
+                                >
+                                    訊號明細（點開查看）
+                                </div>
+                                <div
+                                    style={{
+                                        display: 'grid',
+                                        gap: 8,
+                                        marginTop: 8,
+                                    }}
+                                >
+                                    {report.signals.map((sig) => {
+                                        const open =
+                                            earlyOpenId === sig.signal_id;
+                                        return (
+                                            <div
+                                                key={sig.signal_id}
+                                                className={s.glass}
+                                                style={{ padding: 12 }}
+                                            >
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setEarlyOpenId(
+                                                            open
+                                                                ? null
+                                                                : sig.signal_id,
+                                                        )
+                                                    }
+                                                    style={{
+                                                        all: 'unset',
+                                                        cursor: 'pointer',
+                                                        display: 'block',
+                                                        width: '100%',
+                                                    }}
+                                                >
+                                                    <div
+                                                        style={{
+                                                            fontWeight: 700,
+                                                        }}
+                                                    >
+                                                        {sig.symbol}{' '}
+                                                        <span
+                                                            style={{
+                                                                fontSize: 12,
+                                                                fontWeight: 500,
+                                                                color: vars
+                                                                    .color
+                                                                    .mutedForeground,
+                                                            }}
+                                                        >
+                                                            {sig.signal_id}
+                                                        </span>
+                                                    </div>
+                                                    <div
+                                                        style={{
+                                                            marginTop: 4,
+                                                            fontSize: 12,
+                                                            fontFamily:
+                                                                vars.font.mono,
+                                                            color: vars.color
+                                                                .mutedForeground,
+                                                        }}
+                                                    >
+                                                        當日+3{' '}
+                                                        {
+                                                            sig.day_plus_3pct
+                                                                .verdict
+                                                        }
+                                                        {' · '}觸發後+3{' '}
+                                                        {
+                                                            sig
+                                                                .post_trigger_plus_3pct
+                                                                .verdict
+                                                        }
+                                                        {' · '}ACTIVE{' '}
+                                                        {
+                                                            sig.active_upgrade
+                                                                .verdict
+                                                        }
+                                                    </div>
+                                                </button>
+                                                {open && (
+                                                    <div
+                                                        style={{
+                                                            marginTop: 10,
+                                                            fontSize: 12,
+                                                            fontFamily:
+                                                                vars.font.mono,
+                                                            color: vars.color
+                                                                .mutedForeground,
+                                                            lineHeight: 1.7,
+                                                        }}
+                                                    >
+                                                        觸發時間{' '}
+                                                        {sig.triggered_at}
+                                                        <br />
+                                                        觸發價{' '}
+                                                        {sig.trigger_price}
+                                                        {' · '}當日基準{' '}
+                                                        {sig.day_reference_price ??
+                                                            '—（UNKNOWN）'}
+                                                        <br />
+                                                        當日+3{' '}
+                                                        {
+                                                            sig.day_plus_3pct
+                                                                .verdict
+                                                        }
+                                                        {sig.day_plus_3pct
+                                                            .first_hit_after_min !=
+                                                        null
+                                                            ? ` @${sig.day_plus_3pct.first_hit_after_min}分`
+                                                            : ''}
+                                                        {' · '}當日+5{' '}
+                                                        {
+                                                            sig.day_plus_5pct
+                                                                .verdict
+                                                        }
+                                                        {sig.day_plus_5pct
+                                                            .first_hit_after_min !=
+                                                        null
+                                                            ? ` @${sig.day_plus_5pct.first_hit_after_min}分`
+                                                            : ''}
+                                                        <br />
+                                                        觸發後+3{' '}
+                                                        {
+                                                            sig
+                                                                .post_trigger_plus_3pct
+                                                                .verdict
+                                                        }
+                                                        {sig
+                                                            .post_trigger_plus_3pct
+                                                            .first_hit_after_min !=
+                                                        null
+                                                            ? ` @${sig.post_trigger_plus_3pct.first_hit_after_min}分`
+                                                            : ''}
+                                                        {' · '}觸發後+5{' '}
+                                                        {
+                                                            sig
+                                                                .post_trigger_plus_5pct
+                                                                .verdict
+                                                        }
+                                                        <br />
+                                                        ACTIVE 升級{' '}
+                                                        {
+                                                            sig.active_upgrade
+                                                                .verdict
+                                                        }
+                                                        {sig.active_upgrade
+                                                            .reached
+                                                            ? '（已到達）'
+                                                            : ''}
+                                                        {' · '}終態{' '}
+                                                        {sig.terminal_state}
+                                                        {' · '}最高{' '}
+                                                        {sig.max_price ?? '—'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                    {!report.signals.length && (
+                                        <div
+                                            style={{
+                                                fontSize: 13,
+                                                color: vars.color
+                                                    .mutedForeground,
+                                            }}
+                                        >
+                                            此來源當日無 EARLY 訊號。
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        );
+                    })()}
                 </div>
             )}
 

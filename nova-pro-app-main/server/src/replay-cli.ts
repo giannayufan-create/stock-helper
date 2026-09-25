@@ -1,6 +1,7 @@
 // server/src/replay-cli.ts
 // npm run replay -- --date 2026-06-15 --symbols 2367,2330,2317 --speed max [--synthetic]
 
+import { join } from 'node:path';
 import { MockMarketDataProvider } from './providers/mock/market.ts';
 import { MarketManager } from './providers/manager.ts';
 import {
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
     const speed = arg('speed') ?? 'max';
     const until = arg('until');
     const synthetic = hasFlag('synthetic') || !process.env.SHIOAJI_API_KEY;
+    const dataDir = arg('data-dir') ?? join(process.cwd(), 'data');
 
     const manager = new MarketManager();
     const mock = new MockMarketDataProvider();
@@ -44,11 +46,15 @@ async function main(): Promise<void> {
         synthetic,
         market: manager,
         universe_source: synthetic ? 'synthetic' : 'manual_test',
+        earlyReportsDir: dataDir,
     });
 
     console.log('\n' + formatReplayReport(report));
     console.log(`\nreplay_run_id=${report.replay_run_id}`);
     console.log(`status=${report.status} confidence=${report.replay_confidence}`);
+    console.log(
+        `early_daily_report → ${join(dataDir, 'early_daily_reports', `${date}.${synthetic ? 'synthetic' : 'replay'}.json`)}`,
+    );
 }
 
 main().catch((e) => {

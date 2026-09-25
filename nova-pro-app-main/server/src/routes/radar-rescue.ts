@@ -52,6 +52,59 @@ export function registerRadarRescueRoutes(
         return s.getRecall() ?? { error: 'not_ready' };
     });
 
+    /**
+     * EARLY daily validation — read-only.
+     * Query: date=YYYY-MM-DD&source=replay|synthetic|live
+     * Without source: returns { date, sources, reports[] } (each source separate).
+     * With source: returns that single report (404 if missing).
+     */
+    app.get('/api/v1/data/radar-rescue/early/daily-report', async (req, reply) => {
+        const s = svc();
+        if (!s) return reply.code(503).send({ error: 'disabled' });
+        const q = req.query as Record<string, string | undefined>;
+        const date =
+            q.date ??
+            new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Taipei',
+            }).format(new Date());
+        const source = q.source as
+            | 'replay'
+            | 'synthetic'
+            | 'live'
+            | undefined;
+
+        if (source) {
+            if (
+                source !== 'replay' &&
+                source !== 'synthetic' &&
+                source !== 'live'
+            ) {
+                return reply.code(400).send({
+                    error: 'invalid_source',
+                    allowed: ['replay', 'synthetic', 'live'],
+                });
+            }
+            const report = s.getEarlyDailyReport(date, source);
+            if (!report) {
+                return reply.code(404).send({
+                    error: 'not_found',
+                    date,
+                    source,
+                    message: '尚無該來源的 EARLY 日報',
+                });
+            }
+            return report;
+        }
+
+        const reports = s.listEarlyDailyReports(date);
+        return {
+            date,
+            sources: s.listEarlyDailyReportSources(date),
+            reports,
+            note: '各來源成功率分開列出，不可混算。',
+        };
+    });
+
     app.post('/api/v1/data/radar-rescue/eod-truth/run', async (_req, reply) => {
         const s = svc();
         if (!s) return reply.code(503).send({ error: 'disabled' });

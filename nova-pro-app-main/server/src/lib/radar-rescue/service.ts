@@ -20,6 +20,11 @@ import { EarlySignalStore } from './early-signal-store.ts';
 import { evaluateEarlyTrigger } from './early-trigger.ts';
 import { EodTruthService } from './eod-truth.ts';
 import { FunnelTraceService } from './funnel-trace.ts';
+import {
+    EarlyDailyReportStore,
+    type EarlyDailyReport,
+    type EarlyReportSource,
+} from './early-daily-report.ts';
 import { buildMultiLaneCandidates } from './multi-lane.ts';
 import { judgeNewsForSymbol } from './news-judge.ts';
 import {
@@ -74,6 +79,7 @@ export class RadarRescueService {
     private prevVwap = new Map<string, number>();
     private earlyTracks = new Map<string, EarlyTrack>();
     private earlySignals: EarlySignalStore;
+    private earlyReports: EarlyDailyReportStore;
     private transitionFlushAt = 0;
 
     constructor(
@@ -89,6 +95,7 @@ export class RadarRescueService {
         this.funnel = new FunnelTraceService(dataDir);
         this.eod = new EodTruthService(dataDir);
         this.earlySignals = new EarlySignalStore(dataDir);
+        this.earlyReports = new EarlyDailyReportStore(dataDir);
         this.funnel.loadToday();
     }
 
@@ -142,6 +149,26 @@ export class RadarRescueService {
 
     getEodTruth() {
         return this.eod.getLast().length ? this.eod.getLast() : this.eod.load();
+    }
+
+    /** Read-only EARLY daily validation report (one source; never mixed). */
+    getEarlyDailyReport(
+        date: string,
+        source: EarlyReportSource,
+    ): EarlyDailyReport | null {
+        return this.earlyReports.load(date, source);
+    }
+
+    listEarlyDailyReportSources(date: string): EarlyReportSource[] {
+        return this.earlyReports.listSources(date);
+    }
+
+    listEarlyDailyReports(date: string): EarlyDailyReport[] {
+        return this.earlyReports.loadAllForDate(date);
+    }
+
+    saveEarlyDailyReport(report: EarlyDailyReport): string {
+        return this.earlyReports.save(report);
     }
 
     async runEodTruthAndRecall(symbols?: string[]): Promise<DailyRecallReport> {

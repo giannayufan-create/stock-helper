@@ -23,6 +23,19 @@ export {
     isTrackingCompleteToClose,
     expectedSessionEndKnownAt,
 } from './early-backtest.ts';
+export {
+    buildEarlyDailyReport,
+    EarlyDailyReportStore,
+    formatRateLabel,
+    toBucketView,
+    EARLY_REPORT_SOURCE_LABEL,
+} from './early-daily-report.ts';
+export type {
+    EarlyDailyReport,
+    EarlyReportSource,
+    MetricBucketView,
+    EarlySignalReportRow,
+} from './early-daily-report.ts';
 export { printsFromRecentPrices } from './print-samples.ts';
 export { computeSuggestedBuy } from './suggested-buy.ts';
 export { buildDailyRecall, buildMissedWinners } from './recall.ts';

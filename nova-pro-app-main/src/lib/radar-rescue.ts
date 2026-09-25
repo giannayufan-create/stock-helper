@@ -125,6 +125,93 @@ export function runRadarRescueEod() {
     );
 }
 
+export type EarlyReportSource = 'replay' | 'synthetic' | 'live';
+
+export interface EarlyMetricBucketDto {
+    success: number;
+    fail: number;
+    incomplete: number;
+    unknown: number;
+    denominator: number;
+    rate: number | null;
+    rate_label: string;
+}
+
+export interface EarlySignalReportRowDto {
+    signal_id: string;
+    symbol: string;
+    triggered_at: string;
+    trigger_price: number;
+    day_reference_price: number | null;
+    day_plus_3pct: {
+        verdict: string;
+        first_hit_after_min: number | null;
+    };
+    day_plus_5pct: { verdict: string; first_hit_after_min: number | null };
+    post_trigger_plus_3pct: {
+        verdict: string;
+        first_hit_after_min: number | null;
+    };
+    post_trigger_plus_5pct: {
+        verdict: string;
+        first_hit_after_min: number | null;
+    };
+    active_upgrade: {
+        verdict: string;
+        first_hit_after_min: number | null;
+        reached: boolean;
+    };
+    max_price: number | null;
+    tracking_to_close: boolean;
+    terminal_state: string;
+}
+
+export interface EarlyDailyReportDto {
+    trade_date: string;
+    source: EarlyReportSource;
+    source_label: string;
+    signal_count: number;
+    unique_symbol_count: number;
+    data_completeness_rate: number | null;
+    data_completeness_label: string;
+    day_plus_3pct: EarlyMetricBucketDto;
+    day_plus_5pct: EarlyMetricBucketDto;
+    post_trigger_plus_3pct: EarlyMetricBucketDto;
+    post_trigger_plus_5pct: EarlyMetricBucketDto;
+    active_upgrade: EarlyMetricBucketDto & {
+        kind: 'state_upgrade_rate';
+        label: string;
+    };
+    signals: EarlySignalReportRowDto[];
+    note: string;
+}
+
+export interface EarlyDailyReportListDto {
+    date: string;
+    sources: EarlyReportSource[];
+    reports: EarlyDailyReportDto[];
+    note: string;
+}
+
+export function fetchEarlyDailyReportList(date?: string) {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : '';
+    return apiGet<EarlyDailyReportListDto>(
+        `/api/v1/data/radar-rescue/early/daily-report${qs}`,
+        15_000,
+    );
+}
+
+export function fetchEarlyDailyReport(
+    date: string,
+    source: EarlyReportSource,
+) {
+    const qs = new URLSearchParams({ date, source });
+    return apiGet<EarlyDailyReportDto>(
+        `/api/v1/data/radar-rescue/early/daily-report?${qs}`,
+        15_000,
+    );
+}
+
 /** Frontend feature flag — default rescue; set VITE_RADAR_MODE=legacy to rollback. */
 export function getRadarUiMode(): 'rescue' | 'legacy' {
     const v = (
