@@ -623,11 +623,20 @@ export async function runHistoricalReplay(
     });
 
     // Persist single-source daily report (replay vs synthetic never mixed).
+    // Full vs --until partial use different paths — never overwrite each other.
+    const replay_run_id = `rr_${input.date}_${Date.now()}`;
+    const coverage =
+        observationCutoff < expectedSessionEnd ? 'partial' : 'full';
     if (input.earlyReportsDir) {
         const source = input.synthetic ? 'synthetic' : 'replay';
         const report = buildEarlyDailyReport(early_backtest, {
             trade_date: input.date,
             source,
+            run_id: replay_run_id,
+            coverage,
+            observation_cutoff_ms: observationCutoff,
+            until_label: input.until ?? null,
+            symbols,
         });
         new EarlyDailyReportStore(input.earlyReportsDir).save(report);
     }
@@ -674,7 +683,7 @@ export async function runHistoricalReplay(
     const irCfg = loadIntradayRankConfig();
 
     return {
-        replay_run_id: `rr_${input.date}_${symbols.join('-')}_${Date.now()}`,
+        replay_run_id,
         date: input.date,
         symbols,
         source_mode: 'replay',

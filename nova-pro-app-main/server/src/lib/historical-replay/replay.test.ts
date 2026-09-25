@@ -19,6 +19,7 @@ import {
     stableSnapshot,
 } from './index.ts';
 import { ReplayClock } from './replay-clock.ts';
+import { EarlyDailyReportStore } from '../radar-rescue/early-daily-report.ts';
 
 async function mockMarket(): Promise<MarketManager> {
     const manager = new MarketManager();
@@ -31,16 +32,20 @@ async function mockMarket(): Promise<MarketManager> {
 function tempDirs(): {
     signalsDir: string;
     outcomesDir: string;
+    earlyReportsDir: string;
     cleanup: () => void;
 } {
     const signalsDir = mkdtempSync(join(tmpdir(), 'rp-sig-'));
     const outcomesDir = mkdtempSync(join(tmpdir(), 'rp-out-'));
+    const earlyReportsDir = mkdtempSync(join(tmpdir(), 'rp-early-'));
     return {
         signalsDir,
         outcomesDir,
+        earlyReportsDir,
         cleanup: () => {
             rmSync(signalsDir, { recursive: true, force: true });
             rmSync(outcomesDir, { recursive: true, force: true });
+            rmSync(earlyReportsDir, { recursive: true, force: true });
         },
     };
 }
@@ -240,6 +245,80 @@ async function testFullDay(): Promise<void> {
     }
 }
 
+async function testFullThenPartialEarlyReport(): Promise<void> {
+    const market = await mockMarket();
+    const earlyReportsDir = mkdtempSync(join(tmpdir(), 'rp-early-'));
+    const dFull = tempDirs();
+    const dPart = tempDirs();
+    try {
+        const full = await runHistoricalReplay({
+            date: '2026-06-15',
+            symbols: ['2330', '2317'],
+            synthetic: true,
+            market,
+            speed: 'max',
+            universe_source: 'synthetic',
+            signalsDir: dFull.signalsDir,
+            outcomesDir: dFull.outcomesDir,
+            earlyReportsDir,
+        });
+        const partial = await runHistoricalReplay({
+            date: '2026-06-15',
+            symbols: ['2330'],
+            synthetic: true,
+            market,
+            until: '10:15',
+            speed: 'max',
+            universe_source: 'synthetic',
+            signalsDir: dPart.signalsDir,
+            outcomesDir: dPart.outcomesDir,
+            earlyReportsDir,
+        });
+        assert.notEqual(full.replay_run_id, partial.replay_run_id);
+
+        const store = new EarlyDailyReportStore(earlyReportsDir);
+        const api = store.listForApi('2026-06-15');
+        assert.ok(
+            api.reports.some((r) => r.run_id === full.replay_run_id),
+            'full report still listed after partial',
+        );
+        assert.ok(
+            api.partial_reports.some((r) => r.run_id === partial.replay_run_id),
+            'partial report stored separately',
+        );
+        const stillFull = store.loadByRun(
+            '2026-06-15',
+            'synthetic',
+            'full',
+            full.replay_run_id,
+        );
+        assert.ok(stillFull);
+        assert.equal(stillFull!.coverage, 'full');
+        assert.equal(stillFull!.evaluable, true);
+        assert.deepEqual(stillFull!.symbols, ['2317', '2330']);
+
+        const part = store.loadByRun(
+            '2026-06-15',
+            'synthetic',
+            'partial',
+            partial.replay_run_id,
+        );
+        assert.ok(part);
+        assert.equal(part!.coverage, 'partial');
+        assert.equal(part!.until_label, '10:15');
+        assert.ok(!api.sources.includes('live'));
+        assert.equal(api.live_pipeline.wired, false);
+
+        console.log(
+            `OK full+partial early reports preserved full=${full.replay_run_id} partial=${partial.replay_run_id}`,
+        );
+    } finally {
+        dFull.cleanup();
+        dPart.cleanup();
+        rmSync(earlyReportsDir, { recursive: true, force: true });
+    }
+}
+
 async function main(): Promise<void> {
     await testBarKnownAt();
     await testReplayClockPhases();
@@ -250,6 +329,7 @@ async function main(): Promise<void> {
     await testLearningEligible();
     await testNoTradeVsMissing();
     await testFullDay();
+    await testFullThenPartialEarlyReport();
     console.log('\nAll replay fairness tests passed.');
 }
 

@@ -156,7 +156,7 @@ export class RadarRescueService {
         date: string,
         source: EarlyReportSource,
     ): EarlyDailyReport | null {
-        return this.earlyReports.load(date, source);
+        return this.earlyReports.loadLatestFull(date, source);
     }
 
     listEarlyDailyReportSources(date: string): EarlyReportSource[] {
@@ -164,7 +164,11 @@ export class RadarRescueService {
     }
 
     listEarlyDailyReports(date: string): EarlyDailyReport[] {
-        return this.earlyReports.loadAllForDate(date);
+        return this.earlyReports.listForApi(date).reports;
+    }
+
+    listEarlyDailyReportApi(date: string, includePartial = false) {
+        return this.earlyReports.listForApi(date, { includePartial });
     }
 
     saveEarlyDailyReport(report: EarlyDailyReport): string {

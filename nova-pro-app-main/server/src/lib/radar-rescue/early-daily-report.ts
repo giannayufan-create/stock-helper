@@ -1,8 +1,15 @@
 // EARLY daily validation report — read-only aggregation by trade_date + source.
 // Never mix replay / synthetic / live into one success rate.
+// Full vs partial (--until) runs are stored separately and never overwrite each other.
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+    mkdirSync,
+    writeFileSync,
+    readFileSync,
+    existsSync,
+    readdirSync,
+} from 'node:fs';
+import { join, basename } from 'node:path';
 import type {
     EarlyBacktestOutcome,
     EarlyBacktestSummary,
@@ -12,6 +19,15 @@ import type {
 } from './early-backtest.ts';
 
 export type EarlyReportSource = 'replay' | 'synthetic' | 'live';
+export type EarlyReportCoverage = 'full' | 'partial';
+
+/**
+ * Flip to true only when a production path writes source=live EARLY daily reports.
+ * While false, API/UI must not imply live rates will appear by waiting.
+ */
+export const LIVE_EARLY_DAILY_REPORT_WIRED = false as const;
+
+export const LIVE_EARLY_DAILY_REPORT_MESSAGE = '實盤日報尚未接入';
 
 export const EARLY_REPORT_SOURCE_LABEL: Record<EarlyReportSource, string> = {
     replay: '歷史重播',
@@ -69,6 +85,19 @@ export interface EarlyDailyReport {
     trade_date: string;
     source: EarlyReportSource;
     source_label: string;
+    /** Unique per execution — full and partial runs never share a file. */
+    run_id: string;
+    /** full = session-end observation; partial = --until before close. */
+    coverage: EarlyReportCoverage;
+    /** True only for full session runs (default UI / rate display). */
+    evaluable: boolean;
+    observation_cutoff_ms: number;
+    observation_cutoff_iso: string;
+    /** HH:mm when cut from --until; null for full session. */
+    until_label: string | null;
+    /** Stock universe for this run. */
+    symbols: string[];
+    created_at: string;
     signal_count: number;
     unique_symbol_count: number;
     data_completeness_rate: number | null;
@@ -82,9 +111,112 @@ export interface EarlyDailyReport {
     note: string;
 }
 
-const RATE_INSUFFICIENT = '資料不足';
+export interface EarlyDailyReportListResult {
+    date: string;
+    sources: EarlyReportSource[];
+    /** Default: full + evaluable only (partial excluded). */
+    reports: EarlyDailyReport[];
+    /** Partial / non-evaluable runs — clearly separate from default rates. */
+    partial_reports: EarlyDailyReport[];
+    live_pipeline: {
+        wired: boolean;
+        message: string | null;
+    };
+    note: string;
+}
 
-export function formatRateLabel(rate: number | null, denominator: number): string {
+const RATE_INSUFFICIENT = '資料不足';
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const RUN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}$/;
+
+export function isValidTradeDate(date: string): boolean {
+    if (typeof date !== 'string' || !DATE_RE.test(date)) return false;
+    if (date.includes('..') || date.includes('/') || date.includes('\\')) {
+        return false;
+    }
+    const y = Number(date.slice(0, 4));
+    const m = Number(date.slice(5, 7));
+    const d = Number(date.slice(8, 10));
+    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) {
+        return false;
+    }
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return (
+        dt.getUTCFullYear() === y &&
+        dt.getUTCMonth() === m - 1 &&
+        dt.getUTCDate() === d
+    );
+}
+
+export function isValidReportSource(
+    source: string,
+): source is EarlyReportSource {
+    return source === 'replay' || source === 'synthetic' || source === 'live';
+}
+
+export function isValidRunId(runId: string): boolean {
+    return typeof runId === 'string' && RUN_ID_RE.test(runId);
+}
+
+export function sanitizeRunId(runId: string): string {
+    const cleaned = runId.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 120);
+    if (!cleaned || !isValidRunId(cleaned)) {
+        throw new Error(`invalid_run_id:${runId}`);
+    }
+    return cleaned;
+}
+
+/** Parse API date query; empty/undefined → Taipei today (always valid format). */
+export function resolveTradeDateParam(
+    raw: string | undefined,
+): { ok: true; date: string } | { ok: false; error: string } {
+    if (raw == null || raw === '') {
+        const today = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Taipei',
+        }).format(new Date());
+        return { ok: true, date: today };
+    }
+    if (!isValidTradeDate(raw)) {
+        return {
+            ok: false,
+            error: 'invalid_date',
+        };
+    }
+    return { ok: true, date: raw };
+}
+
+/**
+ * Route-facing date gate for EARLY daily-report.
+ * Invalid values must become HTTP 400 — never used in filesystem paths.
+ */
+export function gateEarlyDailyReportDate(
+    raw: string | undefined,
+):
+    | { ok: true; date: string }
+    | {
+          ok: false;
+          httpStatus: 400;
+          error: 'invalid_date';
+          received: string | undefined;
+          message: string;
+      } {
+    const dateRes = resolveTradeDateParam(raw);
+    if (!dateRes.ok) {
+        return {
+            ok: false,
+            httpStatus: 400,
+            error: 'invalid_date',
+            received: raw,
+            message: 'date 僅接受有效 YYYY-MM-DD 交易日期',
+        };
+    }
+    return { ok: true, date: dateRes.date };
+}
+
+export function formatRateLabel(
+    rate: number | null,
+    denominator: number,
+): string {
     if (denominator <= 0 || rate == null || !Number.isFinite(rate)) {
         return RATE_INSUFFICIENT;
     }
@@ -139,27 +271,59 @@ function rowFrom(o: EarlyBacktestOutcome): EarlySignalReportRow {
     };
 }
 
+export interface BuildEarlyDailyReportOpts {
+    trade_date: string;
+    source: EarlyReportSource;
+    run_id: string;
+    coverage: EarlyReportCoverage;
+    observation_cutoff_ms: number;
+    until_label?: string | null;
+    symbols: string[];
+    created_at?: string;
+}
+
 /**
  * Build a single-source daily report. Callers must pass outcomes from ONE source only.
  */
 export function buildEarlyDailyReport(
     summary: EarlyBacktestSummary,
-    opts: { trade_date: string; source: EarlyReportSource },
+    opts: BuildEarlyDailyReportOpts,
 ): EarlyDailyReport {
+    if (!isValidTradeDate(opts.trade_date)) {
+        throw new Error(`invalid_trade_date:${opts.trade_date}`);
+    }
+    if (!isValidReportSource(opts.source)) {
+        throw new Error(`invalid_source:${opts.source}`);
+    }
+    const run_id = sanitizeRunId(opts.run_id);
     const day3 = toBucketView(summary.day_plus_3pct);
-    // Completeness denom excludes UNKNOWN; if nothing resolved (SUCCESS+FAIL=0),
-    // treat as insufficient — never show "0%" when only INCOMPLETE/UNKNOWN remain.
     const resolved =
         summary.day_plus_3pct.success + summary.day_plus_3pct.fail;
-    const completenessDenom =
-        resolved + summary.day_plus_3pct.incomplete;
+    const completenessDenom = resolved + summary.day_plus_3pct.incomplete;
     const data_completeness_rate = summary.data_completeness_rate;
     const active = toBucketView(summary.active_upgrade);
+    const evaluable = opts.coverage === 'full';
+    const symbols = [...opts.symbols].map(String).sort();
+
+    const partialNote =
+        opts.coverage === 'partial'
+            ? '【部分重播】觀測截止早於收盤，不可與完整日報混算成功率。'
+            : '';
 
     return {
         trade_date: opts.trade_date,
         source: opts.source,
         source_label: EARLY_REPORT_SOURCE_LABEL[opts.source],
+        run_id,
+        coverage: opts.coverage,
+        evaluable,
+        observation_cutoff_ms: opts.observation_cutoff_ms,
+        observation_cutoff_iso: new Date(
+            opts.observation_cutoff_ms,
+        ).toISOString(),
+        until_label: opts.until_label ?? null,
+        symbols,
+        created_at: opts.created_at ?? new Date().toISOString(),
         signal_count: summary.signal_count,
         unique_symbol_count: summary.unique_symbol_count,
         data_completeness_rate,
@@ -180,33 +344,77 @@ export function buildEarlyDailyReport(
         },
         signals: summary.outcomes.map(rowFrom),
         note:
+            partialNote +
             '成功率 = SUCCESS / (SUCCESS + FAIL)。INCOMPLETE／UNKNOWN 不進分母。' +
             'ACTIVE 為狀態升級率，不是交易勝率。' +
-            '不同資料來源（歷史重播／模擬／實盤）必須分開查看，不可混算。',
+            '不同資料來源（歷史重播／模擬／實盤）必須分開查看，不可混算。' +
+            '完整與部分重播分開存檔，不會互相覆蓋。',
     };
 }
 
-function reportFileName(date: string, source: EarlyReportSource): string {
-    return `${date}.${source}.json`;
-}
-
+/**
+ * Layout: early_daily_reports/{date}/{source}/{coverage}/{run_id}.json
+ * Each run keeps its own file — full and partial never collide.
+ */
 export class EarlyDailyReportStore {
     constructor(private dataDir: string) {}
 
-    private dir(): string {
+    private root(): string {
         return join(this.dataDir, 'early_daily_reports');
     }
 
+    private reportPath(
+        date: string,
+        source: EarlyReportSource,
+        coverage: EarlyReportCoverage,
+        runId: string,
+    ): string {
+        if (!isValidTradeDate(date)) {
+            throw new Error(`invalid_trade_date:${date}`);
+        }
+        if (!isValidReportSource(source)) {
+            throw new Error(`invalid_source:${source}`);
+        }
+        if (coverage !== 'full' && coverage !== 'partial') {
+            throw new Error(`invalid_coverage:${coverage}`);
+        }
+        const safeRun = sanitizeRunId(runId);
+        return join(this.root(), date, source, coverage, `${safeRun}.json`);
+    }
+
     save(report: EarlyDailyReport): string {
-        const dir = this.dir();
-        mkdirSync(dir, { recursive: true });
-        const path = join(dir, reportFileName(report.trade_date, report.source));
+        if (!isValidTradeDate(report.trade_date)) {
+            throw new Error(`invalid_trade_date:${report.trade_date}`);
+        }
+        if (!isValidReportSource(report.source)) {
+            throw new Error(`invalid_source:${report.source}`);
+        }
+        const path = this.reportPath(
+            report.trade_date,
+            report.source,
+            report.coverage,
+            report.run_id,
+        );
+        mkdirSync(join(path, '..'), { recursive: true });
         writeFileSync(path, JSON.stringify(report, null, 2), 'utf8');
         return path;
     }
 
-    load(date: string, source: EarlyReportSource): EarlyDailyReport | null {
-        const path = join(this.dir(), reportFileName(date, source));
+    loadByRun(
+        date: string,
+        source: EarlyReportSource,
+        coverage: EarlyReportCoverage,
+        runId: string,
+    ): EarlyDailyReport | null {
+        if (!isValidTradeDate(date) || !isValidReportSource(source)) {
+            return null;
+        }
+        let path: string;
+        try {
+            path = this.reportPath(date, source, coverage, runId);
+        } catch {
+            return null;
+        }
         if (!existsSync(path)) return null;
         try {
             return JSON.parse(readFileSync(path, 'utf8')) as EarlyDailyReport;
@@ -215,25 +423,143 @@ export class EarlyDailyReportStore {
         }
     }
 
-    listSources(date: string): EarlyReportSource[] {
-        const dir = this.dir();
-        if (!existsSync(dir)) return [];
-        const out: EarlyReportSource[] = [];
-        const prefix = `${date}.`;
-        for (const name of readdirSync(dir)) {
-            if (!name.startsWith(prefix) || !name.endsWith('.json')) continue;
-            const src = name.slice(prefix.length, -'.json'.length);
-            if (src === 'replay' || src === 'synthetic' || src === 'live') {
-                out.push(src);
+    /** All runs for a date (optional filters). Never merges rates. */
+    listRuns(
+        date: string,
+        opts?: {
+            source?: EarlyReportSource;
+            coverage?: EarlyReportCoverage;
+            includeLive?: boolean;
+        },
+    ): EarlyDailyReport[] {
+        if (!isValidTradeDate(date)) return [];
+        const root = join(this.root(), date);
+        if (!existsSync(root)) return [];
+
+        const includeLive =
+            opts?.includeLive === true || LIVE_EARLY_DAILY_REPORT_WIRED;
+        const out: EarlyDailyReport[] = [];
+
+        for (const srcName of readdirSync(root)) {
+            if (!isValidReportSource(srcName)) continue;
+            if (opts?.source && srcName !== opts.source) continue;
+            if (srcName === 'live' && !includeLive) continue;
+
+            for (const covName of readdirSync(join(root, srcName))) {
+                if (covName !== 'full' && covName !== 'partial') continue;
+                if (opts?.coverage && covName !== opts.coverage) continue;
+                const covDir = join(root, srcName, covName);
+                for (const file of readdirSync(covDir)) {
+                    if (!file.endsWith('.json')) continue;
+                    const runId = basename(file, '.json');
+                    if (!isValidRunId(runId)) continue;
+                    const report = this.loadByRun(
+                        date,
+                        srcName,
+                        covName,
+                        runId,
+                    );
+                    if (report) out.push(report);
+                }
             }
         }
-        return out.sort();
+
+        out.sort((a, b) => {
+            if (a.created_at !== b.created_at) {
+                return a.created_at < b.created_at ? 1 : -1;
+            }
+            return a.run_id < b.run_id ? 1 : -1;
+        });
+        return out;
     }
 
-    /** All reports for a date, one object per source — never merged rates. */
+    /**
+     * Latest full evaluable report for source (default single-source fetch).
+     * Returns null for live when pipeline is not wired (unless includeLive).
+     */
+    loadLatestFull(
+        date: string,
+        source: EarlyReportSource,
+        opts?: { includeLive?: boolean },
+    ): EarlyDailyReport | null {
+        if (!isValidTradeDate(date) || !isValidReportSource(source)) {
+            return null;
+        }
+        if (
+            source === 'live' &&
+            !LIVE_EARLY_DAILY_REPORT_WIRED &&
+            opts?.includeLive !== true
+        ) {
+            return null;
+        }
+        const runs = this.listRuns(date, {
+            source,
+            coverage: 'full',
+            includeLive: opts?.includeLive,
+        }).filter((r) => r.evaluable);
+        return runs[0] ?? null;
+    }
+
+    listSources(
+        date: string,
+        opts?: { includePartial?: boolean; includeLive?: boolean },
+    ): EarlyReportSource[] {
+        const runs = this.listRuns(date, {
+            coverage: opts?.includePartial ? undefined : 'full',
+            includeLive: opts?.includeLive,
+        });
+        const set = new Set<EarlyReportSource>();
+        for (const r of runs) {
+            if (!opts?.includePartial && (!r.evaluable || r.coverage !== 'full')) {
+                continue;
+            }
+            set.add(r.source);
+        }
+        return [...set].sort();
+    }
+
+    /** Default list payload for API / 績效頁. */
+    listForApi(
+        date: string,
+        opts?: { includePartial?: boolean },
+    ): EarlyDailyReportListResult {
+        const includePartial = opts?.includePartial === true;
+        const all = this.listRuns(date, { includeLive: false });
+        const reports = all.filter(
+            (r) => r.coverage === 'full' && r.evaluable,
+        );
+        const partial_reports = all.filter(
+            (r) => r.coverage === 'partial' || !r.evaluable,
+        );
+        const sources = [
+            ...new Set(reports.map((r) => r.source)),
+        ] as EarlyReportSource[];
+
+        return {
+            date,
+            sources: sources.sort(),
+            reports: includePartial ? [...reports, ...partial_reports] : reports,
+            partial_reports,
+            live_pipeline: {
+                wired: LIVE_EARLY_DAILY_REPORT_WIRED,
+                message: LIVE_EARLY_DAILY_REPORT_WIRED
+                    ? null
+                    : LIVE_EARLY_DAILY_REPORT_MESSAGE,
+            },
+            note:
+                '預設只列出完整且可評估的日報。部分重播見 partial_reports，不可與完整成功率混算。' +
+                (LIVE_EARLY_DAILY_REPORT_WIRED
+                    ? ''
+                    : ` ${LIVE_EARLY_DAILY_REPORT_MESSAGE}，不顯示實盤成功率。`),
+        };
+    }
+
+    /** @deprecated Prefer listForApi / loadLatestFull — kept for callers expecting one-per-source. */
+    load(date: string, source: EarlyReportSource): EarlyDailyReport | null {
+        return this.loadLatestFull(date, source);
+    }
+
     loadAllForDate(date: string): EarlyDailyReport[] {
-        return this.listSources(date)
-            .map((s) => this.load(date, s))
-            .filter((r): r is EarlyDailyReport => r != null);
+        return this.listForApi(date).reports;
     }
 }

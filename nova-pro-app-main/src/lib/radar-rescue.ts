@@ -126,6 +126,7 @@ export function runRadarRescueEod() {
 }
 
 export type EarlyReportSource = 'replay' | 'synthetic' | 'live';
+export type EarlyReportCoverage = 'full' | 'partial';
 
 export interface EarlyMetricBucketDto {
     success: number;
@@ -170,6 +171,14 @@ export interface EarlyDailyReportDto {
     trade_date: string;
     source: EarlyReportSource;
     source_label: string;
+    run_id: string;
+    coverage: EarlyReportCoverage;
+    evaluable: boolean;
+    observation_cutoff_ms: number;
+    observation_cutoff_iso: string;
+    until_label: string | null;
+    symbols: string[];
+    created_at: string;
     signal_count: number;
     unique_symbol_count: number;
     data_completeness_rate: number | null;
@@ -190,6 +199,11 @@ export interface EarlyDailyReportListDto {
     date: string;
     sources: EarlyReportSource[];
     reports: EarlyDailyReportDto[];
+    partial_reports: EarlyDailyReportDto[];
+    live_pipeline: {
+        wired: boolean;
+        message: string | null;
+    };
     note: string;
 }
 

@@ -28,11 +28,19 @@ export {
     EarlyDailyReportStore,
     formatRateLabel,
     toBucketView,
+    isValidTradeDate,
+    isValidReportSource,
+    resolveTradeDateParam,
+    gateEarlyDailyReportDate,
+    LIVE_EARLY_DAILY_REPORT_WIRED,
+    LIVE_EARLY_DAILY_REPORT_MESSAGE,
     EARLY_REPORT_SOURCE_LABEL,
 } from './early-daily-report.ts';
 export type {
     EarlyDailyReport,
+    EarlyDailyReportListResult,
     EarlyReportSource,
+    EarlyReportCoverage,
     MetricBucketView,
     EarlySignalReportRow,
 } from './early-daily-report.ts';

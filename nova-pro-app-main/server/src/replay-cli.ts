@@ -35,6 +35,7 @@ async function main(): Promise<void> {
 
     console.log(
         `replay start date=${date} symbols=${symbols.join(',')} speed=${speed}` +
+            (until ? ` until=${until}` : '') +
             (synthetic ? ' [synthetic]' : ''),
     );
 
@@ -49,12 +50,21 @@ async function main(): Promise<void> {
         earlyReportsDir: dataDir,
     });
 
+    const coverage = until ? 'partial' : 'full';
+    const source = synthetic ? 'synthetic' : 'replay';
+    const reportPath = join(
+        dataDir,
+        'early_daily_reports',
+        date,
+        source,
+        coverage,
+        `${report.replay_run_id}.json`,
+    );
+
     console.log('\n' + formatReplayReport(report));
     console.log(`\nreplay_run_id=${report.replay_run_id}`);
     console.log(`status=${report.status} confidence=${report.replay_confidence}`);
-    console.log(
-        `early_daily_report → ${join(dataDir, 'early_daily_reports', `${date}.${synthetic ? 'synthetic' : 'replay'}.json`)}`,
-    );
+    console.log(`early_daily_report coverage=${coverage} → ${reportPath}`);
 }
 
 main().catch((e) => {

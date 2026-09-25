@@ -102,9 +102,14 @@ export function PerformancePage() {
     const [earlyDate, setEarlyDate] = useState(taipeiToday);
     const [earlySource, setEarlySource] = useState<EarlyReportSource | ''>('');
     const [earlyReports, setEarlyReports] = useState<EarlyDailyReportDto[]>([]);
+    const [earlyPartials, setEarlyPartials] = useState<EarlyDailyReportDto[]>(
+        [],
+    );
     const [earlySources, setEarlySources] = useState<EarlyReportSource[]>([]);
+    const [earlyLiveMsg, setEarlyLiveMsg] = useState<string | null>(null);
     const [earlyErr, setEarlyErr] = useState<string | null>(null);
     const [earlyOpenId, setEarlyOpenId] = useState<string | null>(null);
+    const [earlyRunId, setEarlyRunId] = useState<string | null>(null);
 
     useEffect(() => {
         if (tab !== 'signals') return;
@@ -133,21 +138,30 @@ export function PerformancePage() {
                 if (cancelled) return;
                 setEarlySources(d.sources ?? []);
                 setEarlyReports(d.reports ?? []);
+                setEarlyPartials(d.partial_reports ?? []);
+                setEarlyLiveMsg(
+                    d.live_pipeline?.wired
+                        ? null
+                        : (d.live_pipeline?.message ?? '實盤日報尚未接入'),
+                );
                 setEarlyErr(null);
-                if (!earlySource && d.sources?.length) {
-                    setEarlySource(d.sources[0]!);
-                } else if (
-                    earlySource &&
-                    d.sources &&
-                    !d.sources.includes(earlySource)
-                ) {
-                    setEarlySource(d.sources[0] ?? '');
-                }
+                const nextSource =
+                    earlySource && d.sources?.includes(earlySource)
+                        ? earlySource
+                        : (d.sources?.[0] ?? '');
+                setEarlySource(nextSource);
+                const forSource = (d.reports ?? []).filter(
+                    (r) => r.source === nextSource,
+                );
+                setEarlyRunId(forSource[0]?.run_id ?? null);
             })
             .catch(() => {
                 if (cancelled) return;
                 setEarlyReports([]);
+                setEarlyPartials([]);
                 setEarlySources([]);
+                setEarlyLiveMsg(null);
+                setEarlyRunId(null);
                 setEarlyErr('EARLY 日報暫時無法載入');
             });
         return () => {
@@ -409,8 +423,22 @@ export function PerformancePage() {
             {tab === 'early' && (
                 <div className={s.glass} style={{ padding: 16 }}>
                     <div style={{ fontSize: 14, color: vars.color.mutedForeground }}>
-                        EARLY 每日驗證（依資料來源分開，不可混算成功率）
+                        EARLY 每日驗證（預設完整可評估日報；來源分開，不可混算）
                     </div>
+                    {earlyLiveMsg && (
+                        <div
+                            style={{
+                                marginTop: 10,
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                border: `1px solid ${vars.color.border}`,
+                                fontSize: 13,
+                                color: vars.color.mutedForeground,
+                            }}
+                        >
+                            {earlyLiveMsg}（不會顯示實盤成功率）
+                        </div>
+                    )}
                     <div
                         style={{
                             display: 'flex',
@@ -444,7 +472,7 @@ export function PerformancePage() {
                                         color: vars.color.mutedForeground,
                                     }}
                                 >
-                                    尚無已存來源
+                                    尚無完整日報來源
                                 </span>
                             )}
                             {earlySources.map((src) => (
@@ -452,7 +480,15 @@ export function PerformancePage() {
                                     key={src}
                                     type="button"
                                     className={`${s.tabChip} ${earlySource === src ? s.tabChipOn : ''}`}
-                                    onClick={() => setEarlySource(src)}
+                                    onClick={() => {
+                                        setEarlySource(src);
+                                        const forSrc = earlyReports.filter(
+                                            (r) => r.source === src,
+                                        );
+                                        setEarlyRunId(
+                                            forSrc[0]?.run_id ?? null,
+                                        );
+                                    }}
                                 >
                                     {src === 'replay'
                                         ? '歷史重播'
@@ -475,8 +511,12 @@ export function PerformancePage() {
                         </p>
                     )}
                     {(() => {
+                        const candidates = earlyReports.filter(
+                            (r) => r.source === earlySource,
+                        );
                         const report =
-                            earlyReports.find((r) => r.source === earlySource) ??
+                            candidates.find((r) => r.run_id === earlyRunId) ??
+                            candidates[0] ??
                             null;
                         if (!report) {
                             return (
@@ -484,13 +524,40 @@ export function PerformancePage() {
                                     className={s.empty}
                                     style={{ marginTop: 14, padding: 8 }}
                                 >
-                                    此日期尚無 EARLY 日報。請先跑歷史重播（會寫入
-                                    early_daily_reports），或等待實盤日報產出。
+                                    此日期尚無完整可評估的 EARLY
+                                    日報。請先執行完整歷史重播（寫入
+                                    early_daily_reports/…/full/）。
+                                    {earlyLiveMsg
+                                        ? ` ${earlyLiveMsg}。`
+                                        : ''}
                                 </div>
                             );
                         }
                         return (
                             <>
+                                {candidates.length > 1 && (
+                                    <div
+                                        style={{
+                                            marginTop: 12,
+                                            display: 'flex',
+                                            flexWrap: 'wrap',
+                                            gap: 6,
+                                        }}
+                                    >
+                                        {candidates.map((r) => (
+                                            <button
+                                                key={r.run_id}
+                                                type="button"
+                                                className={`${s.tabChip} ${earlyRunId === r.run_id ? s.tabChipOn : ''}`}
+                                                onClick={() =>
+                                                    setEarlyRunId(r.run_id)
+                                                }
+                                            >
+                                                run {r.run_id.slice(-8)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                                 <div
                                     className={s.twoCol}
                                     style={{ marginTop: 14 }}
@@ -500,16 +567,38 @@ export function PerformancePage() {
                                         val={report.source_label}
                                     />
                                     <Metric
+                                        lab="涵蓋"
+                                        val="完整（可評估）"
+                                    />
+                                    <Metric
+                                        lab="run_id"
+                                        val={report.run_id}
+                                    />
+                                    <Metric
+                                        lab="股票範圍"
+                                        val={
+                                            report.symbols?.length
+                                                ? report.symbols.join(',')
+                                                : '—'
+                                        }
+                                    />
+                                    <Metric
                                         lab="訊號數"
                                         val={String(report.signal_count)}
                                     />
                                     <Metric
                                         lab="不同股票"
-                                        val={String(report.unique_symbol_count)}
+                                        val={String(
+                                            report.unique_symbol_count,
+                                        )}
                                     />
                                     <Metric
                                         lab="資料完整率"
                                         val={report.data_completeness_label}
+                                    />
+                                    <Metric
+                                        lab="觀測截止"
+                                        val={report.observation_cutoff_iso}
                                     />
                                 </div>
                                 <div
@@ -733,6 +822,61 @@ export function PerformancePage() {
                             </>
                         );
                     })()}
+                    {earlyPartials.length > 0 && (
+                        <div style={{ marginTop: 20 }}>
+                            <div
+                                style={{
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    color: '#fbbf24',
+                                }}
+                            >
+                                部分重播（不可與上方完整成功率混算）
+                            </div>
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gap: 8,
+                                    marginTop: 8,
+                                }}
+                            >
+                                {earlyPartials.map((p) => (
+                                    <div
+                                        key={p.run_id}
+                                        className={s.glass}
+                                        style={{
+                                            padding: 12,
+                                            borderLeft: '3px solid #fbbf24',
+                                        }}
+                                    >
+                                        <div style={{ fontWeight: 700 }}>
+                                            【部分】{p.source_label} ·{' '}
+                                            {p.run_id}
+                                        </div>
+                                        <div
+                                            style={{
+                                                marginTop: 4,
+                                                fontSize: 12,
+                                                fontFamily: vars.font.mono,
+                                                color: vars.color
+                                                    .mutedForeground,
+                                                lineHeight: 1.6,
+                                            }}
+                                        >
+                                            until={p.until_label ?? '—'} · 截止{' '}
+                                            {p.observation_cutoff_iso}
+                                            <br />
+                                            股票{' '}
+                                            {p.symbols?.join(',') || '—'} ·
+                                            訊號 {p.signal_count} · 當日+3{' '}
+                                            {p.day_plus_3pct.rate_label}
+                                            （僅供對照，非預設成功率）
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
