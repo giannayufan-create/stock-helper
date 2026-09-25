@@ -28,6 +28,11 @@ import {
     type StrategySignal,
 } from '../strategy-signal/index.ts';
 import {
+    EarlyBacktestSession,
+    type EarlyBacktestSummary,
+} from '../radar-rescue/early-backtest.ts';
+import { fetchTwDailyBarsBatch } from '../tw-daily-bars.ts';
+import {
     DEFAULT_BAR_TIMESTAMP_SEMANTICS,
 } from './bar-time.ts';
 import {
@@ -163,6 +168,8 @@ export interface ReplayRunReport {
         ambiguous: number;
         partial: number;
     };
+    /** EARLY ladder backtest — resolveAttackState on each replay minute. */
+    early_backtest: EarlyBacktestSummary;
     timeline: ReplayTimelinePoint[];
 }
 
@@ -181,6 +188,50 @@ function untilKnownAt(date: string, until?: string): number {
     const endH = String(Math.floor(SESSION_END_MIN / 60)).padStart(2, '0');
     const endM = String(SESSION_END_MIN % 60).padStart(2, '0');
     return parseBarTs(`${date} ${endH}:${endM}:00`) + 60_000;
+}
+
+/** Prefer true prior-session close; never silently use first open as prev_close. */
+async function resolvePrevCloses(opts: {
+    date: string;
+    symbols: string[];
+    stockDays: DayBars[];
+    synthetic: boolean;
+    warnings: string[];
+}): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (opts.synthetic) {
+        for (const d of opts.stockDays) {
+            const pc = d.prev_close;
+            if (pc != null && pc > 0) out.set(d.symbol, pc);
+        }
+        return out;
+    }
+    try {
+        const barsMap = await fetchTwDailyBarsBatch(opts.symbols, '3mo', 4);
+        for (const sym of opts.symbols) {
+            const bars = barsMap.get(sym) ?? [];
+            const idx = bars.findIndex((b) => b.date === opts.date);
+            let prevClose: number | null = null;
+            if (idx > 0) prevClose = bars[idx - 1]!.close;
+            else {
+                const before = bars.filter((b) => b.date < opts.date);
+                if (before.length) prevClose = before[before.length - 1]!.close;
+            }
+            if (prevClose != null && prevClose > 0) out.set(sym, prevClose);
+        }
+    } catch (e) {
+        opts.warnings.push(
+            `prev_close daily fetch failed: ${e instanceof Error ? e.message : e}`,
+        );
+    }
+    const missing = opts.symbols.filter((s) => !out.has(s));
+    if (missing.length) {
+        opts.warnings.push(
+            `prev_close unavailable for ${missing.join(',')}` +
+                ' — change% may be wrong; not seeding first.open',
+        );
+    }
+    return out;
 }
 
 function stableSnapshot(r: ReplayRunReport): string {
@@ -308,13 +359,30 @@ export async function runHistoricalReplay(
     runtime.setProfileAsOfExclusive(input.date);
     runtime.start();
 
+    const prevCloses = await resolvePrevCloses({
+        date: input.date,
+        symbols,
+        stockDays,
+        synthetic: Boolean(input.synthetic),
+        warnings,
+    });
     for (const d of stockDays) {
-        const first = d.bars.find((b) => b.volume > 0) ?? d.bars[0];
-        if (first) runtime.engine.seedPrevClose(d.symbol, first.open);
+        const pc = prevCloses.get(d.symbol) ?? d.prev_close;
+        if (pc != null && pc > 0) {
+            runtime.engine.seedPrevClose(d.symbol, pc);
+            d.prev_close = pc;
+        }
     }
     for (const d of indexDays) {
-        const first = d.bars[0];
-        if (first) runtime.engine.seedPrevClose(d.symbol, first.open);
+        // Indexes: keep published prev_close when loader set it; else skip
+        // (do not invent from first open — gap would distort regime).
+        if (d.prev_close != null && d.prev_close > 0) {
+            runtime.engine.seedPrevClose(d.symbol, d.prev_close);
+        } else {
+            warnings.push(
+                `index ${d.symbol} prev_close unknown — not seeding first.open`,
+            );
+        }
     }
 
     if (input.synthetic) {
@@ -385,6 +453,7 @@ export async function runHistoricalReplay(
     let cRankJump = 0;
     const prevState = new Map<string, string>();
     const coverageSamples: number[] = [];
+    const earlySession = new EarlyBacktestSession();
 
     clock.start();
     const knownAts = source.knownAtTimeline(firstKnownAt, endKnownAt);
@@ -400,6 +469,27 @@ export async function runHistoricalReplay(
         const bBatch = await openGate.evaluatePool();
         const cBatch = await intraday.evaluateOnce();
         const phase = resolvePhase(loadOpenGateConfig(), clock.now()).phase;
+
+        // 6) EARLY ladder — same features path as live rescue (resolveAttackState)
+        const cashSession =
+            phase === 'provisional' ||
+            phase === 'early' ||
+            phase === 'confirmed';
+        for (const it of cBatch?.items ?? []) {
+            const st = runtime.getState(it.symbol);
+            earlySession.step({
+                symbol: it.symbol,
+                nowMs: knownAt,
+                cashSession,
+                c: it,
+                recentPrices: st?.recent_prices,
+                stale:
+                    it.data_blocked === true ||
+                    it.data_health === 'stale' ||
+                    it.data_health === 'disconnected',
+                dataBlocked: it.data_blocked === true,
+            });
+        }
 
         const events: string[] = [];
         for (const it of cBatch?.items ?? []) {
@@ -493,6 +583,7 @@ export async function runHistoricalReplay(
     );
     const outcomeSvc = new SignalOutcomeService(outcomeRepo);
     const outcomes = outcomeSvc.settleReplayDay(signals, dayBarsBySymbol);
+    const early_backtest = earlySession.finalize(dayBarsBySymbol);
 
     runtime.stop();
 
@@ -608,6 +699,7 @@ export async function runHistoricalReplay(
             ).length,
             partial: outcomes.filter((o) => o.status === 'partial').length,
         },
+        early_backtest,
         timeline,
     };
 }
@@ -672,6 +764,11 @@ export function formatReplayReport(r: ReplayRunReport): string {
         '',
         'Outcomes:',
         `  complete/ambiguous=${r.outcomes.complete} ambiguous=${r.outcomes.ambiguous} partial=${r.outcomes.partial}`,
+        '',
+        'EARLY backtest:',
+        `  triggers=${r.early_backtest.triggers} complete=${r.early_backtest.complete} incomplete=${r.early_backtest.incomplete}`,
+        `  hit+3%=${r.early_backtest.hit_plus_3pct} (rate=${r.early_backtest.hit_plus_3pct_rate ?? 'n/a'})`,
+        `  hit+5%=${r.early_backtest.hit_plus_5pct} reached_ACTIVE=${r.early_backtest.reached_active} (rate=${r.early_backtest.reached_active_rate ?? 'n/a'})`,
     ];
     return lines.filter((l) => l !== undefined).join('\n');
 }

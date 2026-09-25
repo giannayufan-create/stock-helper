@@ -90,7 +90,6 @@ export class RadarRescueService {
         this.eod = new EodTruthService(dataDir);
         this.earlySignals = new EarlySignalStore(dataDir);
         this.funnel.loadToday();
-        void this.openGate;
     }
 
     start(): void {
@@ -336,6 +335,7 @@ export class RadarRescueService {
                             this.cfg.rescue_disc_active_min_discovery ||
                         (disc.scanner_ranks?.change ?? 999) <= 50));
 
+            const marketSt = this.openGate?.getMarketState(symbol);
             const features = buildAttackFeatures({
                 c,
                 bp,
@@ -344,6 +344,7 @@ export class RadarRescueService {
                 prevVwapPos: this.prevVwap.get(symbol) ?? null,
                 bpRising,
                 nowMs: Date.now(),
+                recentPrices: marketSt?.recent_prices,
             });
             const prevTrack = this.earlyTracks.get(symbol) ?? null;
             // Also flag stale from C/BP health + age TTL inside features.

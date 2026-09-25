@@ -147,6 +147,8 @@ export interface EodTruthRow {
     intraday_range: number | null;
     corporate_action_type: string | null;
     corporate_action_adjusted: boolean;
+    /** ok = usable for recall; incomplete/missing excluded from success rates. */
+    data_status: 'ok' | 'incomplete' | 'missing';
 }
 
 export interface RescueNewsJudgement {

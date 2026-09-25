@@ -7,6 +7,7 @@
 import type { BuyPressureItem } from '../buy-pressure/types.ts';
 import type { IntradayRankItem } from '../intraday-rank/types.ts';
 import type { RadarRescueConfig } from './config.ts';
+import { printsFromRecentPrices } from './print-samples.ts';
 import type { RescueRadarState } from './types.ts';
 
 export type AccelEvidenceKey =
@@ -610,6 +611,11 @@ export function buildAttackFeatures(opts: {
     prevVwapPos: number | null;
     bpRising?: boolean;
     nowMs?: number;
+    /**
+     * Live ticks or replay bar closes from MarketDataEngine.recent_prices.
+     * Used to fill breakout_print_samples unless overrides already set them.
+     */
+    recentPrices?: Array<{ t: number; p: number; v?: number }>;
     /** Optional overrides for tests / tick feed. */
     overrides?: Partial<AttackFeatures>;
 }): AttackFeatures {
@@ -637,6 +643,14 @@ export function buildAttackFeatures(opts: {
     const bpAge = ageSec(bp?.updated_at, now);
     const bpTradeAge = ageSec(bp?.last_tick_at, now);
     const bpBookAge = ageSec(bp?.last_bidask_at, now);
+
+    const fromRecent = printsFromRecentPrices(opts.recentPrices, now);
+    const lastPrint = fromRecent.length
+        ? fromRecent[fromRecent.length - 1]!
+        : null;
+    const tradeAgeFromPrint = lastPrint
+        ? Math.max(0, (now - lastPrint.ts_ms) / 1000)
+        : null;
 
     const base: AttackFeatures = {
         change_pct: change,
@@ -666,17 +680,18 @@ export function buildAttackFeatures(opts: {
         trigger: Number.isFinite(opts.trigger) ? opts.trigger : 0,
         near_limit: nearLimit,
         limit_up: limitUp,
-        last_trade_age_sec: bp ? (bpTradeAge ?? cAge) : cAge,
+        last_trade_age_sec:
+            tradeAgeFromPrint ?? (bp ? (bpTradeAge ?? cAge) : cAge),
         quote_age_sec: cAge ?? bpAge,
         orderbook_age_sec: bp ? (bpBookAge ?? bpAge) : cAge,
         volume_age_sec: cAge ?? bpAge,
         breakout_price: null,
-        prints_above_breakout: 0,
-        breakout_print_samples: [],
+        prints_above_breakout: fromRecent.length,
+        breakout_print_samples: fromRecent,
         breakout_hold_sec: null,
-        breakout_hold_has_fresh_trades: false,
-        last_trade_key: null,
-        last_trade_ts_ms: null,
+        breakout_hold_has_fresh_trades: fromRecent.length > 0,
+        last_trade_key: lastPrint?.trade_key ?? null,
+        last_trade_ts_ms: lastPrint?.ts_ms ?? null,
         last_trade_seq: null,
         best_bid_lift: false,
         sell_aggression_up: false,

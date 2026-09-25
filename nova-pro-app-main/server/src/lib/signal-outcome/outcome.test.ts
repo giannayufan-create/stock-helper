@@ -65,7 +65,41 @@ async function testForwardMfeMae(): Promise<void> {
     assert.ok((o.mfe_15m ?? 0) > 0);
     assert.ok((o.mae_15m ?? 0) < 0);
     assert.equal(o.hit_plus_1pct, true);
+    assert.equal(o.status, 'complete');
+    assert.ok(o.forward_return_60m != null);
     console.log('OK forward / MFE / MAE');
+}
+
+async function testIncompleteWithout60m(): Promise<void> {
+    const signalMs = Date.parse('2026-06-15T02:15:00.000Z');
+    const bars: PriceBar[] = [];
+    for (let i = 1; i <= 30; i++) {
+        bars.push({
+            t: signalMs + i * 60_000,
+            open: 100,
+            high: 101,
+            low: 99.5,
+            close: 100.5,
+        });
+    }
+    const o = calculateOutcome({
+        signal: baseSignal({
+            signal_time: new Date(signalMs).toISOString(),
+        }),
+        futureBars: bars,
+        closeBar: {
+            t: signalMs + 4 * 60 * 60_000,
+            open: 100,
+            high: 102,
+            low: 99,
+            close: 101,
+        },
+        nowMs: signalMs + 5 * 60 * 60_000,
+    });
+    assert.equal(o.forward_return_60m, undefined);
+    assert.ok(o.close_return != null);
+    assert.equal(o.status, 'partial');
+    console.log('OK incomplete without 60m stays partial');
 }
 
 async function testAmbiguous(): Promise<void> {
@@ -459,6 +493,7 @@ async function testRepoAppendOnly(): Promise<void> {
 
 async function main(): Promise<void> {
     await testForwardMfeMae();
+    await testIncompleteWithout60m();
     await testAmbiguous();
     await testLifecycleDedupe();
     await testAnalytics();

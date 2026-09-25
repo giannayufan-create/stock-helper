@@ -14,6 +14,34 @@ function taipeiYmd(d = new Date()): string {
     }).format(d);
 }
 
+function incompleteRow(
+    tradeDate: string,
+    symbol: string,
+    status: 'incomplete' | 'missing',
+): EodTruthRow {
+    return {
+        trade_date: tradeDate,
+        symbol,
+        prev_close: null,
+        open: null,
+        high: null,
+        low: null,
+        close: null,
+        adjusted_reference_price: null,
+        max_return_pct: null,
+        close_return_pct: null,
+        max_twd_move: null,
+        hit_plus_1_twd: false,
+        hit_plus_3pct: false,
+        hit_plus_5pct: false,
+        hit_limit_up: false,
+        intraday_range: null,
+        corporate_action_type: null,
+        corporate_action_adjusted: false,
+        data_status: status,
+    };
+}
+
 export class EodTruthService {
     private last: EodTruthRow[] = [];
 
@@ -39,6 +67,7 @@ export class EodTruthService {
     /**
      * Build EOD truth for a symbol universe (batch Yahoo/TW daily).
      * Call after market close — not every evaluate tick.
+     * Failed / short fetches become data_status incomplete|missing (not silent skip).
      */
     async buildForSymbols(
         symbols: string[],
@@ -49,23 +78,32 @@ export class EodTruthService {
         const rows: EodTruthRow[] = [];
         for (const symbol of unique) {
             const bars = barsMap.get(symbol) ?? [];
-            if (bars.length < 2) continue;
+            if (!bars.length) {
+                rows.push(incompleteRow(tradeDate, symbol, 'missing'));
+                continue;
+            }
+            if (bars.length < 2) {
+                rows.push(incompleteRow(tradeDate, symbol, 'incomplete'));
+                continue;
+            }
             // Prefer bar matching tradeDate; else last bar
-            let today = bars.find((b) => b.date === tradeDate) ?? bars[bars.length - 1]!;
+            let today =
+                bars.find((b) => b.date === tradeDate) ?? bars[bars.length - 1]!;
             const prevIdx = bars.findIndex((b) => b.date === today.date);
             const prev =
-                prevIdx > 0 ? bars[prevIdx - 1]! : bars.length >= 2 ? bars[bars.length - 2]! : null;
+                prevIdx > 0
+                    ? bars[prevIdx - 1]!
+                    : bars.length >= 2
+                      ? bars[bars.length - 2]!
+                      : null;
             const prevClose = prev?.close ?? null;
-            const maxRet =
-                prevClose && prevClose > 0
-                    ? ((today.high - prevClose) / prevClose) * 100
-                    : null;
-            const closeRet =
-                prevClose && prevClose > 0
-                    ? ((today.close - prevClose) / prevClose) * 100
-                    : null;
-            const maxTwd =
-                prevClose != null ? today.high - prevClose : null;
+            if (prevClose == null || !(prevClose > 0)) {
+                rows.push(incompleteRow(tradeDate, symbol, 'incomplete'));
+                continue;
+            }
+            const maxRet = ((today.high - prevClose) / prevClose) * 100;
+            const closeRet = ((today.close - prevClose) / prevClose) * 100;
+            const maxTwd = today.high - prevClose;
             rows.push({
                 trade_date: tradeDate,
                 symbol,
@@ -78,16 +116,17 @@ export class EodTruthService {
                 max_return_pct: maxRet,
                 close_return_pct: closeRet,
                 max_twd_move: maxTwd,
-                hit_plus_1_twd: maxTwd != null && maxTwd >= 1,
-                hit_plus_3pct: maxRet != null && maxRet >= 3,
-                hit_plus_5pct: maxRet != null && maxRet >= 5,
-                hit_limit_up: maxRet != null && maxRet >= 9.5,
+                hit_plus_1_twd: maxTwd >= 1,
+                hit_plus_3pct: maxRet >= 3,
+                hit_plus_5pct: maxRet >= 5,
+                hit_limit_up: maxRet >= 9.5,
                 intraday_range:
                     today.low > 0
                         ? ((today.high - today.low) / today.low) * 100
                         : null,
                 corporate_action_type: null,
                 corporate_action_adjusted: false,
+                data_status: 'ok',
             });
         }
         this.last = rows;

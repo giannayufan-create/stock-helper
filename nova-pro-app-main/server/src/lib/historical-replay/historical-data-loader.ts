@@ -43,6 +43,11 @@ export interface DayBars {
     date: string;
     bars: MinuteBar[];
     amount_available: boolean;
+    /**
+     * Prior session close for change% / gap. Never invent from first open.
+     * Null when unknown — caller must warn and avoid jump-gap distortion.
+     */
+    prev_close?: number | null;
     /** True DATA_MISSING only (not no-trade). */
     data_missing_count: number;
     data_missing_ranges: string[];
@@ -374,10 +379,10 @@ export class HistoricalDataLoader {
                 bars,
                 amount_available,
             );
-            const first = day.bars[0] ?? bars[0]!;
             return {
                 ...day,
-                prev_close: first.open > 0 ? first.open : null,
+                // Do not invent prev_close from first open (gap distortion).
+                prev_close: null,
             };
         } catch {
             return null;
@@ -438,12 +443,16 @@ export function buildSyntheticDayBars(opts: {
         });
         px = close;
     }
-    return classifyAndFillGaps(
-        opts.symbol,
-        opts.date,
-        bars,
-        opts.withAmount !== false,
-    );
+    return {
+        ...classifyAndFillGaps(
+            opts.symbol,
+            opts.date,
+            bars,
+            opts.withAmount !== false,
+        ),
+        // Synthetic: startPrice is the prior close (flat open unless mutateAfter).
+        prev_close: opts.startPrice > 0 ? opts.startPrice : null,
+    };
 }
 
 export {

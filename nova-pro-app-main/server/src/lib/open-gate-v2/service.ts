@@ -19,7 +19,7 @@ import {
     evaluateOpenGate,
     resolvePhase,
 } from './open-gate-evaluator.ts';
-import type { ACandidate, OpenConfirmResult } from './types.ts';
+import type { ACandidate, OpenConfirmResult, SymbolMarketState } from './types.ts';
 import type { MarketCalendarService } from '../market-calendar/index.ts';
 
 export interface OpenConfirmBatchResult {
@@ -74,6 +74,11 @@ export class OpenGateV2Service {
         this.repo = new OpenConfirmRepository();
         this.candidates = new ACandidateRepository();
         if (dataDir) this.aStore = new ACandidateStore(dataDir);
+    }
+
+    /** Read-only market snapshot (ticks / recent_prices) for support layers. */
+    getMarketState(symbol: string): SymbolMarketState | undefined {
+        return this.runtime.getState(symbol);
     }
 
     setDataDir(dataDir: string): void {

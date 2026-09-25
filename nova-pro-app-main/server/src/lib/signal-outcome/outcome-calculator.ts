@@ -181,18 +181,23 @@ export function calculateOutcome(opts: {
     else seq = 'neither';
     out.outcome_sequence = seq;
 
-    const horizonComplete =
-        out.forward_return_60m != null ||
-        (nowMs - signalMs >= 60 * 60_000 && filled > 0);
+    // Learning stats require a real 60m forward price — wall-clock alone or
+    // close_return without 60m must not inflate "complete" success rates.
+    const horizonComplete = out.forward_return_60m != null;
 
     if (ambiguous && signal.data_resolution === '1m') {
-        // Still can be complete with ambiguous flag
         out.status = horizonComplete ? 'ambiguous' : 'partial';
-    } else if (horizonComplete || out.close_return != null) {
+        if (horizonComplete) out.event_kind = 'COMPLETE';
+    } else if (horizonComplete) {
         out.status = 'complete';
         out.event_kind = 'COMPLETE';
-    } else if (filled > 0) {
+    } else if (filled > 0 || out.close_return != null) {
         out.status = 'partial';
+    } else if (nowMs - signalMs >= 60 * 60_000) {
+        // Hour elapsed but no 60m bar → incomplete data, not a win/loss.
+        out.status = 'partial';
+        out.learning_exclude_reason =
+            out.learning_exclude_reason ?? 'missing_forward_return_60m';
     } else {
         out.status = 'pending';
     }

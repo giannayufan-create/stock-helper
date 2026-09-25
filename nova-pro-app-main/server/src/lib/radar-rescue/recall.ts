@@ -49,7 +49,9 @@ export function buildMissedWinners(
     minPct = 5,
 ): MissedWinnerCase[] {
     const movers = truth.filter(
-        (t) => (t.max_return_pct ?? t.close_return_pct ?? 0) >= minPct,
+        (t) =>
+            (t.data_status ?? 'ok') === 'ok' &&
+            (t.max_return_pct ?? t.close_return_pct ?? 0) >= minPct,
     );
     const out: MissedWinnerCase[] = [];
     for (const t of movers) {
@@ -105,7 +107,9 @@ export function buildDailyRecall(
     funnel: FunnelTraceService,
 ): DailyRecallReport {
     const plus3 = truth.filter(
-        (t) => (t.max_return_pct ?? t.close_return_pct ?? 0) >= 3,
+        (t) =>
+            (t.data_status ?? 'ok') === 'ok' &&
+            (t.max_return_pct ?? t.close_return_pct ?? 0) >= 3,
     );
     const n = plus3.length;
     const count = (pred: (sym: string) => boolean) =>
