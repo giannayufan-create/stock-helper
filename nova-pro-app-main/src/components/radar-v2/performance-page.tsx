@@ -140,9 +140,13 @@ export function PerformancePage() {
                 setEarlyReports(d.reports ?? []);
                 setEarlyPartials(d.partial_reports ?? []);
                 setEarlyLiveMsg(
-                    d.live_pipeline?.wired
-                        ? null
-                        : (d.live_pipeline?.message ?? '實盤日報尚未接入'),
+                    d.live_pipeline?.settlement_status === 'pending'
+                        ? (d.live_pipeline.message ??
+                              '當日實盤日報尚未結算完成')
+                        : d.live_pipeline?.wired
+                          ? null
+                          : (d.live_pipeline?.message ??
+                            '實盤日報尚未接入'),
                 );
                 setEarlyErr(null);
                 const nextSource =
@@ -436,7 +440,7 @@ export function PerformancePage() {
                                 color: vars.color.mutedForeground,
                             }}
                         >
-                            {earlyLiveMsg}（不會顯示實盤成功率）
+                            {earlyLiveMsg}
                         </div>
                     )}
                     <div

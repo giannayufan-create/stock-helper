@@ -15,7 +15,7 @@ export {
 } from './opportunity-chase.ts';
 export { buildMultiLaneCandidates } from './multi-lane.ts';
 export { FunnelTraceService } from './funnel-trace.ts';
-export { EodTruthService } from './eod-truth.ts';
+export { EodTruthService, selectEodBarForTradeDate } from './eod-truth.ts';
 export { EarlySignalStore } from './early-signal-store.ts';
 export {
     EarlyBacktestSession,
@@ -26,12 +26,17 @@ export {
 export {
     EarlyLiveShadowStore,
     sampleToBarKnownAt,
+    evaluateLiveTradeTick,
+    LIVE_TRADE_MAX_AGE_MS,
 } from './early-live-shadow.ts';
 export type {
     LiveEarlyShadowRecord,
     LiveEarlySettleResult,
     LivePriceFeedSource,
     DayReferenceSource,
+    LiveTradeTick,
+    LiveSettlementState,
+    LiveSettlementStatus,
 } from './early-live-shadow.ts';
 export {
     buildEarlyDailyReport,

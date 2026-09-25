@@ -11,8 +11,10 @@ import { EarlyDailyReportStore } from './early-daily-report.ts';
 import { EarlySignalStore } from './early-signal-store.ts';
 import {
     EarlyLiveShadowStore,
+    evaluateLiveTradeTick,
     sampleToBarKnownAt,
 } from './early-live-shadow.ts';
+import { selectEodBarForTradeDate } from './eod-truth.ts';
 
 const TRADE_DATE = '2026-06-15';
 
@@ -29,7 +31,16 @@ function fillBarsToClose(
     let t = sampleToBarKnownAt(fromMs);
     if (t <= fromMs) t += 60_000;
     for (; t <= end; t += 60_000) {
-        store.samplePrice(symbol, priceFn(t), t - 1_000, 'injected');
+        const tradeTs = t - 1_000;
+        store.sampleTrade(
+            symbol,
+            {
+                price: priceFn(t),
+                trade_ts_ms: tradeTs,
+                source: 'injected',
+            },
+            tradeTs,
+        );
     }
 }
 
@@ -145,14 +156,22 @@ function testPlus3AfterFiveMinutes(): void {
     for (const offset of [30_000, 60_000, 90_000, 180_000, 300_000]) {
         now = T0 + offset;
         short.sample('2330', 100, 'EARLY', now);
-        store.samplePrice('2330', 100, now, 'injected');
+        store.sampleTrade(
+            '2330',
+            { price: 100, trade_ts_ms: now, source: 'injected' },
+            now,
+        );
     }
     assert.equal(short.getOpen(sid), null, '5m window finalized');
 
     // +3% only after 5 minutes (day_ref 100 → 103)
     const hitAt = T0 + 8 * 60_000;
     now = hitAt;
-    store.samplePrice('2330', 103.5, hitAt, 'injected');
+    store.sampleTrade(
+        '2330',
+        { price: 103.5, trade_ts_ms: hitAt, source: 'injected' },
+        hitAt,
+    );
     fillBarsToClose(store, '2330', hitAt, () => 103.5);
 
     now = expectedSessionEndKnownAt(TRADE_DATE) + 1;
@@ -182,12 +201,20 @@ function testRestartNoBackfill(): void {
         trade_date: TRADE_DATE,
     });
     now = T0 + 60_000;
-    store.samplePrice('2330', 100, now, 'injected');
+    store.sampleTrade(
+        '2330',
+        { price: 100, trade_ts_ms: now, source: 'injected' },
+        now,
+    );
 
     // Simulate restart hours later with new store instance
     now = T0 + 3 * 60 * 60_000;
     const store2 = new EarlyLiveShadowStore(dir, () => now);
-    store2.samplePrice('2330', 110, now, 'injected'); // late price must not fill gap as success-only
+    store2.sampleTrade(
+        '2330',
+        { price: 110, trade_ts_ms: now, source: 'injected' },
+        now,
+    ); // late price must not fill gap as success-only
     const row = store2.get('early_2330_rs')!;
     assert.ok(
         row.bars.some((b) => b.gap_kind === 'DATA_MISSING'),
@@ -255,7 +282,11 @@ function testEodMissingIncomplete(): void {
     });
     // Only a few bars — incomplete tracking
     now = T0 + 60_000;
-    store.samplePrice('2330', 100, now, 'injected');
+    store.sampleTrade(
+        '2330',
+        { price: 100, trade_ts_ms: now, source: 'injected' },
+        now,
+    );
 
     now = expectedSessionEndKnownAt(TRADE_DATE) + 1;
     const summary = store.settleDay({
@@ -367,4 +398,170 @@ testMissingDayRefUnknown();
 testEodMissingIncomplete();
 testMidSessionNoFail();
 testDuplicateSettleNoDoubleCount();
+testStalePriceRejected();
+testDuplicateQuoteNotNewTrade();
+testEodPreviousDayRejected();
+testPendingSettleAndRestartCatchUp();
 console.log('\nAll early-live-shadow tests passed');
+
+function testStalePriceRejected(): void {
+    let now = T0 + 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-stale-'));
+    const store = new EarlyLiveShadowStore(dir, () => now);
+    store.recordTrigger({
+        signal_id: 'early_2330_stale',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    const staleTs = now - 120_000;
+    const r = store.sampleTrade(
+        '2330',
+        { price: 105, trade_ts_ms: staleTs, source: 'opengate_last' },
+        now,
+    );
+    assert.equal(r.accepted, false);
+    assert.equal(r.reason, 'stale');
+    const row = store.get('early_2330_stale')!;
+    assert.equal(
+        row.bars.filter((b) => b.gap_kind == null).length,
+        0,
+        'stale must not create a traded bar',
+    );
+    const gate = evaluateLiveTradeTick(
+        { price: 105, trade_ts_ms: staleTs, source: 'opengate_last' },
+        now,
+        null,
+    );
+    assert.equal(gate.ok, false);
+    console.log('OK stale price rejected — not written to live bar');
+    rmSync(dir, { recursive: true, force: true });
+}
+
+function testDuplicateQuoteNotNewTrade(): void {
+    let now = T0 + 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-dupq-'));
+    const store = new EarlyLiveShadowStore(dir, () => now);
+    store.recordTrigger({
+        signal_id: 'early_2330_dq',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    const tradeTs = now;
+    assert.equal(
+        store.sampleTrade(
+            '2330',
+            { price: 101, trade_ts_ms: tradeTs, source: 'injected' },
+            now,
+        ).accepted,
+        true,
+    );
+    const barsAfterFirst = store.get('early_2330_dq')!.bars.length;
+    // Same last_price with same or older trade_ts — not a new print
+    now = T0 + 90_000;
+    const dup = store.sampleTrade(
+        '2330',
+        { price: 101, trade_ts_ms: tradeTs, source: 'injected' },
+        now,
+    );
+    assert.equal(dup.accepted, false);
+    assert.equal(dup.reason, 'duplicate');
+    assert.equal(store.get('early_2330_dq')!.bars.length, barsAfterFirst);
+    // Bare last_price without trade_ts
+    const bare = store.samplePrice('2330', 101, now, 'c_last');
+    assert.equal(bare.accepted, false);
+    assert.equal(bare.reason, 'missing_timestamp');
+    console.log('OK duplicate last_price / missing timestamp not new trade');
+    rmSync(dir, { recursive: true, force: true });
+}
+
+function testEodPreviousDayRejected(): void {
+    const bars = [
+        { date: '2026-06-13', close: 99, open: 98, high: 100, low: 97 },
+        { date: '2026-06-14', close: 100, open: 99, high: 101, low: 98 },
+    ];
+    // Want 2026-06-15 but feed only has prior days — must not pick 06-14
+    assert.equal(selectEodBarForTradeDate(bars, '2026-06-15'), null);
+    const ok = selectEodBarForTradeDate(
+        [
+            ...bars,
+            { date: '2026-06-15', close: 102, open: 100, high: 103, low: 99 },
+        ],
+        '2026-06-15',
+    );
+    assert.ok(ok);
+    assert.equal(ok!.today.date, '2026-06-15');
+    assert.equal(ok!.prev!.date, '2026-06-14');
+    assert.equal(ok!.prev!.close, 100);
+    console.log('OK EOD rejects previous-day bar; exact trade_date only');
+}
+
+function testPendingSettleAndRestartCatchUp(): void {
+    let now = T0 + 30 * 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-catch-'));
+    const store = new EarlyLiveShadowStore(dir, () => now);
+    store.recordTrigger({
+        signal_id: 'early_2330_catch',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    fillBarsToClose(store, '2330', T0, () => 100);
+
+    // Before session end: pending not yet — waiting_session_end
+    let st = store.getSettlementStatus(TRADE_DATE, now);
+    assert.equal(st.status, 'waiting_session_end');
+    assert.equal(st.live_report_ready, false);
+    assert.equal(store.datesNeedingSettlement(now).length, 0);
+
+    // Session ended but not settled yet
+    now = expectedSessionEndKnownAt(TRADE_DATE) + 60_000;
+    st = store.getSettlementStatus(TRADE_DATE, now);
+    assert.equal(st.status, 'pending');
+    assert.equal(st.message, '當日實盤日報尚未結算完成');
+    assert.deepEqual(store.datesNeedingSettlement(now), [TRADE_DATE]);
+
+    // Restart: new store instance still sees needing settlement
+    const store2 = new EarlyLiveShadowStore(dir, () => now);
+    assert.deepEqual(store2.datesNeedingSettlement(now), [TRADE_DATE]);
+    assert.equal(
+        store2.getSettlementStatus(TRADE_DATE, now).live_report_ready,
+        false,
+    );
+
+    const result = store2.settleAndPersist({
+        trade_date: TRADE_DATE,
+        nowMs: now,
+        sessionEnded: true,
+        reportsDir: dir,
+    });
+    assert.equal(result.live_report_written, true);
+    st = store2.getSettlementStatus(TRADE_DATE, now);
+    assert.equal(st.status, 'settled');
+    assert.equal(st.live_report_ready, true);
+    assert.equal(st.message, null);
+    assert.equal(store2.datesNeedingSettlement(now).length, 0);
+
+    // Retry after restart still one report
+    const store3 = new EarlyLiveShadowStore(dir, () => now + 1000);
+    const again = store3.settleAndPersist({
+        trade_date: TRADE_DATE,
+        nowMs: now + 1000,
+        sessionEnded: true,
+        reportsDir: dir,
+    });
+    assert.equal(again.retried, true);
+    assert.equal(again.summary.signal_count, 1);
+    console.log('OK pending until settle; restart catch-up; no double count');
+    rmSync(dir, { recursive: true, force: true });
+}

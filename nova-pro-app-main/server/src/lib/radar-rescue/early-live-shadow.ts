@@ -40,6 +40,89 @@ export type DayReferenceSource =
     | 'injected'
     | 'none';
 
+/** Max age for a trade print to enter a live observation bar. */
+export const LIVE_TRADE_MAX_AGE_MS = 90_000;
+
+export type LiveTradeRejectReason =
+    | 'invalid'
+    | 'stale'
+    | 'duplicate'
+    | 'missing_timestamp'
+    | 'missing_source';
+
+/** Confirmed trade/print — wall-clock poll time alone is not enough. */
+export interface LiveTradeTick {
+    price: number;
+    /** Exchange/print timestamp. */
+    trade_ts_ms: number;
+    source: LivePriceFeedSource;
+}
+
+export type LiveSettlementStatus =
+    | 'none'
+    | 'pending'
+    | 'settled'
+    | 'waiting_session_end';
+
+export interface LiveSettlementState {
+    trade_date: string;
+    status: LiveSettlementStatus;
+    live_report_ready: boolean;
+    last_attempt_at_ms: number | null;
+    run_id: string | null;
+    /** UI copy when report must not be treated as complete. */
+    message: string | null;
+}
+
+/**
+ * Only accept trades with timestamp + source that are fresh and not a replayed last_price.
+ */
+export function evaluateLiveTradeTick(
+    tick: Partial<LiveTradeTick> | null | undefined,
+    nowMs: number,
+    lastAccepted: { trade_ts_ms: number; price: number } | null,
+):
+    | { ok: true; tick: LiveTradeTick }
+    | { ok: false; reason: LiveTradeRejectReason } {
+    if (!tick) return { ok: false, reason: 'invalid' };
+    if (tick.trade_ts_ms == null || !(Number(tick.trade_ts_ms) > 0)) {
+        return { ok: false, reason: 'missing_timestamp' };
+    }
+    if (!tick.source) return { ok: false, reason: 'missing_source' };
+    if (!(typeof tick.price === 'number' && tick.price > 0)) {
+        return { ok: false, reason: 'invalid' };
+    }
+    const trade_ts_ms = Number(tick.trade_ts_ms);
+    if (trade_ts_ms > nowMs + 1_000) {
+        return { ok: false, reason: 'invalid' };
+    }
+    if (nowMs - trade_ts_ms > LIVE_TRADE_MAX_AGE_MS) {
+        return { ok: false, reason: 'stale' };
+    }
+    if (
+        lastAccepted &&
+        lastAccepted.price === tick.price &&
+        trade_ts_ms <= lastAccepted.trade_ts_ms
+    ) {
+        return { ok: false, reason: 'duplicate' };
+    }
+    if (
+        lastAccepted &&
+        lastAccepted.trade_ts_ms === trade_ts_ms &&
+        lastAccepted.price === tick.price
+    ) {
+        return { ok: false, reason: 'duplicate' };
+    }
+    return {
+        ok: true,
+        tick: {
+            price: tick.price,
+            trade_ts_ms,
+            source: tick.source,
+        },
+    };
+}
+
 export interface LiveEarlyShadowRecord {
     signal_id: string;
     symbol: string;
@@ -58,7 +141,9 @@ export interface LiveEarlyShadowRecord {
     active_at_ms: number | null;
     terminal_state: string;
     price_feed_source: LivePriceFeedSource;
-    /** Last sample wall clock — restart must not invent bars in the gap. */
+    /** Last accepted trade print timestamp for this signal's symbol stream. */
+    last_trade_ts_ms: number;
+    /** Last time we considered observation (accepted trade or gap mark). */
     last_sample_at_ms: number;
     settled: boolean;
     settlement_run_id: string | null;
@@ -146,6 +231,11 @@ function summarize(outcomes: EarlyBacktestOutcome[]): EarlyBacktestSummary {
  */
 export class EarlyLiveShadowStore {
     private byId = new Map<string, LiveEarlyShadowRecord>();
+    /** Per-symbol last accepted trade — blocks duplicate last_price. */
+    private lastTradeBySymbol = new Map<
+        string,
+        { trade_ts_ms: number; price: number }
+    >();
     private now: () => number;
 
     constructor(
@@ -177,7 +267,23 @@ export class EarlyLiveShadowStore {
                 readFileSync(path, 'utf8'),
             ) as LiveEarlyShadowRecord[];
             for (const r of rows) {
-                if (r?.signal_id) this.byId.set(r.signal_id, r);
+                if (r?.signal_id) {
+                    if (r.last_trade_ts_ms == null) {
+                        r.last_trade_ts_ms =
+                            r.last_sample_at_ms ?? r.triggered_at_ms;
+                    }
+                    this.byId.set(r.signal_id, r);
+                    const prev = this.lastTradeBySymbol.get(r.symbol);
+                    if (
+                        !prev ||
+                        r.last_trade_ts_ms > prev.trade_ts_ms
+                    ) {
+                        this.lastTradeBySymbol.set(r.symbol, {
+                            trade_ts_ms: r.last_trade_ts_ms,
+                            price: r.trigger_price,
+                        });
+                    }
+                }
             }
             return rows;
         } catch {
@@ -251,6 +357,7 @@ export class EarlyLiveShadowStore {
             active_at_ms: null,
             terminal_state: input.state_at_trigger,
             price_feed_source: input.price_feed_source ?? 'injected',
+            last_trade_ts_ms: input.triggered_at_ms,
             last_sample_at_ms: input.triggered_at_ms,
             settled: false,
             settlement_run_id: null,
@@ -286,44 +393,41 @@ export class EarlyLiveShadowStore {
     }
 
     /**
-     * Accumulate live price into 1m bars. Does not backfill minutes missed while down.
+     * Accept only fresh, timestamped trades into 1m bars.
+     * Stale quotes / duplicate last_price are rejected; silence → DATA_MISSING.
      */
-    samplePrice(
+    sampleTrade(
         symbol: string,
-        price: number | null,
+        tick: Partial<LiveTradeTick> | null | undefined,
         nowMs = this.now(),
-        feed: LivePriceFeedSource = 'injected',
-    ): void {
-        if (price == null || !(price > 0)) return;
-        const knownAt = sampleToBarKnownAt(nowMs);
+    ): { accepted: boolean; reason?: LiveTradeRejectReason } {
+        const last = this.lastTradeBySymbol.get(symbol) ?? null;
+        const judged = evaluateLiveTradeTick(tick, nowMs, last);
+        if (!judged.ok) {
+            this.markSilentGaps(symbol, nowMs);
+            return { accepted: false, reason: judged.reason };
+        }
+        const { price, trade_ts_ms, source } = judged.tick;
+        const knownAt = sampleToBarKnownAt(trade_ts_ms);
+        let dirty = false;
 
         for (const row of this.byId.values()) {
             if (row.symbol !== symbol || row.settled) continue;
             if (knownAt <= row.triggered_at_ms) continue;
 
-            // Mark gap after restart / silence as DATA_MISSING (→ INCOMPLETE, not FAIL).
-            if (
-                row.last_sample_at_ms > 0 &&
-                nowMs - row.last_sample_at_ms > 90_000
-            ) {
-                const gapStart = sampleToBarKnownAt(row.last_sample_at_ms) + 60_000;
-                for (let t = gapStart; t < knownAt; t += 60_000) {
-                    if (t <= row.triggered_at_ms) continue;
-                    if (row.bars.some((b) => b.t === t)) continue;
-                    row.bars.push({
-                        t,
-                        open: price,
-                        high: price,
-                        low: price,
-                        close: price,
-                        gap_kind: 'DATA_MISSING',
-                    });
-                }
-            }
+            this.fillMissingBars(
+                row,
+                knownAt,
+                /*placeholderPrice*/ price,
+                nowMs,
+            );
 
             const existing = row.bars.find((b) => b.t === knownAt);
             if (existing) {
-                if (existing.gap_kind === 'DATA_MISSING') continue;
+                if (existing.gap_kind === 'DATA_MISSING') {
+                    // Do not overwrite a missing slot with a late print for that minute.
+                    continue;
+                }
                 existing.high = Math.max(existing.high, price);
                 existing.low = Math.min(existing.low, price);
                 existing.close = price;
@@ -339,17 +443,191 @@ export class EarlyLiveShadowStore {
                 row.bars.sort((a, b) => a.t - b.t);
             }
 
+            row.last_trade_ts_ms = trade_ts_ms;
             row.last_sample_at_ms = nowMs;
-            if (row.price_feed_source !== feed) {
+            if (row.price_feed_source !== source) {
                 row.price_feed_source =
-                    row.price_feed_source === 'injected' ? feed : 'mixed';
+                    row.price_feed_source === 'injected' ? source : 'mixed';
             }
+            dirty = true;
+            this.persistDate(row.trade_date);
+        }
+
+        this.lastTradeBySymbol.set(symbol, { trade_ts_ms, price });
+        if (!dirty) {
+            // No open tracks — still record dedupe cursor.
+            return { accepted: true };
+        }
+        return { accepted: true };
+    }
+
+    /** @deprecated use sampleTrade — bare last_price without trade_ts is rejected. */
+    samplePrice(
+        symbol: string,
+        price: number | null,
+        nowMs = this.now(),
+        feed: LivePriceFeedSource = 'injected',
+        tradeTsMs?: number,
+    ): { accepted: boolean; reason?: LiveTradeRejectReason } {
+        if (tradeTsMs == null) {
+            this.markSilentGaps(symbol, nowMs);
+            return { accepted: false, reason: 'missing_timestamp' };
+        }
+        return this.sampleTrade(
+            symbol,
+            { price: price ?? undefined, trade_ts_ms: tradeTsMs, source: feed },
+            nowMs,
+        );
+    }
+
+    /** Fill DATA_MISSING for elapsed minutes with no accepted trade. */
+    markSilentGaps(symbol: string | null, nowMs = this.now()): void {
+        const knownAt = sampleToBarKnownAt(nowMs);
+        for (const row of this.byId.values()) {
+            if (symbol && row.symbol !== symbol) continue;
+            if (row.settled) continue;
+            if (nowMs - row.last_trade_ts_ms <= LIVE_TRADE_MAX_AGE_MS) continue;
+            this.fillMissingBars(row, knownAt, row.trigger_price, nowMs);
+            row.last_sample_at_ms = nowMs;
             this.persistDate(row.trade_date);
         }
     }
 
+    private fillMissingBars(
+        row: LiveEarlyShadowRecord,
+        upToKnownAt: number,
+        placeholderPrice: number,
+        nowMs: number,
+    ): void {
+        if (!(row.last_trade_ts_ms > 0)) return;
+        if (nowMs - row.last_trade_ts_ms <= LIVE_TRADE_MAX_AGE_MS) return;
+        const gapStart = sampleToBarKnownAt(row.last_trade_ts_ms) + 60_000;
+        for (let t = gapStart; t < upToKnownAt; t += 60_000) {
+            if (t <= row.triggered_at_ms) continue;
+            if (row.bars.some((b) => b.t === t)) continue;
+            row.bars.push({
+                t,
+                open: placeholderPrice,
+                high: placeholderPrice,
+                low: placeholderPrice,
+                close: placeholderPrice,
+                gap_kind: 'DATA_MISSING',
+            });
+        }
+        row.bars.sort((a, b) => a.t - b.t);
+    }
+
+    /**
+     * Trade dates that still need post-close settlement (unsettled rows, session ended).
+     */
+    datesNeedingSettlement(nowMs = this.now()): string[] {
+        const dates = new Set<string>();
+        for (const row of this.byId.values()) {
+            if (row.settled) continue;
+            if (nowMs >= expectedSessionEndKnownAt(row.trade_date)) {
+                dates.add(row.trade_date);
+            }
+        }
+        return [...dates].sort();
+    }
+
+    private settleMetaPath(date: string): string {
+        return join(this.dir(), `${date}.settle.json`);
+    }
+
+    writeSettlementState(state: LiveSettlementState): void {
+        mkdirSync(this.dir(), { recursive: true });
+        writeFileSync(
+            this.settleMetaPath(state.trade_date),
+            JSON.stringify(state, null, 2),
+            'utf8',
+        );
+    }
+
+    getSettlementStatus(
+        tradeDate: string,
+        nowMs = this.now(),
+    ): LiveSettlementState {
+        const path = this.settleMetaPath(tradeDate);
+        let saved: LiveSettlementState | null = null;
+        if (existsSync(path)) {
+            try {
+                saved = JSON.parse(
+                    readFileSync(path, 'utf8'),
+                ) as LiveSettlementState;
+            } catch {
+                saved = null;
+            }
+        }
+        const rows = this.list(tradeDate);
+        const anyUnsettled = rows.some((r) => !r.settled);
+        const sessionEnded = nowMs >= expectedSessionEndKnownAt(tradeDate);
+        const reportReady =
+            saved?.live_report_ready === true ||
+            rows.some((r) => r.settled && r.settlement_run_id);
+
+        if (reportReady && !anyUnsettled) {
+            return {
+                trade_date: tradeDate,
+                status: 'settled',
+                live_report_ready: true,
+                last_attempt_at_ms: saved?.last_attempt_at_ms ?? null,
+                run_id: saved?.run_id ?? rows[0]?.settlement_run_id ?? null,
+                message: null,
+            };
+        }
+        if (rows.length === 0) {
+            return {
+                trade_date: tradeDate,
+                status: 'none',
+                live_report_ready: false,
+                last_attempt_at_ms: saved?.last_attempt_at_ms ?? null,
+                run_id: null,
+                message: null,
+            };
+        }
+        if (!sessionEnded) {
+            return {
+                trade_date: tradeDate,
+                status: 'waiting_session_end',
+                live_report_ready: false,
+                last_attempt_at_ms: saved?.last_attempt_at_ms ?? null,
+                run_id: null,
+                message: null,
+            };
+        }
+        return {
+            trade_date: tradeDate,
+            status: 'pending',
+            live_report_ready: false,
+            last_attempt_at_ms: saved?.last_attempt_at_ms ?? null,
+            run_id: null,
+            message: '當日實盤日報尚未結算完成',
+        };
+    }
+
+    markSettlementAttempt(
+        tradeDate: string,
+        nowMs: number,
+        result: { live_report_ready: boolean; run_id: string | null },
+    ): LiveSettlementState {
+        const state: LiveSettlementState = {
+            trade_date: tradeDate,
+            status: result.live_report_ready ? 'settled' : 'pending',
+            live_report_ready: result.live_report_ready,
+            last_attempt_at_ms: nowMs,
+            run_id: result.run_id,
+            message: result.live_report_ready
+                ? null
+                : '當日實盤日報尚未結算完成',
+        };
+        this.writeSettlementState(state);
+        return state;
+    }
+
     /**
      * Patch day reference (e.g. from EOD Yahoo) without creating a new signal.
+     * Caller must only pass refs from the exact settlement trade date.
      */
     patchDayReference(
         signalId: string,
@@ -565,11 +843,19 @@ export class EarlyLiveShadowStore {
                 row.settlement_run_id = run_id;
             }
             this.persistDate(opts.trade_date);
+            this.markSettlementAttempt(opts.trade_date, nowMs, {
+                live_report_ready: true,
+                run_id,
+            });
         } else if (rows.length > 0) {
             for (const row of rows) {
                 row.settlement_run_id = null;
             }
             this.persistDate(opts.trade_date);
+            this.markSettlementAttempt(opts.trade_date, nowMs, {
+                live_report_ready: false,
+                run_id: null,
+            });
         }
 
         return {

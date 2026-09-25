@@ -26,7 +26,7 @@ import {
     type EarlyDailyReport,
     type EarlyReportSource,
 } from './early-daily-report.ts';
-import { expectedSessionEndKnownAt } from './early-backtest.ts';
+import { printsFromRecentPrices } from './print-samples.ts';
 import { buildMultiLaneCandidates } from './multi-lane.ts';
 import { judgeNewsForSymbol } from './news-judge.ts';
 import {
@@ -84,6 +84,7 @@ export class RadarRescueService {
     private earlyLiveShadow: EarlyLiveShadowStore;
     private earlyReports: EarlyDailyReportStore;
     private transitionFlushAt = 0;
+    private lastAutoSettleCheckMs = 0;
 
     constructor(
         private dataDir: string,
@@ -107,6 +108,8 @@ export class RadarRescueService {
         if (!this.cfg.enabled) return;
         if (this.timer) return;
         void this.evaluate();
+        // Restart catch-up for any post-close unsettled live shadow days.
+        void this.catchUpLiveEarlySettlement();
         this.timer = setInterval(() => {
             void this.evaluate();
         }, Math.max(3, this.cfg.evaluate_interval_sec) * 1000);
@@ -172,11 +175,93 @@ export class RadarRescueService {
     }
 
     listEarlyDailyReportApi(date: string, includePartial = false) {
-        return this.earlyReports.listForApi(date, { includePartial });
+        const base = this.earlyReports.listForApi(date, { includePartial });
+        const settle = this.earlyLiveShadow.getSettlementStatus(date);
+        const message =
+            settle.message ??
+            (base.live_pipeline.wired ? null : base.live_pipeline.message);
+        return {
+            ...base,
+            live_pipeline: {
+                wired: base.live_pipeline.wired,
+                message,
+                settlement_status: settle.status,
+                live_report_ready: settle.live_report_ready,
+            },
+            note:
+                base.note +
+                (settle.status === 'pending'
+                    ? ' 當日實盤日報尚未結算完成，請勿視為已完成。'
+                    : ''),
+        };
     }
 
     saveEarlyDailyReport(report: EarlyDailyReport): string {
         return this.earlyReports.save(report);
+    }
+
+    /**
+     * Post-close auto settle + restart catch-up.
+     * Safe to call repeatedly; settleAndPersist overwrites same run_id (no double count).
+     */
+    async catchUpLiveEarlySettlement(nowMs = Date.now()): Promise<void> {
+        const dates = this.earlyLiveShadow.datesNeedingSettlement(nowMs);
+        for (const ymd of dates) {
+            this.earlyLiveShadow.markSettlementAttempt(ymd, nowMs, {
+                live_report_ready: false,
+                run_id: null,
+            });
+            const symbols = [
+                ...new Set(
+                    this.earlyLiveShadow.list(ymd).map((r) => r.symbol),
+                ),
+            ];
+            let eodFetchFailed = false;
+            if (symbols.length) {
+                const truth = await this.eod.buildForSymbols(symbols, ymd);
+                const truthBy = new Map(truth.map((t) => [t.symbol, t]));
+                for (const row of this.earlyLiveShadow.list(ymd)) {
+                    const t = truthBy.get(row.symbol);
+                    // Exact trade_date match only (buildForSymbols no longer substitutes other days).
+                    if (
+                        !t ||
+                        t.trade_date !== ymd ||
+                        t.data_status !== 'ok' ||
+                        t.prev_close == null ||
+                        !(t.prev_close > 0)
+                    ) {
+                        eodFetchFailed = true;
+                        continue;
+                    }
+                    if (
+                        row.day_reference_price == null ||
+                        !(row.day_reference_price > 0)
+                    ) {
+                        this.earlyLiveShadow.patchDayReference(
+                            row.signal_id,
+                            t.prev_close,
+                            'eod_yahoo',
+                        );
+                    }
+                }
+            } else {
+                eodFetchFailed = true;
+            }
+            this.earlyLiveShadow.settleAndPersist({
+                trade_date: ymd,
+                nowMs,
+                sessionEnded: true,
+                eodFetchFailed,
+            });
+        }
+    }
+
+    private maybeScheduleLiveEarlySettle(nowMs = Date.now()): void {
+        if (nowMs - this.lastAutoSettleCheckMs < 30_000) return;
+        this.lastAutoSettleCheckMs = nowMs;
+        if (this.earlyLiveShadow.datesNeedingSettlement(nowMs).length) {
+            void this.catchUpLiveEarlySettlement(nowMs);
+        }
     }
 
     async runEodTruthAndRecall(symbols?: string[]): Promise<DailyRecallReport> {
@@ -189,48 +274,16 @@ export class RadarRescueService {
                 ...this.funnel.list().map((f) => f.symbol),
                 ...this.earlyLiveShadow.list().map((r) => r.symbol),
             ];
-        const truth = await this.eod.buildForSymbols(pool);
-        const ymd =
-            truth[0]?.trade_date ??
-            new Intl.DateTimeFormat('en-CA', {
-                timeZone: 'Asia/Taipei',
-            }).format(new Date());
+        const ymd = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Taipei',
+        }).format(new Date());
+        const truth = await this.eod.buildForSymbols(pool, ymd);
         const report = buildDailyRecall(ymd, truth, this.funnel);
         persistRecall(this.dataDir, report);
         this.lastRecall = report;
 
-        // Patch day refs from EOD when live shadow lacked prev_close; then settle.
-        const truthBy = new Map(truth.map((t) => [t.symbol, t]));
-        let eodFetchFailed = false;
-        for (const row of this.earlyLiveShadow.list(ymd)) {
-            const t = truthBy.get(row.symbol);
-            if (!t || t.data_status !== 'ok') {
-                eodFetchFailed = true;
-                continue;
-            }
-            if (
-                (row.day_reference_price == null ||
-                    !(row.day_reference_price > 0)) &&
-                t.prev_close != null &&
-                t.prev_close > 0
-            ) {
-                this.earlyLiveShadow.patchDayReference(
-                    row.signal_id,
-                    t.prev_close,
-                    'eod_yahoo',
-                );
-            }
-        }
-        const sessionEnded =
-            Date.now() >= expectedSessionEndKnownAt(ymd);
-        if (sessionEnded) {
-            this.earlyLiveShadow.settleAndPersist({
-                trade_date: ymd,
-                sessionEnded: true,
-                eodFetchFailed,
-            });
-        }
-
+        // Manual EOD path also drives live early settlement (retryable).
+        await this.catchUpLiveEarlySettlement();
         return report;
     }
 
@@ -256,6 +309,7 @@ export class RadarRescueService {
 
     async evaluate(): Promise<RescueBatch | null> {
         if (!this.cfg.enabled) return null;
+        this.maybeScheduleLiveEarlySettle();
         const cBatch = this.intradayRank.getLastBatch();
         const discovery = this.intradayRank.getDiscoveryPool();
         const cItems = cBatch?.items ?? [];
@@ -526,12 +580,26 @@ export class RadarRescueService {
                 features.last_price,
                 radarState,
             );
-            this.earlyLiveShadow.samplePrice(
-                symbol,
-                features.last_price,
-                Date.now(),
-                feed,
+            // Live day bars: only confirmed prints with timestamp (never bare last_price).
+            const nowMs = Date.now();
+            const msState = this.openGate?.getMarketState(symbol);
+            const prints = printsFromRecentPrices(
+                msState?.recent_prices,
+                nowMs,
+                90_000,
             );
+            const latestPrint = prints.length
+                ? prints.reduce((a, b) => (a.ts_ms >= b.ts_ms ? a : b))
+                : null;
+            if (latestPrint) {
+                this.earlyLiveShadow.sampleTrade(symbol, {
+                    price: latestPrint.price,
+                    trade_ts_ms: latestPrint.ts_ms,
+                    source: feed,
+                }, nowMs);
+            } else {
+                this.earlyLiveShadow.markSilentGaps(symbol, nowMs);
+            }
             if (
                 radarState === 'ACTIVE' ||
                 radarState === 'NEAR_LIMIT' ||

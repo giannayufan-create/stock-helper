@@ -203,6 +203,12 @@ export interface EarlyDailyReportListDto {
     live_pipeline: {
         wired: boolean;
         message: string | null;
+        settlement_status?:
+            | 'none'
+            | 'pending'
+            | 'settled'
+            | 'waiting_session_end';
+        live_report_ready?: boolean;
     };
     note: string;
 }

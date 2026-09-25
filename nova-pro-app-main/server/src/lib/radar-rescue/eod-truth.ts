@@ -42,6 +42,20 @@ function incompleteRow(
     };
 }
 
+/** Exact trade-date match only — never substitute another session's bar. */
+export function selectEodBarForTradeDate<
+    T extends { date: string; close: number },
+>(
+    bars: T[],
+    tradeDate: string,
+): { today: T; prev: T | null } | null {
+    const today = bars.find((b) => b.date === tradeDate);
+    if (!today) return null;
+    const prevIdx = bars.findIndex((b) => b.date === today.date);
+    const prev = prevIdx > 0 ? bars[prevIdx - 1]! : null;
+    return { today, prev };
+}
+
 export class EodTruthService {
     private last: EodTruthRow[] = [];
 
@@ -86,16 +100,12 @@ export class EodTruthService {
                 rows.push(incompleteRow(tradeDate, symbol, 'incomplete'));
                 continue;
             }
-            // Prefer bar matching tradeDate; else last bar
-            let today =
-                bars.find((b) => b.date === tradeDate) ?? bars[bars.length - 1]!;
-            const prevIdx = bars.findIndex((b) => b.date === today.date);
-            const prev =
-                prevIdx > 0
-                    ? bars[prevIdx - 1]!
-                    : bars.length >= 2
-                      ? bars[bars.length - 2]!
-                      : null;
+            const selected = selectEodBarForTradeDate(bars, tradeDate);
+            if (!selected) {
+                rows.push(incompleteRow(tradeDate, symbol, 'incomplete'));
+                continue;
+            }
+            const { today, prev } = selected;
             const prevClose = prev?.close ?? null;
             if (prevClose == null || !(prevClose > 0)) {
                 rows.push(incompleteRow(tradeDate, symbol, 'incomplete'));
