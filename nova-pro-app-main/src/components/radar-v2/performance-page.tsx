@@ -22,10 +22,17 @@ import {
     type EarlyMetricBucketDto,
     type EarlyReportSource,
 } from '../../lib/radar-rescue';
+import { StrategyValidationPage } from '../strategy-validation-page';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
 
-type PerfTab = 'signals' | 'early' | 'shadow' | 'context' | 'history';
+type PerfTab =
+    | 'signals'
+    | 'validation'
+    | 'early'
+    | 'shadow'
+    | 'context'
+    | 'history';
 type ContextSub = 'market' | 'sector' | 'events' | 'combo';
 
 function taipeiToday(): string {
@@ -232,6 +239,7 @@ export function PerformancePage() {
                 {(
                     [
                         ['signals', '訊號結果'],
+                        ['validation', '策略驗證'],
                         ['early', 'EARLY 日報'],
                         ['shadow', '影子實驗'],
                         ['context', 'Context Lab'],
@@ -248,6 +256,8 @@ export function PerformancePage() {
                     </button>
                 ))}
             </div>
+
+            {tab === 'validation' && <StrategyValidationPage />}
 
             {tab === 'signals' && (
                 <div className={s.glass} style={{ padding: 16 }}>

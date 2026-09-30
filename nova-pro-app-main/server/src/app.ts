@@ -31,6 +31,7 @@ import { registerRadarRescueRoutes } from './routes/radar-rescue.ts';
 import { registerTodayRoutes } from './routes/today.ts';
 import { registerOutcomeRoutes } from './routes/outcomes.ts';
 import { registerLimitUpBoardRoutes } from './routes/limit-up-board.ts';
+import { registerStrategyValidationRoutes } from './routes/strategy-validation.ts';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const app = Fastify({ logger: { level: 'warn' } });
@@ -71,6 +72,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerTodayRoutes(app, ctx);
     registerOutcomeRoutes(app, ctx);
     registerLimitUpBoardRoutes(app, ctx);
+    registerStrategyValidationRoutes(app, ctx);
 
     // provider events → SSE fan-out
     ctx.market.onTick((channel, tick) => ctx.hub.broadcast(channel, tick));

@@ -13,6 +13,7 @@ import {
     JsonlStrategySignalRepository,
     type StrategySignalRepository,
 } from './repository.ts';
+import { RawSignalStore } from './raw-signal-store.ts';
 import type { StrategySignal } from './types.ts';
 
 export interface BridgeContext {
@@ -33,9 +34,15 @@ function defaultSignalsRoot(): string {
     return join(here, '..', '..', '..', 'data', 'signals');
 }
 
+function defaultRawRoot(): string {
+    const here = dirname(fileURLToPath(import.meta.url));
+    return join(here, '..', '..', '..', 'data', 'raw_strategy_signals');
+}
+
 export class StrategySignalBridge {
     readonly life = new SignalLifecycleManager();
     readonly repo: StrategySignalRepository;
+    readonly rawStore: RawSignalStore;
     readonly factory: StrategySignalFactory;
     readonly created: StrategySignal[] = [];
     private listeners: Array<(sig: StrategySignal) => void> = [];
@@ -46,14 +53,23 @@ export class StrategySignalBridge {
         learning_eligible: true,
     };
 
-    constructor(repo?: StrategySignalRepository) {
+    constructor(
+        repo?: StrategySignalRepository,
+        rawStore?: RawSignalStore,
+    ) {
         this.repo = repo ?? new JsonlStrategySignalRepository();
-        this.factory = new StrategySignalFactory(this.repo, this.life);
+        this.rawStore = rawStore ?? new RawSignalStore(defaultRawRoot());
+        this.factory = new StrategySignalFactory(
+            this.repo,
+            this.life,
+            this.rawStore,
+        );
 
-        // Restart hydrate: known signal ids + lifecycle.json
+        // Restart hydrate: known signal ids + lifecycle.json + raw ids
         if (typeof this.repo.hydrateKnownIds === 'function') {
             this.repo.hydrateKnownIds();
         }
+        this.rawStore.hydrateKnownIds();
         const signalsRoot =
             this.repo instanceof JsonlStrategySignalRepository
                 ? this.repo.rootDir()

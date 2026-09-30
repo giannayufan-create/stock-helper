@@ -6,6 +6,9 @@ import type { OpenConfirmResult } from '../open-gate-v2/types.ts';
 import type { IntradayEventType, IntradayRankItem } from '../intraday-rank/types.ts';
 import { SignalLifecycleManager } from './lifecycle.ts';
 import type { StrategySignalRepository } from './repository.ts';
+import { rawSignalEventFromStrategy } from './raw-signal-from-strategy.ts';
+import type { RawSignalStore } from './raw-signal-store.ts';
+import { isShadowCashSession } from '../shadow/session.ts';
 import {
     INTRADAY_RANK_VERSION,
     OPEN_GATE_VERSION,
@@ -27,6 +30,14 @@ export interface SignalContext {
         symbol: string;
         signalTime: string;
     }) => import('../context-research/types.ts').ContextBundle | null;
+}
+
+/** Which deployment wrote the signal; Render sets RENDER_SERVICE_NAME. */
+const WRITER_SERVICE = process.env.RENDER_SERVICE_NAME?.trim() || 'local';
+
+/** Live signals only exist inside the TW cash session (09:00–13:30, trading days). */
+function outsideLiveSession(ctx: SignalContext, iso: string): boolean {
+    return ctx.source_mode === 'live' && !isShadowCashSession(new Date(iso));
 }
 
 function newId(prefix: string): string {
@@ -68,7 +79,20 @@ export class StrategySignalFactory {
     constructor(
         private repo: StrategySignalRepository,
         private life: SignalLifecycleManager,
+        /** Phase 2 — append-only raw emission snapshot (optional). */
+        private rawStore?: RawSignalStore | null,
     ) {}
+
+    /** Persist StrategySignal + append RawSignalEvent (idempotent). */
+    private persistNew(signal: StrategySignal): void {
+        this.repo.save(signal);
+        if (!this.rawStore) return;
+        try {
+            this.rawStore.append(rawSignalEventFromStrategy(signal));
+        } catch {
+            // raw append must not break B/C evaluation
+        }
+    }
 
     /**
      * B: first tradeable_candidate=true → OPEN_PASS.
@@ -82,6 +106,7 @@ export class StrategySignalFactory {
         referencePrice: number,
     ): StrategySignal | null {
         const nowIso = next.generated_at ?? next.timestamp;
+        if (outsideLiveSession(ctx, nowIso)) return null;
         const wasTradeable = Boolean(prev?.tradeable_candidate);
         const isTradeable = Boolean(next.tradeable_candidate);
 
@@ -173,6 +198,7 @@ export class StrategySignalFactory {
             metadata: {
                 open_confirm: next.open_confirm,
                 tradeable_candidate: next.tradeable_candidate,
+                writer_service: WRITER_SERVICE,
             },
         };
 
@@ -186,7 +212,7 @@ export class StrategySignalFactory {
             }) as typeof signal.context_snapshot;
         }
 
-        this.repo.save(signal);
+        this.persistNew(signal);
         this.life.activate({
             symbol: next.symbol,
             signal_type: 'OPEN_PASS',
@@ -208,6 +234,7 @@ export class StrategySignalFactory {
     ): StrategySignal[] {
         const out: StrategySignal[] = [];
         const nowIso = next.updated_at;
+        if (outsideLiveSession(ctx, nowIso)) return out;
         const refSource =
             ctx.source_mode === 'replay'
                 ? 'replay_bar_close'
@@ -297,27 +324,28 @@ export class StrategySignalFactory {
                     ctxBundle?.context_strength_score ?? null,
                 metadata: {
                     feature_availability: next.feature_availability,
+                    writer_service: WRITER_SERVICE,
                 },
             };
-    this.repo.save(signal);
-    this.life.activate({
-        symbol: next.symbol,
-        signal_type: type,
-        signal_id: signal.signal_id,
-        nowIso,
-        cooldownSec,
-    });
-    // For event types, cool immediately so cooldown applies
-    if (type !== 'STRONG_ENTER') {
-        this.life.setStatus(
-            next.symbol,
-            type,
-            'cooling',
-            nowIso,
-            cooldownSec,
-        );
-    }
-    out.push(signal);
+            this.persistNew(signal);
+            this.life.activate({
+                symbol: next.symbol,
+                signal_type: type,
+                signal_id: signal.signal_id,
+                nowIso,
+                cooldownSec,
+            });
+            // For event types, cool immediately so cooldown applies
+            if (type !== 'STRONG_ENTER') {
+                this.life.setStatus(
+                    next.symbol,
+                    type,
+                    'cooling',
+                    nowIso,
+                    cooldownSec,
+                );
+            }
+            out.push(signal);
         };
 
         // STRONG_ENTER: HEATING → STRONG only

@@ -3,6 +3,11 @@
 # Starter stays up (no 15-min spin-down). Free sleeps and first open waits 30–60s.
 #
 # 原本變數維持不動；永豐行情只用新名稱 SHIOAJI_*（勿再貼 MARKET_PROVIDER）。
+#
+# 唯一正式後端（2026-10-01 起）。Dashboard 另外設定、未寫進本檔：
+#   Disk：mount /app/server/data，1 GB（研究資料 JSONL 重新部署後保留）
+#   RESEARCH_REPOSITORY_MODE=dual、FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY
+# 舊服務 stock-helper（-eskj）已暫停，nova-pro-app-main/render.yaml 不再使用。
 
 services:
   - type: web

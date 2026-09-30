@@ -43,6 +43,7 @@ import { RadarRescueService } from './lib/radar-rescue/index.ts';
 import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { LiveOutcomeTracker } from './lib/signal-outcome/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
+import { StrategyValidationService } from './lib/strategy-validation/service.ts';
 import { refreshTxfNightQuote } from './lib/today-decision/txf-night-quote.ts';
 
 loadEnvFile();
@@ -370,6 +371,13 @@ async function main(): Promise<void> {
         `radar-rescue: ${radarRescue.getHealth().status} mode=${radarRescue.getHealth().mode} (support only, A/B/C/BP untouched)`,
     );
 
+    const strategyValidation = new StrategyValidationService(
+        signalBridge.rawStore,
+    );
+    console.log(
+        'strategy-validation: OPEN_PASS raw-store wired (research only, no orders)',
+    );
+
     const ctx: AppContext = {
         config,
         market: manager,
@@ -397,6 +405,7 @@ async function main(): Promise<void> {
         radarQuality,
         radarRescue,
         outcomeTracker,
+        strategyValidation,
         startedAt: Date.now(),
     };
     const liveAcceptance = new LiveAcceptanceService(ctx, dataDir);

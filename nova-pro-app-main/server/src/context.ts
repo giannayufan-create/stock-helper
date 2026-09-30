@@ -20,6 +20,7 @@ import type { RadarQualityService } from './lib/radar-quality/index.ts';
 import type { RadarRescueService } from './lib/radar-rescue/index.ts';
 import type { LiveOutcomeTracker } from './lib/signal-outcome/index.ts';
 import type { OpenGateV2Service } from './lib/open-gate-v2/service.ts';
+import type { StrategyValidationService } from './lib/strategy-validation/service.ts';
 import type { MarketManager } from './providers/manager.ts';
 import type { TradingProvider } from './providers/trading.ts';
 import type { RuntimeConfigStore } from './runtime-config.ts';
@@ -75,6 +76,8 @@ export interface AppContext {
     radarRescue: RadarRescueService | null;
     /** Signal outcome measurement — research only; never feeds back into B/C. */
     outcomeTracker: LiveOutcomeTracker | null;
+    /** Strategy validation (OPEN_PASS raw events) — research only. */
+    strategyValidation: StrategyValidationService | null;
     startedAt: number;
 }
 

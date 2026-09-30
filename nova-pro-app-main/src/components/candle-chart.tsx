@@ -40,8 +40,12 @@ import { setPickedPrice } from '../lib/price-sync';
 import { notify } from '../lib/trade';
 import {
     addTrigger,
+    acknowledgeLockedTrigger,
+    rearmTrigger,
     removeTrigger,
+    useTriggerEngineStatus,
     useTriggers,
+    TRIGGER_ENGINE_DISCLAIMER,
 } from '../lib/trigger-engine';
 import type { ContractInfo } from '../lib/types/contract';
 import type { Candle } from '../lib/types/market';
@@ -276,6 +280,7 @@ export function CandleChart({
     const indSeriesRef = useRef<ISeriesApi<'Line'>[]>([]);
     const structureLinesRef = useRef<IPriceLine[]>([]);
     const triggers = useTriggers().filter((t) => t.code === contract.code);
+    const triggerEngineStatus = useTriggerEngineStatus();
     const workingOrders = useMemo(
         () =>
             trades.filter(
@@ -2255,6 +2260,26 @@ export function CandleChart({
                 )}
                 {(workingOrders.length > 0 || triggers.length > 0) && (
                     <div className={styles.triggerList}>
+                        <div
+                            style={{
+                                fontSize: 11,
+                                opacity: 0.85,
+                                padding: '4px 6px',
+                                lineHeight: 1.4,
+                                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                            }}
+                            title={TRIGGER_ENGINE_DISCLAIMER}
+                        >
+                            {triggerEngineStatus.page_monitoring
+                                ? '觸價監控：本頁運作中（非券商託管）'
+                                : '觸價監控：未啟動'}
+                            {triggerEngineStatus.locked_count > 0
+                                ? ` · 鎖定 ${triggerEngineStatus.locked_count}`
+                                : ''}
+                            {triggerEngineStatus.rejected_count > 0
+                                ? ` · 拒單 ${triggerEngineStatus.rejected_count}`
+                                : ''}
+                        </div>
                         {workingOrders.map((t) => {
                             const price =
                                 t.status.modified_price || t.order.price;
@@ -2319,13 +2344,53 @@ export function CandleChart({
                                     {fmtPrice(t.price)}
                                     {t.kind !== 'alert' &&
                                         ` ${t.action === 'Buy' ? '買' : '賣'}${t.quantity}`}
+                                    <span
+                                        style={{
+                                            marginLeft: 6,
+                                            opacity: 0.75,
+                                            fontSize: 10,
+                                        }}
+                                    >
+                                        [{t.status}]
+                                    </span>
+                                    {t.fail_reason ? (
+                                        <span
+                                            style={{
+                                                display: 'block',
+                                                fontSize: 10,
+                                                opacity: 0.7,
+                                            }}
+                                            title={t.fail_reason}
+                                        >
+                                            {t.fail_reason.slice(0, 40)}
+                                        </span>
+                                    ) : null}
                                 </span>
-                                <button
-                                    className={styles.triggerRemove}
-                                    onClick={() => removeTrigger(t.id)}
-                                >
-                                    ✕
-                                </button>
+                                <span style={{ display: 'flex', gap: 4 }}>
+                                    {(t.status === 'rejected' ||
+                                        t.status === 'locked') && (
+                                        <button
+                                            className={styles.triggerRemove}
+                                            title='人工恢復待觸發'
+                                            onClick={() =>
+                                                t.status === 'locked'
+                                                    ? acknowledgeLockedTrigger(
+                                                          t.id,
+                                                          true,
+                                                      )
+                                                    : rearmTrigger(t.id)
+                                            }
+                                        >
+                                            恢復
+                                        </button>
+                                    )}
+                                    <button
+                                        className={styles.triggerRemove}
+                                        onClick={() => removeTrigger(t.id)}
+                                    >
+                                        ✕
+                                    </button>
+                                </span>
                             </div>
                         ))}
                     </div>

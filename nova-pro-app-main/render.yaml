@@ -1,3 +1,7 @@
+# RETIRED 2026-10-01 — service "stock-helper" (stock-helper-eskj.onrender.com) is suspended.
+# The live API is "stock-helper-api" in the repo-root render.yaml. Do not deploy from this file:
+# two services writing the same Firestore duplicate research signals.
+#
 # Render Blueprint — forces Docker + our start script (no dashboard npx override).
 # Root Directory on Render should be: nova-pro-app-main
 # Or set dockerContext / dockerfilePath relative to repo root as needed.

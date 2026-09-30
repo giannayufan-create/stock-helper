@@ -12,6 +12,17 @@ export {
     type StrategySignalRepository,
 } from './repository.ts';
 export {
+    RAW_SIGNAL_EVENT_SCHEMA,
+    type AppendRawResult,
+    type DataCompleteness,
+    type ExitRulesSnapshot,
+    type RawSignalEvent,
+    type RawSignalScores,
+    type RawSignalSourceMode,
+} from './raw-signal-event.ts';
+export { RawSignalStore } from './raw-signal-store.ts';
+export { rawSignalEventFromStrategy } from './raw-signal-from-strategy.ts';
+export {
     FORMAL_SIGNAL_TYPES,
     INTRADAY_RANK_VERSION,
     OPEN_GATE_VERSION,

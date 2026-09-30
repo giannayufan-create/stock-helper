@@ -1,81 +1,196 @@
-// src/lib/trigger-engine.ts — client-side stop-loss / take-profit triggers.
-// Watches the SSE tick stream; when a trigger's condition crosses, it fires
-// a market order and removes itself. Triggers persist in localStorage but
-// only run while the app is open (client-side engine).
+// src/lib/trigger-engine.ts — browser wiring for client-side stop-loss / take-profit.
+// Core lifecycle lives in trigger-engine-core.ts (mock-testable, no Vite imports).
+// IMPORTANT: monitoring only runs while this page is open — broker does NOT host stops.
 
 import { useSyncExternalStore } from 'react';
 import { getCapabilities } from './capabilities';
 import { ensureContract } from './contracts-cache';
+import { fetchPositions, fetchTrades } from './backend';
 import { onAnyTick } from './stream';
-import { isFuturesContract, notify, placeQuickOrder } from './trade';
-import type { Action } from './types/order';
+import { notify, placeQuickOrder } from './trade';
+import {
+    TriggerEngineCore,
+    type TriggerEngineDeps,
+    type TriggerOrder,
+    type TriggerEngineStatus,
+    type TriggerLifecycle,
+    TRIGGER_ENGINE_DISCLAIMER,
+    BROKER_IDEMPOTENT_SUBMIT,
+    SUBMIT_TIMEOUT_MS,
+} from './trigger-engine-core';
 
-export interface TriggerOrder {
-    id: string;
-    code: string; // display code (matches quote-store code)
-    condition: 'below' | 'above'; // fire when last <= / >= price
-    price: number;
-    action: Action;
-    quantity: number;
-    kind: 'stop' | 'take' | 'alert';
-    group?: string; // OCO group — when one fires, siblings are cancelled
+export type {
+    TriggerOrder,
+    TriggerEngineStatus,
+    TriggerLifecycle,
+    TriggerEngineDeps,
+};
+export {
+    TriggerEngineCore,
+    TRIGGER_ENGINE_DISCLAIMER,
+    BROKER_IDEMPOTENT_SUBMIT,
+    SUBMIT_TIMEOUT_MS,
+};
+
+const STORAGE_KEY = 'sj-pro-triggers-v2';
+const LEGACY_STORAGE_KEY = 'sj-pro-triggers';
+
+function migrateLegacy(raw: unknown): TriggerOrder[] {
+    if (!Array.isArray(raw)) return [];
+    const now = Date.now();
+    return raw.map((item, i) => {
+        const t = item as Partial<TriggerOrder>;
+        const created_at_ms = t.created_at_ms ?? now - i;
+        const id =
+            t.id && String(t.id).startsWith('tg-')
+                ? String(t.id)
+                : `tg-${t.code ?? 'UNK'}-${t.kind ?? 'stop'}-${created_at_ms}`;
+        return {
+            id,
+            client_order_key: t.client_order_key ?? id,
+            code: String(t.code ?? ''),
+            condition: t.condition === 'above' ? 'above' : 'below',
+            price: Number(t.price) || 0,
+            action: t.action === 'Buy' ? 'Buy' : 'Sell',
+            quantity: Math.max(1, Number(t.quantity) || 1),
+            kind: t.kind === 'take' || t.kind === 'alert' ? t.kind : 'stop',
+            group: t.group,
+            status: (t.status as TriggerLifecycle) ?? 'armed',
+            fail_reason: t.fail_reason ?? null,
+            broker_order_id: t.broker_order_id ?? null,
+            submitted_at_ms: t.submitted_at_ms ?? null,
+            last_query_at_ms: t.last_query_at_ms ?? null,
+            created_at_ms,
+        };
+    });
 }
 
-const STORAGE_KEY = 'sj-pro-triggers';
-
-function load(): TriggerOrder[] {
+function loadFromStorage(): TriggerOrder[] {
+    if (typeof localStorage === 'undefined') return [];
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-            const arr = JSON.parse(raw);
-            if (Array.isArray(arr)) return arr as TriggerOrder[];
+        const v2 = localStorage.getItem(STORAGE_KEY);
+        if (v2) return migrateLegacy(JSON.parse(v2));
+        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (legacy) {
+            const migrated = migrateLegacy(JSON.parse(legacy));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+            return migrated;
         }
     } catch {
-        // corrupted — start clean
+        /* start clean */
     }
     return [];
 }
 
-let triggers: TriggerOrder[] = load();
-const listeners = new Set<() => void>();
-const firing = new Set<string>();
-
-function persist() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(triggers));
-    listeners.forEach((l) => l());
+function defaultDeps(): TriggerEngineDeps {
+    return {
+        placeOrder: async (contract, action, price, qty, opts) =>
+            placeQuickOrder(contract, action, price, qty, {
+                bypassRisk: opts?.bypassRisk,
+            }),
+        queryTrades: async () => {
+            const [st, fu] = await Promise.allSettled([
+                fetchTrades('S'),
+                fetchTrades('F'),
+            ]);
+            return [
+                ...(st.status === 'fulfilled' ? st.value : []),
+                ...(fu.status === 'fulfilled' ? fu.value : []),
+            ];
+        },
+        flattenableQty: async (code, action) => {
+            try {
+                const [sp, fp] = await Promise.allSettled([
+                    fetchPositions('S'),
+                    fetchPositions('F'),
+                ]);
+                let qty = 0;
+                const stock = sp.status === 'fulfilled' ? sp.value : [];
+                for (const p of stock) {
+                    if (p.code !== code) continue;
+                    const q = Number(p.quantity) || 0;
+                    if (action === 'Sell' && p.direction === 'Buy') qty += q;
+                    if (action === 'Buy' && p.direction === 'Sell') qty += q;
+                }
+                const fut = fp.status === 'fulfilled' ? fp.value : [];
+                for (const p of fut) {
+                    if (p.code !== code) continue;
+                    const q = Number(p.quantity) || 0;
+                    if (action === 'Sell' && p.direction === 'Buy') qty += q;
+                    if (action === 'Buy' && p.direction === 'Sell') qty += q;
+                }
+                return qty;
+            } catch {
+                return null;
+            }
+        },
+        ensureContract,
+        notify,
+        now: () => Date.now(),
+        futuresTrading: () => getCapabilities().futures_trading,
+        submitTimeoutMs: SUBMIT_TIMEOUT_MS,
+    };
 }
 
-export function addTrigger(t: Omit<TriggerOrder, 'id'>): TriggerOrder {
-    const trigger: TriggerOrder = {
-        ...t,
-        id: `tg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    };
-    triggers = [...triggers, trigger];
-    persist();
-    const kindLabel =
-        trigger.kind === 'stop'
-            ? '⛔ 停損單已掛'
-            : trigger.kind === 'take'
-              ? '🎯 停利單已掛'
-              : '🔔 警示已設';
-    notify({
-        kind: 'info',
-        title: kindLabel,
-        body:
-            trigger.kind === 'alert'
-                ? `${trigger.code} 觸價 ${trigger.condition === 'below' ? '≤' : '≥'} ${trigger.price} 時通知`
-                : `${trigger.code} 觸價 ${trigger.condition === 'below' ? '≤' : '≥'} ${trigger.price} → 市價${trigger.action === 'Buy' ? '買' : '賣'} ${trigger.quantity}${trigger.group ? '（OCO）' : ''}`,
-    });
-    return trigger;
+let core = new TriggerEngineCore(defaultDeps(), loadFromStorage());
+core.setPersist((rows) => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+    } catch {
+        /* ignore quota */
+    }
+});
+
+const listeners = new Set<() => void>();
+core.subscribe(() => listeners.forEach((l) => l()));
+
+/** Replace core (tests only). */
+export function __setTriggerEngineForTests(next: TriggerEngineCore): void {
+    core = next;
+    core.subscribe(() => listeners.forEach((l) => l()));
+}
+
+export function getTriggerEngine(): TriggerEngineCore {
+    return core;
+}
+
+export function addTrigger(
+    t: Omit<
+        TriggerOrder,
+        'id' | 'client_order_key' | 'status' | 'created_at_ms'
+    > &
+        Partial<
+            Pick<
+                TriggerOrder,
+                'id' | 'client_order_key' | 'status' | 'created_at_ms'
+            >
+        >,
+): TriggerOrder {
+    return core.add(t);
 }
 
 export function removeTrigger(id: string) {
-    triggers = triggers.filter((t) => t.id !== id);
-    persist();
+    core.remove(id);
+}
+
+export function rearmTrigger(id: string): boolean {
+    return core.rearm(id);
+}
+
+export function acknowledgeLockedTrigger(
+    id: string,
+    resumeArmed: boolean,
+): boolean {
+    return core.acknowledgeLocked(id, resumeArmed);
 }
 
 export function getTriggers(): TriggerOrder[] {
-    return triggers;
+    return core.getAll();
+}
+
+export function getTriggerEngineStatus(): TriggerEngineStatus {
+    return core.status();
 }
 
 export function useTriggers(): TriggerOrder[] {
@@ -84,82 +199,29 @@ export function useTriggers(): TriggerOrder[] {
             listeners.add(l);
             return () => listeners.delete(l);
         },
-        () => triggers,
+        () => core.getAll(),
     );
 }
 
-async function fire(t: TriggerOrder, lastPrice: number) {
-    if (firing.has(t.id)) return;
-    firing.add(t.id);
-    removeTrigger(t.id);
-    // OCO: cancel sibling triggers in the same group
-    if (t.group) {
-        const siblings = triggers.filter((x) => x.group === t.group);
-        for (const sib of siblings) removeTrigger(sib.id);
-        if (siblings.length > 0) {
-            notify({
-                kind: 'info',
-                title: 'OCO 互斥撤銷',
-                body: `${t.code} 另一邊觸價單已自動移除`,
-            });
-        }
-    }
-    if (t.kind === 'alert') {
-        notify({
-            kind: 'info',
-            title: '🔔 到價警示',
-            body: `${t.code} 現價 ${lastPrice} 已${t.condition === 'below' ? '跌破' : '突破'} ${t.price}`,
-        });
-        firing.delete(t.id);
-        return;
-    }
-    try {
-        const contract = await ensureContract(t.code);
-        if (isFuturesContract(contract) && !getCapabilities().futures_trading) {
-            // broker can't trade futures — downgrade to a price alert
-            notify({
-                kind: 'info',
-                title: '🔔 到價警示（無法自動下單）',
-                body: `${t.code} 現價 ${lastPrice} 已${t.condition === 'below' ? '跌破' : '突破'} ${t.price}，目前券商不支援期權下單`,
-            });
-            firing.delete(t.id);
-            return;
-        }
-        const trade = await placeQuickOrder(contract, t.action, null, t.quantity, {
-            bypassRisk: true, // protective exit — never blocked by kill switch
-        });
-        notify({
-            kind: 'ok',
-            title: t.kind === 'stop' ? '⛔ 停損觸發' : '🎯 停利觸發',
-            body: `${t.code} @${lastPrice} → 市價${t.action === 'Buy' ? '買' : '賣'} ${t.quantity} (${trade.status.status})`,
-        });
-    } catch (e) {
-        notify({
-            kind: 'err',
-            title: '觸價單送單失敗',
-            body: `${t.code} ${e instanceof Error ? e.message : String(e)}`,
-        });
-    } finally {
-        firing.delete(t.id);
-    }
+export function useTriggerEngineStatus(): TriggerEngineStatus {
+    return useSyncExternalStore(
+        (l) => {
+            listeners.add(l);
+            return () => listeners.delete(l);
+        },
+        () => core.status(),
+    );
 }
 
 let engineStarted = false;
 export function startTriggerEngine() {
     if (engineStarted) return;
     engineStarted = true;
+    core.setRunning(true);
+    void core.reconcileOnResume();
     onAnyTick((tick) => {
-        if (triggers.length === 0) return;
         const price = Number(tick.close);
         if (!Number.isFinite(price)) return;
-        for (const t of triggers) {
-            if (t.code !== tick.code) continue;
-            if (
-                (t.condition === 'below' && price <= t.price) ||
-                (t.condition === 'above' && price >= t.price)
-            ) {
-                void fire(t, price);
-            }
-        }
+        void core.onTick(tick.code, price);
     });
 }
