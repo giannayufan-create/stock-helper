@@ -152,7 +152,10 @@ async function main(): Promise<void> {
 
     await trading.init();
 
-    const marketRuntime = new MarketRuntime(manager);
+    const marketRuntime = new MarketRuntime({
+        market: manager,
+        profileCacheDir: join(dataDir, 'historical_profile'),
+    });
     marketRuntime.start();
     ReadinessTracker.markMarketRuntimeReady();
 

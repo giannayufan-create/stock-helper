@@ -33,6 +33,8 @@ export interface MarketRuntimeOptions {
     source?: MarketSource;
     /** When true, skip attaching live tick stream (replay uses applyCompletedBar). */
     replayMode?: boolean;
+    /** Persist per-day historical profile curves here (live only). */
+    profileCacheDir?: string;
 }
 
 export class MarketRuntime {
@@ -76,7 +78,9 @@ export class MarketRuntime {
             gateCfg,
             market.name(),
         );
-        this.profiles = new HistoricalProfileCache(market, gateCfg);
+        this.profiles = new HistoricalProfileCache(market, gateCfg, {
+            cacheDir: 'market' in opts ? (opts.profileCacheDir ?? null) : null,
+        });
         this.regime = new MarketRegimeService(gateCfg);
         this.subscriptions = new SubscriptionManager();
     }

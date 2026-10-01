@@ -22,6 +22,7 @@ export const LOG_RETENTION_DAYS: Readonly<Record<string, number>> = {
     radar_funnel_trace: 2,
     // Re-fetchable bar cache (dated subfolders), not research records.
     strategy_validation_bars: 45,
+    historical_profile: 3,
 };
 
 const DATE_IN_NAME = /(\d{4}-\d{2}-\d{2})/;
