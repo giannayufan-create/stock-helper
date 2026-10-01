@@ -8,6 +8,11 @@ import {
     getAdminInitError,
 } from '../lib/research-persistence/admin.ts';
 import { hasPrimaryFirebaseCredentials } from '../lib/research-persistence/config.ts';
+import {
+    measureDisk,
+    serverDataDir,
+    type DiskUsage,
+} from '../lib/data-janitor.ts';
 
 const SECRET_KEY_PATTERN =
     /private[_-]?key|client[_-]?secret|credential|BEGIN (RSA )?PRIVATE/i;
@@ -97,6 +102,14 @@ export function registerHealthRoutes(
         };
         assertNoSecretLeak(payload as unknown as Record<string, unknown>);
         return payload;
+    });
+
+    let diskCache: { at: number; value: DiskUsage } | null = null;
+    app.get('/api/v1/system/disk', async () => {
+        if (!diskCache || Date.now() - diskCache.at > 60_000) {
+            diskCache = { at: Date.now(), value: measureDisk(serverDataDir()) };
+        }
+        return diskCache.value;
     });
 
     app.get('/api/v1/info', async (): Promise<ServerInfo> => ({

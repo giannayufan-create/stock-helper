@@ -3,7 +3,9 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { RawSignalEvent } from '../strategy-signal/raw-signal-event.ts';
 import { RawSignalStore } from '../strategy-signal/raw-signal-store.ts';
+import type { ValidationBarSource } from './bar-source.ts';
 import {
     emptyValidationSummary,
     validateSignals,
@@ -11,6 +13,7 @@ import {
 import {
     DEFAULT_PROVISIONAL_ASSUMPTIONS,
     VALIDATION_STRATEGY_NAME,
+    VALIDATION_STRATEGY_VERSION,
     type PriceBar,
     type ValidationSummary,
 } from './types.ts';
@@ -36,35 +39,48 @@ function taipeiYmd(offsetDays = 0): string {
     }).format(d);
 }
 
+function signalYmd(iso: string): string {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Taipei',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date(iso));
+}
+
+const BAR_FETCH_CONCURRENCY = 4;
+
 export class StrategyValidationService {
     readonly store: RawSignalStore;
+    private bars: ValidationBarSource | null;
 
-    constructor(store?: RawSignalStore) {
+    constructor(store?: RawSignalStore, bars?: ValidationBarSource) {
         this.store = store ?? new RawSignalStore(defaultRawRoot());
+        this.bars = bars ?? null;
     }
 
     /**
-     * Read-only summary. Without bar feed, path/sim stay insufficient —
-     * still surfaces signal counts from the append-only raw store.
+     * Read-only summary. Without a bar source (or when bars / prior close are
+     * unavailable for a symbol-day), path/sim stay insufficient — never invented.
      * demo=true attaches synthetic bars (clearly labeled) for UI smoke only.
      */
-    getSummary(opts: {
+    async getSummary(opts: {
         from?: string;
         to?: string;
         demo?: boolean;
-    }): ValidationSummary {
+    }): Promise<ValidationSummary> {
         const to = opts.to ?? taipeiYmd();
         const requestedFrom = opts.from ?? taipeiYmd(-30);
         const from =
             requestedFrom < VALIDATION_DATA_START_YMD
                 ? VALIDATION_DATA_START_YMD
                 : requestedFrom;
-        this.store.hydrateKnownIds();
         const events = (from > to ? [] : this.store.listRange(from, to))
             .filter(
                 (e) =>
-                    e.strategy_name === VALIDATION_STRATEGY_NAME ||
-                    e.strategy_version === 'bc-strategy-v1',
+                    e.strategy_name === VALIDATION_STRATEGY_NAME &&
+                    e.strategy_version === VALIDATION_STRATEGY_VERSION &&
+                    e.source_mode === 'live',
             );
 
         if (events.length === 0 && !opts.demo) {
@@ -79,17 +95,48 @@ export class StrategyValidationService {
             return this.demoSummary(to);
         }
 
-        // Live/raw path without bars: counts only; no invented fills
-        const barsBySymbol: Record<string, PriceBar[]> = {};
+        const dayBars = await this.loadDayBars(events);
         const summary = validateSignals({
             events,
-            barsBySymbol,
+            barsBySymbol: {},
+            barsForEvent: (e) =>
+                dayBars.get(`${signalYmd(e.signal_time)}:${e.symbol}`),
             assumptions: DEFAULT_PROVISIONAL_ASSUMPTIONS,
             run_simulation: true,
             validation_date: to,
             data_source: `raw_strategy_signals:${from}..${to}`,
         });
         return summary;
+    }
+
+    /** Same-day bars per signal (key `${ymd}:${symbol}`), never across sessions. */
+    private async loadDayBars(
+        events: RawSignalEvent[],
+    ): Promise<Map<string, PriceBar[]>> {
+        const out = new Map<string, PriceBar[]>();
+        const source = this.bars;
+        if (!source) return out;
+        const keys = [
+            ...new Set(
+                events.map((e) => `${signalYmd(e.signal_time)}:${e.symbol}`),
+            ),
+        ];
+        let next = 0;
+        const worker = async () => {
+            while (next < keys.length) {
+                const key = keys[next++]!;
+                const [date, symbol] = key.split(':') as [string, string];
+                const bars = await source.loadDay(date, symbol);
+                if (bars) out.set(key, bars);
+            }
+        };
+        await Promise.all(
+            Array.from(
+                { length: Math.min(BAR_FETCH_CONCURRENCY, keys.length) },
+                worker,
+            ),
+        );
+        return out;
     }
 
     /** Synthetic demo — never claim as live edge. */

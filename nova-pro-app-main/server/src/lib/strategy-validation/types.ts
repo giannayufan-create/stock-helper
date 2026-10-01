@@ -189,6 +189,8 @@ export interface ValidateSignalsInput {
     events: RawSignalEvent[];
     /** Bars keyed by symbol; must be chronological. */
     barsBySymbol: Record<string, PriceBar[]>;
+    /** Per-event bars (e.g. same-day only); overrides barsBySymbol when set. */
+    barsForEvent?: (event: RawSignalEvent) => PriceBar[] | undefined;
     assumptions?: SimulationAssumptions | null;
     /** If false, skip trade sim (path metrics only). */
     run_simulation?: boolean;

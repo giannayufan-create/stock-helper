@@ -136,9 +136,10 @@ export function validateSignals(
         assumptions != null &&
         assumptions.assumptions_not_original_strategy === true;
 
+    // B and C share strategy_version, so the name must match too.
     const events = input.events.filter(
         (e) =>
-            e.strategy_name === VALIDATION_STRATEGY_NAME ||
+            e.strategy_name === VALIDATION_STRATEGY_NAME &&
             e.strategy_version === VALIDATION_STRATEGY_VERSION,
     );
 
@@ -148,8 +149,11 @@ export function validateSignals(
     let filled = 0;
     let unfilled = 0;
 
+    const barsFor = (ev: RawSignalEvent): PriceBar[] =>
+        input.barsForEvent?.(ev) ?? input.barsBySymbol[ev.symbol] ?? [];
+
     for (const ev of events) {
-        const bars = input.barsBySymbol[ev.symbol] ?? [];
+        const bars = barsFor(ev);
         const path = computeSignalPathMetrics(ev, bars);
         if (path.evaluable) evaluable++;
         if (path.insufficient_data) insufficient++;
@@ -193,7 +197,7 @@ export function validateSignals(
         for (const t of trades) {
             const ev = events.find((e) => e.signal_id === t.signal_id);
             if (!ev || !t.path.evaluable) continue;
-            const bars = input.barsBySymbol[ev.symbol] ?? [];
+            const bars = barsFor(ev);
             const signalMs = Date.parse(ev.signal_time);
             const fillMs = signalMs + assumptions.fill_delay_ms;
             const entryBar = bars.find((b) => b.t > fillMs);

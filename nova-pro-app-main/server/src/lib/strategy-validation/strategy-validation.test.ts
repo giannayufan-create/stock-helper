@@ -2,10 +2,24 @@
 // Run: npx tsx src/lib/strategy-validation/strategy-validation.test.ts
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { sweepOldLogs } from '../data-janitor.ts';
+import type { DayBars } from '../historical-replay/historical-data-loader.ts';
 import { RawSignalStore } from '../strategy-signal/raw-signal-store.ts';
+import {
+    CachedValidationBarSource,
+    toPriceBars,
+    twLimitUpPrice,
+    type ValidationBarSource,
+} from './bar-source.ts';
 import {
     RAW_SIGNAL_EVENT_SCHEMA,
     type RawSignalEvent,
@@ -244,13 +258,214 @@ pass('cost_model_reduces_gross');
             }),
         );
         const svc = new StrategyValidationService(store);
-        const before = svc.getSummary({ from: '2026-09-01', to: '2026-09-30' });
+        const before = await svc.getSummary({ from: '2026-09-01', to: '2026-09-30' });
         assert.equal(before.empty, true);
-        const span = svc.getSummary({ from: '2026-09-01', to: '2026-10-02' });
+        const span = await svc.getSummary({ from: '2026-09-01', to: '2026-10-02' });
         assert.equal(span.trades.length, 1);
         assert.equal(span.trades[0]!.signal_id, 'sv_after_start');
         assert.ok(span.data_source.includes(VALIDATION_DATA_START_YMD));
         pass('ignores_signals_before_start_date');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+// ---- C signals share strategy_version but are not OPEN_PASS ----
+{
+    const dir = mkdtempSync(join(tmpdir(), 'sv-filter-'));
+    try {
+        const store = new RawSignalStore(dir);
+        const base = {
+            signal_time: '2026-10-01T02:00:00.000Z',
+            observation_time: '2026-10-01T02:00:00.000Z',
+            source_mode: 'live' as const,
+        };
+        store.append(event({ ...base, signal_id: 'sv_open' }));
+        store.append(
+            event({ ...base, signal_id: 'sv_surge', strategy_name: 'SURGE' }),
+        );
+        store.append(
+            event({
+                ...base,
+                signal_id: 'sv_open_replay',
+                source_mode: 'replay' as RawSignalEvent['source_mode'],
+            }),
+        );
+        const s = await new StrategyValidationService(store).getSummary({
+            from: '2026-10-01',
+            to: '2026-10-01',
+        });
+        assert.deepEqual(
+            s.trades.map((t) => t.signal_id),
+            ['sv_open'],
+        );
+        assert.equal(
+            validateSignals({
+                events: [event({ strategy_name: 'SURGE' })],
+                barsBySymbol: {},
+            }).trades.length,
+            0,
+        );
+        pass('only_live_open_pass_is_validated');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+// ---- bar source: each signal uses its own day's bars ----
+{
+    const dir = mkdtempSync(join(tmpdir(), 'sv-bars-'));
+    try {
+        const store = new RawSignalStore(dir);
+        const d1 = Date.parse('2026-10-01T01:30:00.000Z');
+        const d2 = Date.parse('2026-10-02T01:30:00.000Z');
+        for (const [id, t] of [
+            ['sv_d1', d1],
+            ['sv_d2', d2],
+        ] as const) {
+            store.append(
+                event({
+                    signal_id: id,
+                    signal_time: new Date(t).toISOString(),
+                    observation_time: new Date(t).toISOString(),
+                    source_mode: 'live',
+                }),
+            );
+        }
+        const requested: string[] = [];
+        const mkBars = (t0: number): PriceBar[] =>
+            [1, 2, 3, 4, 5].map((m) => ({
+                t: t0 + m * 60_000,
+                open: 100,
+                high: 101,
+                low: 99.5,
+                close: 100.5,
+                volume: 10,
+            }));
+        const source: ValidationBarSource = {
+            async loadDay(date, symbol) {
+                requested.push(`${date}:${symbol}`);
+                return date === '2026-10-01' ? mkBars(d1) : null;
+            },
+        };
+        const s = await new StrategyValidationService(store, source).getSummary(
+            { from: '2026-10-01', to: '2026-10-02' },
+        );
+        assert.deepEqual(requested.sort(), [
+            '2026-10-01:2330',
+            '2026-10-02:2330',
+        ]);
+        const byId = Object.fromEntries(s.trades.map((t) => [t.signal_id, t]));
+        assert.equal(byId.sv_d1!.path.evaluable, true);
+        assert.equal(byId.sv_d2!.path.insufficient_data, true);
+        pass('bars_are_same_day_and_missing_day_stays_insufficient');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+// ---- TW limit-up price rounds down to a valid tick ----
+{
+    assert.equal(twLimitUpPrice(100), 110);
+    assert.equal(twLimitUpPrice(45.45), 49.95); // 49.995 → 0.05 tick
+    assert.equal(twLimitUpPrice(9.5), 10.45); // 10.45 → 0.05 tick
+    assert.equal(twLimitUpPrice(8), 8.8); // 0.01 tick
+    assert.equal(twLimitUpPrice(950), 1045); // 1045 → 5 tick
+    pass('tw_limit_up_price_ticks');
+}
+
+// ---- toPriceBars flags limit-up locks and illiquid / synthetic bars ----
+{
+    const day = {
+        symbol: '2330',
+        date: '2026-10-01',
+        bars: [
+            { known_at: 1, open: 100, high: 105, low: 100, close: 104, volume: 5 },
+            { known_at: 2, open: 110, high: 110, low: 110, close: 110, volume: 3 },
+            { known_at: 3, open: 110, high: 110, low: 110, close: 110, volume: 0 },
+            { known_at: 4, open: 104, high: 104, low: 104, close: 104, volume: 0, gap_kind: 'no_trade' },
+        ],
+    } as unknown as DayBars;
+    const bars = toPriceBars(day, 100);
+    assert.deepEqual(
+        bars.map((b) => [b.t, b.limit_up, b.no_liquidity]),
+        [
+            [1, false, false],
+            [2, true, false],
+            [3, true, true],
+            [4, false, true],
+        ],
+    );
+    pass('price_bars_limit_up_and_liquidity_flags');
+}
+
+// ---- CachedValidationBarSource: disk cache only after session close ----
+{
+    const dir = mkdtempSync(join(tmpdir(), 'sv-cache-'));
+    try {
+        let fetches = 0;
+        let now = Date.parse('2026-10-01T03:00:00.000Z'); // 11:00 Taipei
+        let prev: number | null = 100;
+        const day = {
+            symbol: '2330',
+            date: '2026-10-01',
+            bars: [{ known_at: 1, open: 100, high: 101, low: 99, close: 100, volume: 1 }],
+        } as unknown as DayBars;
+        const src = new CachedValidationBarSource({
+            loadStockDay: async () => {
+                fetches++;
+                return day;
+            },
+            prevClose: async () => prev,
+            cacheDir: dir,
+            nowMs: () => now,
+        });
+        assert.ok(await src.loadDay('2026-10-01', '2330'));
+        assert.equal(existsSync(join(dir, '2026-10-01', '2330.json')), false);
+        now += 3 * 60_000; // live memo expired
+        await src.loadDay('2026-10-01', '2330');
+        assert.equal(fetches, 2);
+
+        now = Date.parse('2026-10-01T06:00:00.000Z'); // 14:00 Taipei
+        await src.loadDay('2026-10-01', '2330');
+        assert.equal(existsSync(join(dir, '2026-10-01', '2330.json')), true);
+        await src.loadDay('2026-10-01', '2330');
+        assert.equal(fetches, 3);
+
+        prev = null;
+        assert.equal(await src.loadDay('2026-10-01', '1101'), null);
+        pass('bar_cache_after_close_and_null_without_prev_close');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+// ---- data janitor removes only old dated logs ----
+{
+    const dir = mkdtempSync(join(tmpdir(), 'sv-janitor-'));
+    try {
+        const now = Date.parse('2026-10-20T04:00:00.000Z');
+        mkdirSync(join(dir, 'open-confirm-logs'));
+        writeFileSync(join(dir, 'open-confirm-logs', '2026-10-01.jsonl'), 'x');
+        writeFileSync(join(dir, 'open-confirm-logs', '2026-10-15.jsonl'), 'x');
+        writeFileSync(join(dir, 'open-confirm-logs', 'index.json'), 'x');
+        mkdirSync(join(dir, 'strategy_validation_bars', '2026-08-01'), {
+            recursive: true,
+        });
+        writeFileSync(
+            join(dir, 'strategy_validation_bars', '2026-08-01', '2330.json'),
+            '[]',
+        );
+        mkdirSync(join(dir, 'raw_strategy_signals'));
+        writeFileSync(join(dir, 'raw_strategy_signals', '2026-01-01.jsonl'), 'x');
+        const r = sweepOldLogs(dir, now);
+        assert.equal(r.deleted_files, 2);
+        assert.equal(existsSync(join(dir, 'open-confirm-logs', '2026-10-01.jsonl')), false);
+        assert.equal(existsSync(join(dir, 'open-confirm-logs', '2026-10-15.jsonl')), true);
+        assert.equal(existsSync(join(dir, 'open-confirm-logs', 'index.json')), true);
+        assert.equal(existsSync(join(dir, 'strategy_validation_bars', '2026-08-01')), false);
+        assert.equal(existsSync(join(dir, 'raw_strategy_signals', '2026-01-01.jsonl')), true);
+        pass('janitor_keeps_research_and_recent_logs');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

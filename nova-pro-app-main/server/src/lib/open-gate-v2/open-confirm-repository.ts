@@ -5,6 +5,7 @@ import { appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { OpenGateConfig } from './config.ts';
+import { isShadowCashSession } from '../shadow/session.ts';
 import type { OpenConfirmLogRow, OpenConfirmResult } from './types.ts';
 
 function dataRoot(): string {
@@ -177,6 +178,7 @@ export class OpenConfirmRepository {
         priceAtSignal: number | null,
         cfg: OpenGateConfig,
     ): boolean {
+        if (!isShadowCashSession(new Date(next.generated_at))) return false;
         const { yes, reason } = this.shouldLog(prev, next, cfg);
         if (!yes) return false;
         this.append(this.toLogRow(next, priceAtSignal, reason));

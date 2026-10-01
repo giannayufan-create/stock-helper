@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IntradayRankConfig } from './config.ts';
 import type { IntradayEvent, IntradayRankItem } from './types.ts';
+import { isShadowCashSession } from '../shadow/session.ts';
 
 function root(): string {
     const here = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,7 @@ export class IntradayRankRepository {
         next: IntradayRankItem,
         cfg: IntradayRankConfig,
     ): void {
+        if (!isShadowCashSession(new Date(next.updated_at))) return;
         let reason = '';
         if (!prev) reason = 'first';
         else if (prev.state !== next.state) reason = 'state_change';

@@ -44,6 +44,10 @@ import { MarketRuntime } from './lib/market-runtime/index.ts';
 import { LiveOutcomeTracker } from './lib/signal-outcome/index.ts';
 import { StrategySignalBridge } from './lib/strategy-signal/index.ts';
 import { StrategyValidationService } from './lib/strategy-validation/service.ts';
+import { CachedValidationBarSource } from './lib/strategy-validation/bar-source.ts';
+import { HistoricalDataLoader } from './lib/historical-replay/historical-data-loader.ts';
+import { fetchTwDailyBars } from './lib/tw-daily-bars.ts';
+import { startDataJanitor } from './lib/data-janitor.ts';
 import { refreshTxfNightQuote } from './lib/today-decision/txf-night-quote.ts';
 
 loadEnvFile();
@@ -371,8 +375,19 @@ async function main(): Promise<void> {
         `radar-rescue: ${radarRescue.getHealth().status} mode=${radarRescue.getHealth().mode} (support only, A/B/C/BP untouched)`,
     );
 
+    const validationLoader = new HistoricalDataLoader(manager);
     const strategyValidation = new StrategyValidationService(
         signalBridge.rawStore,
+        new CachedValidationBarSource({
+            loadStockDay: (date, symbol) =>
+                validationLoader.loadStockDay(date, symbol),
+            prevClose: async (symbol, date) => {
+                const daily = await fetchTwDailyBars(symbol);
+                const prior = daily.filter((b) => b.date < date);
+                return prior.length ? prior[prior.length - 1]!.close : null;
+            },
+            cacheDir: join(dataDir, 'strategy_validation_bars'),
+        }),
     );
     console.log(
         'strategy-validation: OPEN_PASS raw-store wired (research only, no orders)',
@@ -424,6 +439,8 @@ async function main(): Promise<void> {
         `nova-pro-server listening on http://${config.host}:${config.port}` +
             ` (market=${manager.name()}, trade=${config.tradeProvider})`,
     );
+
+    startDataJanitor(dataDir);
 
     // After port is open — headless A-pool hydrate / screener (may take minutes)
     void openGateRuntime.onBoot().catch((err) => {
