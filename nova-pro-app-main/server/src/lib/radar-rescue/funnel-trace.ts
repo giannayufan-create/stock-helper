@@ -1,8 +1,63 @@
 // server/src/lib/radar-rescue/funnel-trace.ts
 
-import { mkdirSync, appendFileSync, readFileSync, existsSync } from 'node:fs';
+import {
+    appendFileSync,
+    closeSync,
+    existsSync,
+    mkdirSync,
+    openSync,
+    readSync,
+} from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import { join } from 'node:path';
 import type { FunnelTraceRow, DropReason } from './types.ts';
+
+/**
+ * Fields whose change is a funnel transition worth persisting.
+ * Scores move every evaluation and are deliberately excluded.
+ */
+const TRANSITION_KEYS = [
+    'in_a',
+    'in_scanner',
+    'in_discovery',
+    'in_active_watch',
+    'in_c',
+    'c_state',
+    'bp_state',
+    'radar_state',
+    'early_trigger',
+    'ever_active',
+    'ui_visible',
+    'best_focus_rank',
+    'news_state',
+    'drop_stage',
+    'drop_reason',
+] as const satisfies readonly (keyof FunnelTraceRow)[];
+
+function transitionSignature(row: FunnelTraceRow): string {
+    return JSON.stringify(TRANSITION_KEYS.map((k) => row[k] ?? null));
+}
+
+/** Read a JSONL file in fixed-size chunks so memory stays bounded by line size. */
+function forEachLine(file: string, onLine: (line: string) => void): void {
+    const fd = openSync(file, 'r');
+    const buf = Buffer.allocUnsafe(1 << 20);
+    const decoder = new StringDecoder('utf8');
+    let rest = '';
+    try {
+        for (;;) {
+            const n = readSync(fd, buf, 0, buf.length, null);
+            if (n === 0) break;
+            const lines = (rest + decoder.write(buf.subarray(0, n))).split(/\r?\n/);
+            rest = lines.pop() ?? '';
+            for (const line of lines) onLine(line);
+        }
+        rest += decoder.end();
+        if (rest) onLine(rest);
+    } finally {
+        closeSync(fd);
+    }
+}
 
 function taipeiYmd(d = new Date()): string {
     return new Intl.DateTimeFormat('en-CA', {
@@ -16,6 +71,7 @@ function taipeiYmd(d = new Date()): string {
 export class FunnelTraceService {
     private bySymbol = new Map<string, FunnelTraceRow>();
     private dirty = new Set<string>();
+    private flushedSignature = new Map<string, string>();
 
     constructor(private dataDir: string) {}
 
@@ -174,7 +230,10 @@ export class FunnelTraceService {
         for (const sym of this.dirty) {
             const row = this.bySymbol.get(sym);
             if (!row) continue;
+            const sig = transitionSignature(row);
+            if (this.flushedSignature.get(sym) === sig) continue;
             appendFileSync(file, `${JSON.stringify(row)}\n`, 'utf8');
+            this.flushedSignature.set(sym, sig);
             n++;
         }
         this.dirty.clear();
@@ -189,8 +248,8 @@ export class FunnelTraceService {
         );
         if (!existsSync(file)) return 0;
         let n = 0;
-        for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
-            if (!line.trim()) continue;
+        forEachLine(file, (line) => {
+            if (!line.trim()) return;
             try {
                 const row = JSON.parse(line) as FunnelTraceRow;
                 // Backfill sticky fields for older jsonl lines.
@@ -204,11 +263,12 @@ export class FunnelTraceService {
                     row.ui_visible = true;
                 }
                 this.bySymbol.set(row.symbol, row);
+                this.flushedSignature.set(row.symbol, transitionSignature(row));
                 n++;
             } catch {
                 /* skip */
             }
-        }
+        });
         return n;
     }
 }
