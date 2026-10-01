@@ -4,7 +4,19 @@
 // intraday ticks <= 10 calls, intraday kbars <= 270 calls; repeated violations
 // or intraday snapshot polling suspend the IP and person ID.
 
-import { isShadowCashSession, taipeiYmd } from '../../lib/shadow/session.ts';
+import { isTradingDay } from '../../lib/market-calendar/trading-day.ts';
+import {
+    isShadowCashSession,
+    sessionMinuteTaipei,
+    taipeiYmd,
+} from '../../lib/shadow/session.ts';
+
+/** 08:30 pre-open auction through 13:30 close on TW trading days. */
+export function isPreopenOrCashSession(d: Date = new Date()): boolean {
+    if (!isTradingDay(taipeiYmd(d))) return false;
+    const sm = sessionMinuteTaipei(d);
+    return sm >= -30 && sm <= 4 * 60 + 30;
+}
 
 /** Sliding-window limiter; acquire() waits until a slot is free. */
 export class QuoteRateLimiter {
@@ -73,8 +85,8 @@ export class IntradayQueryBudget {
 }
 
 /**
- * Snapshot polling is only a fallback for a stalled quote stream: cash session only,
- * stream silent for staleMs, and at most once per minIntervalMs.
+ * Snapshot polling is only a fallback for a stalled quote stream: pre-open auction and
+ * cash session only, stream silent for staleMs, and at most once per minIntervalMs.
  */
 export function shouldPollSnapshotFallback(opts: {
     now: Date;
@@ -84,7 +96,7 @@ export function shouldPollSnapshotFallback(opts: {
     minIntervalMs?: number;
     inSession?: (d: Date) => boolean;
 }): boolean {
-    const inSession = opts.inSession ?? isShadowCashSession;
+    const inSession = opts.inSession ?? isPreopenOrCashSession;
     if (!inSession(opts.now)) return false;
     const t = opts.now.getTime();
     if (t - opts.lastStreamEventAt < (opts.staleMs ?? 60_000)) return false;

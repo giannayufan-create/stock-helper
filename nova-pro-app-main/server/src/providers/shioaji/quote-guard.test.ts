@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import {
     IntradayQueryBudget,
+    isPreopenOrCashSession,
     QuoteRateLimiter,
     shouldPollSnapshotFallback,
 } from './quote-guard.ts';
@@ -82,6 +83,16 @@ function testSnapshotFallbackGate(): void {
     );
 }
 
+function testPreopenWindow(): void {
+    // 2026-10-05 is a Monday trading day.
+    assert.equal(isPreopenOrCashSession(new Date('2026-10-05T00:29:00.000Z')), false, '08:29');
+    assert.equal(isPreopenOrCashSession(new Date('2026-10-05T00:30:00.000Z')), true, '08:30 pre-open');
+    assert.equal(isPreopenOrCashSession(new Date('2026-10-05T00:55:00.000Z')), true, '08:55');
+    assert.equal(isPreopenOrCashSession(new Date('2026-10-05T05:30:00.000Z')), true, '13:30');
+    assert.equal(isPreopenOrCashSession(new Date('2026-10-05T05:31:00.000Z')), false, '13:31');
+    assert.equal(isPreopenOrCashSession(new Date('2026-10-04T01:00:00.000Z')), false, 'Sunday');
+}
+
 function testAdminCheck(): void {
     assert.deepEqual(
         checkAdmin({ headers: { 'x-admin-token': 's3cret' }, remoteAddress: '10.0.0.5', adminToken: 's3cret' }),
@@ -113,6 +124,7 @@ async function main(): Promise<void> {
     await testRateLimiterCapsWindow();
     testIntradayBudget();
     testSnapshotFallbackGate();
+    testPreopenWindow();
     testAdminCheck();
     console.log('quote-guard tests: OK');
 }

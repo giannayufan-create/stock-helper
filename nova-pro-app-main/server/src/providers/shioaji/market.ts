@@ -100,7 +100,7 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
             await this.getJson('/search?q=2330');
         }
         this.startEventPump();
-        // Snapshot fallback only when the quote stream stalls during the session;
+        // Snapshot fallback only when the quote stream stalls during pre-open / cash session;
         // Shioaji suspends IDs that poll snapshots as a realtime feed.
         this.lastStreamEventAt = Date.now();
         this.pollTimer = setInterval(() => {
