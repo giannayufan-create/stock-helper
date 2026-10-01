@@ -1,6 +1,7 @@
 // server/src/lib/market-intelligence/ai/intelligence-summary.ts
 // Optional Gemini brief — failure never blocks MI snapshot.
 
+import { geminiBudget } from '../../ai-budget.ts';
 import type { AiBriefPayload, MarketIntelligenceSnapshot, RiskEnvironment } from '../types.ts';
 
 const FORBIDDEN =
@@ -73,6 +74,9 @@ export async function buildIntelligenceBrief(opts: {
         `top_themes=${themes.join('; ')}\n` +
         `headlines=${headlines.join(' | ')}\n` +
         `health=${opts.snapshot.data_health.overall}`;
+
+    const budget = geminiBudget.take();
+    if (!budget.ok) return empty(budget.reason);
 
     try {
         const url =

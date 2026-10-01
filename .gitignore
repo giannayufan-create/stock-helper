@@ -6,6 +6,12 @@
 !.env.example
 **/.env
 **/.env.local
+# Firebase / GCP service-account keys
+*-firebase-adminsdk-*.json
+**/service-account*.json
+
+# Local scratch patches
+/*.patch
 
 # Dependencies & build
 **/node_modules/

@@ -36,7 +36,6 @@ function taipeiYmd(iso?: string): string {
 export class RawSignalStore {
     private root: string;
     private known = new Set<string>();
-    private cache = new Map<string, RawSignalEvent>();
     private sidecar: string;
 
     constructor(root = defaultRoot()) {
@@ -75,7 +74,6 @@ export class RawSignalStore {
             const ymd = f.replace(/\.jsonl$/, '');
             for (const ev of this.listByDate(ymd)) {
                 this.known.add(ev.signal_id);
-                this.cache.set(ev.signal_id, ev);
             }
         }
         this.persistKnown();
@@ -105,24 +103,21 @@ export class RawSignalStore {
                 reason: 'missing_signal_id',
             };
         }
-        if (this.known.has(event.signal_id) || this.cache.has(event.signal_id)) {
+        if (this.known.has(event.signal_id)) {
             return { ok: true, status: 'SKIP_IDEMPOTENT' };
         }
         const ymd = taipeiYmd(event.signal_time);
         const file = join(this.root, `${ymd}.jsonl`);
         appendFileSync(file, `${JSON.stringify(event)}\n`);
-        this.cache.set(event.signal_id, structuredClone(event));
+        // Sidecar is rewritten on hydrate only; the JSONL scan is authoritative.
         this.known.add(event.signal_id);
-        this.persistKnown();
         return { ok: true, status: 'APPENDED' };
     }
 
     findById(signalId: string): RawSignalEvent | null {
-        if (this.cache.has(signalId)) {
-            return structuredClone(this.cache.get(signalId)!);
-        }
+        if (!this.known.has(signalId)) return null;
         for (const ev of this.listRange('1970-01-01', '9999-12-31')) {
-            if (ev.signal_id === signalId) return structuredClone(ev);
+            if (ev.signal_id === signalId) return ev;
         }
         return null;
     }

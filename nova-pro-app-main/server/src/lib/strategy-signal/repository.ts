@@ -42,7 +42,8 @@ function taipeiYmd(iso?: string): string {
 
 export class JsonlStrategySignalRepository implements StrategySignalRepository {
     private root: string;
-    private cache = new Map<string, StrategySignal>();
+    /** signal_id → file date. Full signals stay on disk (heap is ~256MB on Render). */
+    private dayById = new Map<string, string>();
     private known = new Set<string>();
     private sidecar: string;
 
@@ -83,7 +84,7 @@ export class JsonlStrategySignalRepository implements StrategySignalRepository {
             const ymd = f.replace(/\.jsonl$/, '');
             for (const s of this.listByDate(ymd)) {
                 this.known.add(s.signal_id);
-                this.cache.set(s.signal_id, s);
+                this.dayById.set(s.signal_id, ymd);
             }
         }
         this.persistKnown();
@@ -103,13 +104,8 @@ export class JsonlStrategySignalRepository implements StrategySignalRepository {
 
     save(signal: StrategySignal): void {
         // Immutable: reject overwrite; allow idempotent identical content
-        if (
-            this.cache.has(signal.signal_id) ||
-            this.known.has(signal.signal_id)
-        ) {
-            const prev =
-                this.cache.get(signal.signal_id) ??
-                this.findById(signal.signal_id);
+        if (this.known.has(signal.signal_id)) {
+            const prev = this.findById(signal.signal_id);
             if (prev) {
                 if (signalsContentEqual(prev, signal)) {
                     return; // SKIP_IDEMPOTENT
@@ -122,17 +118,20 @@ export class JsonlStrategySignalRepository implements StrategySignalRepository {
         const ymd = taipeiYmd(signal.signal_time);
         const file = join(this.root, `${ymd}.jsonl`);
         appendFileSync(file, `${JSON.stringify(signal)}\n`);
-        this.cache.set(signal.signal_id, structuredClone(signal));
+        // Sidecar is rewritten on hydrate only; the JSONL scan is authoritative.
         this.known.add(signal.signal_id);
-        this.persistKnown();
+        this.dayById.set(signal.signal_id, ymd);
     }
 
     findById(signalId: string): StrategySignal | null {
-        if (this.cache.has(signalId)) {
-            return structuredClone(this.cache.get(signalId)!);
+        const ymd = this.dayById.get(signalId);
+        if (ymd) {
+            for (const s of this.listByDate(ymd)) {
+                if (s.signal_id === signalId) return s;
+            }
         }
         for (const s of this.listAllCached()) {
-            if (s.signal_id === signalId) return structuredClone(s);
+            if (s.signal_id === signalId) return s;
         }
         return null;
     }
@@ -172,7 +171,7 @@ export class JsonlStrategySignalRepository implements StrategySignalRepository {
         for (const f of files) {
             const ymd = f.replace(/\.jsonl$/, '');
             for (const s of this.listByDate(ymd)) {
-                this.cache.set(s.signal_id, s);
+                this.dayById.set(s.signal_id, ymd);
                 this.known.add(s.signal_id);
                 out.push(s);
             }

@@ -27,6 +27,8 @@ function defaultRoot(): string {
     return join(here, '..', '..', '..', 'data', 'outcomes');
 }
 
+const INDEX_REBUILD_MS = 60_000;
+
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
     return new Intl.DateTimeFormat('en-CA', {
@@ -39,6 +41,8 @@ function taipeiYmd(iso?: string): string {
 
 export class JsonlSignalOutcomeRepository implements SignalOutcomeRepository {
     private root: string;
+    private dayById: Map<string, string> | null = null;
+    private dayIndexBuiltAt = 0;
 
     constructor(root = defaultRoot()) {
         this.root = root;
@@ -51,6 +55,7 @@ export class JsonlSignalOutcomeRepository implements SignalOutcomeRepository {
         const ymd = taipeiYmd(outcome.signal_time);
         const file = join(this.root, `${ymd}.jsonl`);
         appendFileSync(file, `${JSON.stringify(outcome)}\n`);
+        this.dayById?.set(outcome.signal_id, ymd);
     }
 
     listByDate(ymd: string): SignalOutcome[] {
@@ -63,8 +68,36 @@ export class JsonlSignalOutcomeRepository implements SignalOutcomeRepository {
     }
 
     findBySignalId(signalId: string): SignalOutcome | null {
-        const all = this.materializeRange('1970-01-01', '9999-12-31');
-        return all.find((o) => o.signal_id === signalId) ?? null;
+        let ymd = this.dayIndex().get(signalId);
+        if (!ymd && Date.now() - this.dayIndexBuiltAt >= INDEX_REBUILD_MS) {
+            // Other instances may append to the same root.
+            this.dayById = null;
+            ymd = this.dayIndex().get(signalId);
+        }
+        if (!ymd) return null;
+        let latest: SignalOutcome | null = null;
+        for (const row of this.listByDate(ymd)) {
+            if (row.signal_id === signalId) latest = row;
+        }
+        return latest;
+    }
+
+    /** signal_id → file date, built once by scanning; kept current by appendUpdate. */
+    private dayIndex(): Map<string, string> {
+        if (this.dayById) return this.dayById;
+        const index = new Map<string, string>();
+        if (existsSync(this.root)) {
+            for (const f of readdirSync(this.root)) {
+                if (!f.endsWith('.jsonl')) continue;
+                const ymd = f.replace(/\.jsonl$/, '');
+                for (const row of this.listByDate(ymd)) {
+                    index.set(row.signal_id, ymd);
+                }
+            }
+        }
+        this.dayById = index;
+        this.dayIndexBuiltAt = Date.now();
+        return index;
     }
 
     listByType(type: SignalType, ymd?: string): SignalOutcome[] {

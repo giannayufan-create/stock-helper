@@ -106,4 +106,28 @@ function lineCount(file: string): number {
     }
 }
 
+// ---- new Taipei day: no sticky carry-over, yesterday's rows land in yesterday's file ----
+{
+    const dir = mkdtempSync(join(tmpdir(), 'funnel-roll-'));
+    try {
+        let now = Date.parse('2026-10-01T15:50:00.000Z'); // 23:50 Taipei
+        const f = new FunnelTraceService(dir, () => now);
+        f.upsert({ symbol: '2330', in_c: true, early_trigger: true });
+        now = Date.parse('2026-10-01T16:10:00.000Z'); // 00:10 next day
+        assert.equal(f.get('2330'), null);
+        assert.equal(f.list().length, 0);
+        const row = f.upsert({ symbol: '2330' });
+        assert.equal(row.trade_date, '2026-10-02');
+        assert.equal(row.in_c, false);
+        assert.equal(row.early_trigger, false);
+        f.flushTransitions();
+        const traceDir = join(dir, 'radar_funnel_trace');
+        assert.equal(lineCount(join(traceDir, '2026-10-01.jsonl')), 1);
+        assert.equal(lineCount(join(traceDir, '2026-10-02.jsonl')), 1);
+        pass('day_rollover_resets_and_files_by_trade_date');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
+
 console.log(`\nOK ${passed} tests`);

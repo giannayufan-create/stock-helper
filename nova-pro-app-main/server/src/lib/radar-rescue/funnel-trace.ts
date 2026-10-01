@@ -72,20 +72,43 @@ export class FunnelTraceService {
     private bySymbol = new Map<string, FunnelTraceRow>();
     private dirty = new Set<string>();
     private flushedSignature = new Map<string, string>();
+    private day: string | null = null;
 
-    constructor(private dataDir: string) {}
+    constructor(
+        private dataDir: string,
+        private nowMs: () => number = Date.now,
+    ) {}
+
+    private today(): string {
+        return taipeiYmd(new Date(this.nowMs()));
+    }
+
+    /** New Taipei day: flush yesterday's pending rows, then start empty (no sticky carry-over). */
+    private rollDay(): void {
+        const today = this.today();
+        if (this.day === today) return;
+        if (this.day !== null) {
+            this.flushTransitions();
+            this.bySymbol.clear();
+            this.flushedSignature.clear();
+        }
+        this.day = today;
+    }
 
     get(symbol: string): FunnelTraceRow | null {
+        this.rollDay();
         return this.bySymbol.get(symbol) ?? null;
     }
 
     list(): FunnelTraceRow[] {
+        this.rollDay();
         return [...this.bySymbol.values()];
     }
 
     upsert(partial: Partial<FunnelTraceRow> & { symbol: string; name?: string }): FunnelTraceRow {
-        const now = new Date().toISOString();
-        const ymd = taipeiYmd();
+        this.rollDay();
+        const now = new Date(this.nowMs()).toISOString();
+        const ymd = this.day!;
         const prev = this.bySymbol.get(partial.symbol);
         const row: FunnelTraceRow = {
             trade_date: ymd,
@@ -203,7 +226,7 @@ export class FunnelTraceService {
             threshold?: number | null;
         },
     ): void {
-        const row = this.bySymbol.get(symbol);
+        const row = this.get(symbol);
         if (!row) return;
         if (row.drop_stage) return; // first drop wins
         const score = meta?.score ?? null;
@@ -225,13 +248,13 @@ export class FunnelTraceService {
         if (!this.dirty.size) return 0;
         const dir = join(this.dataDir, 'radar_funnel_trace');
         mkdirSync(dir, { recursive: true });
-        const file = join(dir, `${taipeiYmd()}.jsonl`);
         let n = 0;
         for (const sym of this.dirty) {
             const row = this.bySymbol.get(sym);
             if (!row) continue;
             const sig = transitionSignature(row);
             if (this.flushedSignature.get(sym) === sig) continue;
+            const file = join(dir, `${row.trade_date || this.today()}.jsonl`);
             appendFileSync(file, `${JSON.stringify(row)}\n`, 'utf8');
             this.flushedSignature.set(sym, sig);
             n++;
@@ -241,10 +264,11 @@ export class FunnelTraceService {
     }
 
     loadToday(): number {
+        this.rollDay();
         const file = join(
             this.dataDir,
             'radar_funnel_trace',
-            `${taipeiYmd()}.jsonl`,
+            `${this.day}.jsonl`,
         );
         if (!existsSync(file)) return 0;
         let n = 0;

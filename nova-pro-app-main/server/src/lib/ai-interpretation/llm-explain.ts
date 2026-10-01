@@ -1,6 +1,7 @@
 // server/src/lib/ai-interpretation/llm-explain.ts
 // LLM explains deterministic scores only — NEVER assigns 1–10 scores.
 
+import { geminiBudget } from '../ai-budget.ts';
 import { scoreBandLabel } from './score-bands.ts';
 import type {
     RadarAIInterpretation,
@@ -66,6 +67,8 @@ async function callGemini(
     ];
     let lastErr = 'Gemini unavailable';
     for (const model of models) {
+        const budget = geminiBudget.take();
+        if (!budget.ok) throw new Error(budget.reason);
         const url =
             'https://generativelanguage.googleapis.com/v1beta/models/' +
             `${model}:generateContent?key=${encodeURIComponent(apiKey)}`;

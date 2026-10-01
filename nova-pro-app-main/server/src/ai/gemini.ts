@@ -1,5 +1,7 @@
 // server/src/ai/gemini.ts — Gemini coach via REST (key stays on server)
 
+import { geminiBudget } from '../lib/ai-budget.ts';
+
 export async function geminiCoach(opts: {
     apiKey: string;
     code: string;
@@ -44,6 +46,9 @@ export async function geminiCoach(opts: {
     const url =
         'https://generativelanguage.googleapis.com/v1beta/models/' +
         `gemini-3.6-flash:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
+
+    const budget = geminiBudget.take();
+    if (!budget.ok) throw new Error(budget.reason);
 
     const res = await fetch(url, {
         method: 'POST',

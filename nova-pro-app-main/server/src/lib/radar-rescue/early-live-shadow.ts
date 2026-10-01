@@ -232,6 +232,9 @@ function summarize(outcomes: EarlyBacktestOutcome[]): EarlyBacktestSummary {
  */
 export class EarlyLiveShadowStore {
     private byId = new Map<string, LiveEarlyShadowRecord>();
+    private loadedDates = new Set<string>();
+    private persistDepth = 0;
+    private pendingPersist = new Set<string>();
     /** Per-symbol last accepted trade — blocks duplicate last_price. */
     private lastTradeBySymbol = new Map<
         string,
@@ -266,23 +269,40 @@ export class EarlyLiveShadowStore {
      */
     hydrateUnsettledFromDisk(): void {
         const root = this.dir();
-        if (!existsSync(root)) {
-            this.loadDate(taipeiYmdFromMs(this.now()));
-            return;
-        }
         const today = taipeiYmdFromMs(this.now());
-        this.loadDate(today);
+        this.ensureDate(today);
+        if (!existsSync(root)) return;
         for (const name of readdirSync(root)) {
             if (!name.endsWith('.json')) continue;
             if (name.endsWith('.settle.json')) continue;
             if (!/^\d{4}-\d{2}-\d{2}\.json$/.test(name)) continue;
             const date = name.slice(0, -'.json'.length);
-            if (date === today) continue;
-            this.loadDate(date);
+            if (this.loadedDates.has(date)) continue;
+            // Fully settled past days stay on disk; list(date) loads them on demand.
+            if (this.isSettledOnDisk(date)) continue;
+            this.ensureDate(date);
         }
     }
 
+    private isSettledOnDisk(date: string): boolean {
+        try {
+            const meta = JSON.parse(
+                readFileSync(this.settleMetaPath(date), 'utf8'),
+            ) as LiveSettlementState;
+            return meta.status === 'settled' && meta.live_report_ready === true;
+        } catch {
+            return false;
+        }
+    }
+
+    /** Load a date from disk once; never overwrites newer in-memory rows. */
+    private ensureDate(date: string): void {
+        if (this.loadedDates.has(date)) return;
+        this.loadDate(date);
+    }
+
     loadDate(date: string): LiveEarlyShadowRecord[] {
+        this.loadedDates.add(date);
         const path = this.fileFor(date);
         if (!existsSync(path)) return [];
         try {
@@ -315,15 +335,39 @@ export class EarlyLiveShadowStore {
     }
 
     private persistDate(date: string): void {
+        if (this.persistDepth > 0) {
+            this.pendingPersist.add(date);
+            return;
+        }
+        this.writeDate(date);
+    }
+
+    private writeDate(date: string): void {
         mkdirSync(this.dir(), { recursive: true });
         const rows = [...this.byId.values()].filter(
             (r) => r.trade_date === date,
         );
-        writeFileSync(this.fileFor(date), JSON.stringify(rows, null, 2), 'utf8');
+        writeFileSync(this.fileFor(date), JSON.stringify(rows), 'utf8');
+    }
+
+    /** Coalesce per-row writes inside fn into one synchronous write per date. */
+    private batchedPersist<T>(fn: () => T): T {
+        this.persistDepth++;
+        try {
+            return fn();
+        } finally {
+            this.persistDepth--;
+            if (this.persistDepth === 0 && this.pendingPersist.size) {
+                const dates = [...this.pendingPersist];
+                this.pendingPersist.clear();
+                for (const d of dates) this.writeDate(d);
+            }
+        }
     }
 
     list(date?: string): LiveEarlyShadowRecord[] {
         const d = date ?? taipeiYmdFromMs(this.now());
+        this.ensureDate(d);
         return [...this.byId.values()].filter((r) => r.trade_date === d);
     }
 
@@ -429,15 +473,17 @@ export class EarlyLiveShadowStore {
             if (ta !== tb) return ta - tb;
             return Number(a.price ?? 0) - Number(b.price ?? 0);
         });
-        let accepted = 0;
-        let rejected = 0;
-        for (const tick of ordered) {
-            const r = this.sampleTrade(symbol, tick, nowMs);
-            if (r.accepted) accepted += 1;
-            else rejected += 1;
-        }
-        if (!ordered.length) this.markSilentGaps(symbol, nowMs);
-        return { accepted, rejected };
+        return this.batchedPersist(() => {
+            let accepted = 0;
+            let rejected = 0;
+            for (const tick of ordered) {
+                const r = this.sampleTrade(symbol, tick, nowMs);
+                if (r.accepted) accepted += 1;
+                else rejected += 1;
+            }
+            if (!ordered.length) this.markSilentGaps(symbol, nowMs);
+            return { accepted, rejected };
+        });
     }
 
     /**
@@ -448,6 +494,14 @@ export class EarlyLiveShadowStore {
         symbol: string,
         tick: Partial<LiveTradeTick> | null | undefined,
         nowMs = this.now(),
+    ): { accepted: boolean; reason?: LiveTradeRejectReason } {
+        return this.batchedPersist(() => this.sampleTradeInner(symbol, tick, nowMs));
+    }
+
+    private sampleTradeInner(
+        symbol: string,
+        tick: Partial<LiveTradeTick> | null | undefined,
+        nowMs: number,
     ): { accepted: boolean; reason?: LiveTradeRejectReason } {
         const last = this.lastTradeBySymbol.get(symbol) ?? null;
         const judged = evaluateLiveTradeTick(tick, nowMs, last);
@@ -531,14 +585,16 @@ export class EarlyLiveShadowStore {
     /** Fill DATA_MISSING for elapsed minutes with no accepted trade. */
     markSilentGaps(symbol: string | null, nowMs = this.now()): void {
         const knownAt = sampleToBarKnownAt(nowMs);
-        for (const row of this.byId.values()) {
-            if (symbol && row.symbol !== symbol) continue;
-            if (row.settled) continue;
-            if (nowMs - row.last_trade_ts_ms <= LIVE_TRADE_MAX_AGE_MS) continue;
-            this.fillMissingBars(row, knownAt, row.trigger_price, nowMs);
-            row.last_sample_at_ms = nowMs;
-            this.persistDate(row.trade_date);
-        }
+        this.batchedPersist(() => {
+            for (const row of this.byId.values()) {
+                if (symbol && row.symbol !== symbol) continue;
+                if (row.settled) continue;
+                if (nowMs - row.last_trade_ts_ms <= LIVE_TRADE_MAX_AGE_MS) continue;
+                this.fillMissingBars(row, knownAt, row.trigger_price, nowMs);
+                row.last_sample_at_ms = nowMs;
+                this.persistDate(row.trade_date);
+            }
+        });
     }
 
     private fillMissingBars(
@@ -594,7 +650,6 @@ export class EarlyLiveShadowStore {
                         meta.status === 'pending' ||
                         meta.live_report_ready === false
                     ) {
-                        this.loadDate(date);
                         const rows = this.list(date);
                         if (rows.some((r) => !r.settled)) dates.add(date);
                     }

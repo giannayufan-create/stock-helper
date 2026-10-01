@@ -615,6 +615,16 @@ function testNextDayRestartLoadsYesterday(): void {
     assert.equal(day2.get('early_2330_yday')!.settled, true);
     assert.equal(day2.datesNeedingSettlement(nextDayMs).length, 0);
     console.log('OK next-day restart catch-up settles yesterday EARLY');
+
+    // Later restart: settled day is not hydrated at boot, but loads on demand.
+    const day3Ms = Date.parse('2026-06-17T02:00:00.000Z');
+    const day3 = new EarlyLiveShadowStore(dir, () => day3Ms);
+    assert.equal(day3.get('early_2330_yday'), null);
+    assert.equal(day3.datesNeedingSettlement(day3Ms).length, 0);
+    assert.equal(day3.get('early_2330_yday'), null);
+    assert.equal(day3.list(TRADE_DATE).length, 1);
+    assert.equal(day3.getSettlementStatus(TRADE_DATE, day3Ms).status, 'settled');
+    console.log('OK settled past day lazy-loaded, not hydrated at boot');
     rmSync(dir, { recursive: true, force: true });
 }
 

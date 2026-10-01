@@ -88,8 +88,15 @@ export class OpenConfirmRepository {
             return { yes: true, reason: 'important_risk_change' };
         }
 
+        // Heartbeat rows only for live candidates; the rest of the pool is
+        // logged on change only (full-pool heartbeats were ~140MB/day).
+        const heartbeatEligible =
+            next.tradeable_candidate ||
+            next.open_confirm === 'pass' ||
+            next.open_confirm === 'early_pass';
         const lastAt = this.lastLogAt.get(next.symbol) ?? 0;
         if (
+            heartbeatEligible &&
             Date.now() - lastAt >=
             cfg.logging.log_heartbeat_sec * 1000
         ) {

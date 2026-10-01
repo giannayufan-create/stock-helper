@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sweepOldLogs } from '../data-janitor.ts';
+import { emergencySweep, sweepOldLogs } from '../data-janitor.ts';
 import type { DayBars } from '../historical-replay/historical-data-loader.ts';
 import { RawSignalStore } from '../strategy-signal/raw-signal-store.ts';
 import {
@@ -447,7 +447,7 @@ pass('cost_model_reduces_gross');
         const now = Date.parse('2026-10-20T04:00:00.000Z');
         mkdirSync(join(dir, 'open-confirm-logs'));
         writeFileSync(join(dir, 'open-confirm-logs', '2026-10-01.jsonl'), 'x');
-        writeFileSync(join(dir, 'open-confirm-logs', '2026-10-15.jsonl'), 'x');
+        writeFileSync(join(dir, 'open-confirm-logs', '2026-10-18.jsonl'), 'x');
         writeFileSync(join(dir, 'open-confirm-logs', 'index.json'), 'x');
         mkdirSync(join(dir, 'strategy_validation_bars', '2026-08-01'), {
             recursive: true,
@@ -461,11 +461,42 @@ pass('cost_model_reduces_gross');
         const r = sweepOldLogs(dir, now);
         assert.equal(r.deleted_files, 2);
         assert.equal(existsSync(join(dir, 'open-confirm-logs', '2026-10-01.jsonl')), false);
-        assert.equal(existsSync(join(dir, 'open-confirm-logs', '2026-10-15.jsonl')), true);
+        assert.equal(existsSync(join(dir, 'open-confirm-logs', '2026-10-18.jsonl')), true);
         assert.equal(existsSync(join(dir, 'open-confirm-logs', 'index.json')), true);
         assert.equal(existsSync(join(dir, 'strategy_validation_bars', '2026-08-01')), false);
         assert.equal(existsSync(join(dir, 'raw_strategy_signals', '2026-01-01.jsonl')), true);
         pass('janitor_keeps_research_and_recent_logs');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+// ---- low-disk guard deletes oldest dated logs first, never today ----
+{
+    const dir = mkdtempSync(join(tmpdir(), 'sv-lowdisk-'));
+    try {
+        const now = Date.parse('2026-10-20T04:00:00.000Z');
+        mkdirSync(join(dir, 'open-confirm-logs'));
+        mkdirSync(join(dir, 'intraday-rank-logs'));
+        for (const f of ['2026-10-18.jsonl', '2026-10-20.jsonl']) {
+            writeFileSync(join(dir, 'open-confirm-logs', f), 'x');
+        }
+        writeFileSync(join(dir, 'intraday-rank-logs', 'rank-2026-10-17.jsonl'), 'x');
+        let free = 100 * 1048576;
+        const r = emergencySweep(dir, now, () => {
+            const v = free;
+            free += 60 * 1048576; // 100 → 160 → 220: two deletes, still < target
+            return v;
+        });
+        assert.equal(r.deleted_files, 2);
+        assert.equal(existsSync(join(dir, 'intraday-rank-logs', 'rank-2026-10-17.jsonl')), false);
+        assert.equal(existsSync(join(dir, 'open-confirm-logs', '2026-10-18.jsonl')), false);
+        assert.equal(existsSync(join(dir, 'open-confirm-logs', '2026-10-20.jsonl')), true);
+        assert.equal(
+            emergencySweep(dir, now, () => 500 * 1048576).deleted_files,
+            0,
+        );
+        pass('low_disk_guard_oldest_first_keeps_today');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

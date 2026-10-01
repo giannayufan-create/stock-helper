@@ -123,7 +123,7 @@ export class StrategySignalBridge {
             ref,
         );
         if (sig) {
-            this.created.push(sig);
+            this.track([sig]);
             this.emitCreated([sig]);
         }
         return sig;
@@ -155,9 +155,15 @@ export class StrategySignalBridge {
             ref,
             eventCooldowns,
         );
-        this.created.push(...sigs);
+        this.track(sigs);
         this.emitCreated(sigs);
         return sigs;
+    }
+
+    /** `created` is a replay-run buffer; live signals are already persisted. */
+    private track(sigs: StrategySignal[]): void {
+        if (this.ctx.source_mode === 'live') return;
+        this.created.push(...sigs);
     }
 
     resetCreated(): void {

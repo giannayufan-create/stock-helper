@@ -36,6 +36,9 @@ function taipeiYmd(iso?: string): string {
     }).format(d);
 }
 
+const CACHE_MAX = 3000;
+const CACHE_KEEP = 2000;
+
 export class FirestoreStrategySignalRepository
     implements StrategySignalRepository
 {
@@ -117,6 +120,7 @@ export class FirestoreStrategySignalRepository
         this.cache.set(signal.signal_id, structuredClone(signal));
         this.known.add(signal.signal_id);
         this.hashes.set(signal.signal_id, signalIdentityHash(signal));
+        this.pruneCache();
         this.lastPersistResult = 'QUEUED';
 
         if (!this.db) {
@@ -182,6 +186,18 @@ export class FirestoreStrategySignalRepository
             this.health.connected = false;
             markFirestoreOpFailure(this.health.last_error);
         }
+    }
+
+    /**
+     * Bound the full-signal cache; ids/hashes stay. Evicted ids re-saved are
+     * checked against Firestore in writeImmutable (never overwritten).
+     */
+    private pruneCache(): void {
+        if (this.cache.size <= CACHE_MAX) return;
+        const oldest = [...this.cache.values()]
+            .sort((a, b) => a.signal_time.localeCompare(b.signal_time))
+            .slice(0, this.cache.size - CACHE_KEEP);
+        for (const s of oldest) this.cache.delete(s.signal_id);
     }
 
     findById(signalId: string): StrategySignal | null {
@@ -257,6 +273,7 @@ export class FirestoreStrategySignalRepository
                 this.known.add(s.signal_id);
                 out.push(s);
             }
+            this.pruneCache();
             this.health.connected = true;
             markFirestoreOpSuccess();
             return out;

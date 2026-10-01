@@ -4,6 +4,8 @@
 import assert from 'node:assert/strict';
 import {
     mkdtempSync,
+    readFileSync,
+    readdirSync,
     rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -558,14 +560,33 @@ function regimeOk() {
             learning_eligible: true,
             feature_snapshot: { x: 1 },
         };
+        const mutated: StrategySignal = {
+            ...sig,
+            feature_snapshot: { x: 2 },
+        };
+        const lineCount = () =>
+            readdirSync(dir)
+                .filter((f) => f.endsWith('.jsonl'))
+                .reduce(
+                    (n, f) =>
+                        n +
+                        readFileSync(join(dir, f), 'utf8')
+                            .split('\n')
+                            .filter(Boolean).length,
+                    0,
+                );
         const repo1 = new JsonlStrategySignalRepository(dir);
         repo1.save(sig);
-        assert.throws(() => repo1.save(sig));
+        repo1.save(sig); // identical re-save is idempotent
+        assert.equal(lineCount(), 1);
+        assert.throws(() => repo1.save(mutated));
 
         // Simulate restart
         const repo2 = new JsonlStrategySignalRepository(dir);
         assert.ok(repo2.knownIds().has(sig.signal_id));
-        assert.throws(() => repo2.save(sig));
+        repo2.save(sig);
+        assert.equal(lineCount(), 1);
+        assert.throws(() => repo2.save(mutated));
 
         const lifePath = join(dir, 'lifecycle.json');
         const life = new SignalLifecycleManager();

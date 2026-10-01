@@ -35,6 +35,9 @@ function taipeiYmd(iso?: string): string {
     }).format(d);
 }
 
+const CACHE_MAX = 3000;
+const CACHE_KEEP = 2000;
+
 export class FirestoreSignalOutcomeRepository
     implements SignalOutcomeRepository
 {
@@ -85,6 +88,7 @@ export class FirestoreSignalOutcomeRepository
     appendUpdate(outcome: SignalOutcome): void {
         // Never writes strategy_signals — outcome-only
         this.cache.set(outcome.signal_id, structuredClone(outcome));
+        this.pruneCache();
         if (!this.db) {
             this.health.write_failure_count += 1;
             this.health.last_error =
@@ -113,6 +117,15 @@ export class FirestoreSignalOutcomeRepository
             this.health.write_failure_count += 1;
             this.health.last_error = 'outcome queue full';
         }
+    }
+
+    /** Bound the process cache; dual mode falls back to JSONL on a miss. */
+    private pruneCache(): void {
+        if (this.cache.size <= CACHE_MAX) return;
+        const oldest = [...this.cache.values()]
+            .sort((a, b) => a.signal_time.localeCompare(b.signal_time))
+            .slice(0, this.cache.size - CACHE_KEEP);
+        for (const o of oldest) this.cache.delete(o.signal_id);
     }
 
     findBySignalId(signalId: string): SignalOutcome | null {
@@ -165,6 +178,7 @@ export class FirestoreSignalOutcomeRepository
                 this.cache.set(o.signal_id, o);
                 out.push(o);
             }
+            this.pruneCache();
             return out;
         } catch (err) {
             this.health.last_error =

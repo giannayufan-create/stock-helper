@@ -8,6 +8,7 @@ import {
     buildDaytradeVerdict,
 } from '../ai/daytrade-verdict.ts';
 import { geminiCoach } from '../ai/gemini.ts';
+import { geminiBudget } from '../lib/ai-budget.ts';
 import { instIntentDto, scoreInstIntent } from '../ai/inst-intent.ts';
 import { measureMarketHeat } from '../ai/market-heat.ts';
 import {
@@ -200,6 +201,7 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext) {
         python: Boolean(ctx.config.analyzerUrl),
         analyzer_url: ctx.config.analyzerUrl || null,
         gemini: Boolean(ctx.config.geminiApiKey),
+        gemini_budget: geminiBudget.snapshot(),
         news: true,
         heat: true,
         chips: true,
