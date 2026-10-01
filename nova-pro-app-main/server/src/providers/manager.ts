@@ -148,6 +148,12 @@ export class MarketManager implements MarketDataProvider, PriceFeed {
         return this.active.listOptionContracts();
     }
 
+    /** Provider-side quote query guard counters (Shioaji only). */
+    quoteGuardStatus(): unknown {
+        const p = this.active as { quoteGuardStatus?: () => unknown };
+        return typeof p.quoteGuardStatus === 'function' ? p.quoteGuardStatus() : null;
+    }
+
     snapshots(keys: ContractKey[]): Promise<Snapshot[]> {
         return this.active.snapshots(keys);
     }

@@ -40,7 +40,10 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     // CORS for web dev without the vite proxy (and Tauri webviews later)
     app.addHook('onSend', async (_req, reply) => {
         reply.header('Access-Control-Allow-Origin', '*');
-        reply.header('Access-Control-Allow-Headers', 'Content-Type');
+        reply.header(
+            'Access-Control-Allow-Headers',
+            'Content-Type, X-Admin-Token',
+        );
         reply.header(
             'Access-Control-Allow-Methods',
             'GET, POST, PUT, OPTIONS',

@@ -28,8 +28,20 @@ import type {
     IntradayRankItem,
 } from './types.ts';
 import type { MarketCalendarService } from '../market-calendar/index.ts';
+import { isTradingDay } from '../market-calendar/trading-day.ts';
+import { sessionMinuteTaipei, taipeiYmd } from '../shadow/session.ts';
 import { EvalTimingRegistry } from '../live-acceptance/eval-timing.ts';
 import { ReadinessTracker } from '../live-acceptance/readiness.ts';
+
+/** Scanner/snapshot traffic counts against the broker's daily quota; idle off-hours. */
+const OFF_HOURS_DISCOVERY_MS = 30 * 60 * 1000;
+
+/** 08:30–13:40 Taipei on trading days. */
+export function discoveryActiveWindow(d: Date): boolean {
+    if (!isTradingDay(taipeiYmd(d))) return false;
+    const sm = sessionMinuteTaipei(d);
+    return sm >= -30 && sm <= 4 * 60 + 40;
+}
 
 /**
  * INTRADAY RANK v1 — C layer.
@@ -62,6 +74,7 @@ export class IntradayRankService {
     /** Soft shadow A/B — never affects production return / bridge. */
     private shadow: ShadowEvaluationService | null = null;
     private calendar: MarketCalendarService | null = null;
+    private lastDiscoveryAt = 0;
 
     constructor(
         private market: MarketManager,
@@ -207,6 +220,14 @@ export class IntradayRankService {
     }
 
     private async discoveryCycle(): Promise<void> {
+        const nowMs = this.runtime.now().getTime();
+        if (
+            !discoveryActiveWindow(this.runtime.now()) &&
+            nowMs - this.lastDiscoveryAt < OFF_HOURS_DISCOVERY_MS
+        ) {
+            return;
+        }
+        this.lastDiscoveryAt = nowMs;
         this.cfg = loadIntradayRankConfig();
         this.discovery.setConfig(this.cfg);
         const pool = await this.discovery.refresh(true);

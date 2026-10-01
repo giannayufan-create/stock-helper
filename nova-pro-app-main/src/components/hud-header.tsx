@@ -251,8 +251,10 @@ function ThemeSettings() {
 function MarketSourceMenu() {
     const [config, setConfig] = useState<MarketConfig | null>(null);
     const [key, setKey] = useState('');
+    const [adminToken, setAdminToken] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const token = adminToken.trim() || undefined;
 
     useEffect(() => {
         fetchMarketConfig()
@@ -267,6 +269,7 @@ function MarketSourceMenu() {
         try {
             const res = await setMarketSource(
                 key.trim() ? { api_key: key.trim() } : { provider: 'fugle' },
+                token,
             );
             if (res.warning) {
                 // show the degraded-mode warning before reloading
@@ -287,7 +290,7 @@ function MarketSourceMenu() {
         setBusy(true);
         setError('');
         try {
-            await setMarketSource({ provider: 'shioaji' });
+            await setMarketSource({ provider: 'shioaji' }, token);
             window.location.reload();
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
@@ -317,6 +320,25 @@ function MarketSourceMenu() {
                               ? '富果行情 API（真實報價）'
                               : '真實行情未連線（模擬已停用）'}
                     </span>
+                    {config?.admin_token_required && (
+                        <>
+                            <span className={styles.settingLabel}>
+                                管理密碼（切換行情來源需要）
+                            </span>
+                            <div className={styles.saveRow}>
+                                <input
+                                    className={styles.saveInput}
+                                    type='password'
+                                    autoComplete='off'
+                                    value={adminToken}
+                                    placeholder='輸入 ADMIN_TOKEN'
+                                    onChange={(e) =>
+                                        setAdminToken(e.target.value)
+                                    }
+                                />
+                            </div>
+                        </>
+                    )}
                     <button
                         className={styles.opt[isShioaji ? 'on' : 'off']}
                         disabled={busy || !config?.has_shioaji}

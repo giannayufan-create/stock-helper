@@ -57,6 +57,7 @@ export interface MarketConfig {
     has_key: boolean;
     has_shioaji?: boolean;
     paper_trade?: boolean;
+    admin_token_required?: boolean;
 }
 
 export function fetchMarketConfig() {
@@ -64,14 +65,22 @@ export function fetchMarketConfig() {
 }
 
 /** validate + save a Fugle API key and hot-swap the market provider */
-export function setMarketSource(body: {
-    api_key?: string;
-    provider?: 'mock' | 'fugle' | 'shioaji';
-}) {
+export function setMarketSource(
+    body: {
+        api_key?: string;
+        provider?: 'mock' | 'fugle' | 'shioaji';
+    },
+    adminToken?: string,
+) {
     return apiPost<{
         provider: 'mock' | 'fugle' | 'shioaji';
         warning?: string;
-    }>('/api/v1/config/market', body);
+    }>(
+        '/api/v1/config/market',
+        body,
+        undefined,
+        adminToken ? { 'X-Admin-Token': adminToken } : undefined,
+    );
 }
 
 // ---- health / info / auth ----

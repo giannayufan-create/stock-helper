@@ -3,6 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.ts';
+import { requireAdmin } from '../lib/admin-auth.ts';
 import { FugleMarketDataProvider } from '../providers/fugle/market.ts';
 import { ShioajiMarketDataProvider } from '../providers/shioaji/market.ts';
 
@@ -18,11 +19,12 @@ export function registerConfigRoutes(
             ctx.config.shioajiApiKey && ctx.config.shioajiSecretKey,
         ),
         paper_trade: ctx.config.tradeProvider === 'mock',
+        admin_token_required: Boolean(process.env.ADMIN_TOKEN?.trim()),
     }));
 
     app.post<{
         Body: { api_key?: string; provider?: 'mock' | 'fugle' | 'shioaji' };
-    }>('/api/v1/config/market', async (req, reply) => {
+    }>('/api/v1/config/market', { preHandler: requireAdmin }, async (req, reply) => {
         const apiKey = req.body?.api_key?.trim();
         const provider = req.body?.provider;
 

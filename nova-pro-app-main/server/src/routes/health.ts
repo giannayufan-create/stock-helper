@@ -123,7 +123,11 @@ export function registerHealthRoutes(
             const usage = res.ok
                 ? ((await res.json()) as Record<string, unknown>)
                 : { available: false, error: `bridge HTTP ${res.status}` };
-            const payload = { provider, ...usage };
+            const payload = {
+                provider,
+                ...usage,
+                quote_guard: ctx.market.quoteGuardStatus(),
+            };
             assertNoSecretLeak(payload);
             return payload;
         } catch (err) {

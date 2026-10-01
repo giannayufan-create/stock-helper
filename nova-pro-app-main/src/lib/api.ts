@@ -79,12 +79,13 @@ export async function apiPost<T>(
     path: string,
     body: unknown,
     timeoutMs?: number,
+    extraHeaders?: Record<string, string>,
 ): Promise<T> {
     const ms = timeoutMs ?? DEFAULT_POST_MS;
     return withTimeout(ms, async (signal) => {
         const res = await fetch(base + path, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...extraHeaders },
             body: JSON.stringify(body),
             signal,
         });

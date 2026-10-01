@@ -420,21 +420,18 @@ pass('cost_model_reduces_gross');
             cacheDir: dir,
             nowMs: () => now,
         });
-        assert.ok(await src.loadDay('2026-10-01', '2330'));
-        assert.equal(existsSync(join(dir, '2026-10-01', '2330.json')), false);
-        now += 3 * 60_000; // live memo expired
-        await src.loadDay('2026-10-01', '2330');
-        assert.equal(fetches, 2);
+        assert.equal(await src.loadDay('2026-10-01', '2330'), null);
+        assert.equal(fetches, 0, 'no intraday kbars before the close');
 
         now = Date.parse('2026-10-01T06:00:00.000Z'); // 14:00 Taipei
-        await src.loadDay('2026-10-01', '2330');
+        assert.ok(await src.loadDay('2026-10-01', '2330'));
         assert.equal(existsSync(join(dir, '2026-10-01', '2330.json')), true);
         await src.loadDay('2026-10-01', '2330');
-        assert.equal(fetches, 3);
+        assert.equal(fetches, 1);
 
         prev = null;
         assert.equal(await src.loadDay('2026-10-01', '1101'), null);
-        pass('bar_cache_after_close_and_null_without_prev_close');
+        pass('bar_fetch_only_after_close_cached_and_null_without_prev_close');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

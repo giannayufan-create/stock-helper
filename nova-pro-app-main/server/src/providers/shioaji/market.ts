@@ -26,6 +26,11 @@ import type {
 import { bidaskChannelFor, tickChannelFor } from '../market-data.ts';
 import { fetchRegulatoryLists } from '../fugle/regulatory.ts';
 import { fetchTwOvernightPool } from '../../lib/tw-overnight-pool.ts';
+import {
+    IntradayQueryBudget,
+    QuoteRateLimiter,
+    shouldPollSnapshotFallback,
+} from './quote-guard.ts';
 
 const DEFAULT_BRIDGE =
     process.env.SHIOAJI_BRIDGE_URL?.replace(/\/$/, '') ||
@@ -72,6 +77,12 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
     private abort: AbortController | null = null;
     private pollTimer: ReturnType<typeof setInterval> | null = null;
     private subs = new Map<string, Set<StreamQuoteType>>();
+    /** Well under the official 50 calls / 5–10s for snapshots+kbars+ticks combined. */
+    private quoteLimiter = new QuoteRateLimiter(20, 10_000);
+    /** Official intraday caps are kbars 270 / ticks 10. */
+    private intradayBudget = new IntradayQueryBudget({ kbars: 200, ticks: 8 });
+    private lastStreamEventAt = 0;
+    private lastPollAt = 0;
 
     async init(): Promise<void> {
         const health = await this.getJson<{
@@ -89,10 +100,39 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
             await this.getJson('/search?q=2330');
         }
         this.startEventPump();
-        // REST poll fallback for subscribed symbols (in case SSE gaps)
+        // Snapshot fallback only when the quote stream stalls during the session;
+        // Shioaji suspends IDs that poll snapshots as a realtime feed.
+        this.lastStreamEventAt = Date.now();
         this.pollTimer = setInterval(() => {
+            const now = new Date();
+            if (
+                !shouldPollSnapshotFallback({
+                    now,
+                    lastStreamEventAt: this.lastStreamEventAt,
+                    lastPollAt: this.lastPollAt,
+                })
+            ) {
+                return;
+            }
+            this.lastPollAt = now.getTime();
             void this.pollSubscribed();
-        }, 8000);
+        }, 15_000);
+    }
+
+    quoteGuardStatus(): {
+        intraday: ReturnType<IntradayQueryBudget['usage']>;
+        last_stream_event_at: string | null;
+        last_snapshot_fallback_at: string | null;
+    } {
+        return {
+            intraday: this.intradayBudget.usage(),
+            last_stream_event_at: this.lastStreamEventAt
+                ? new Date(this.lastStreamEventAt).toISOString()
+                : null,
+            last_snapshot_fallback_at: this.lastPollAt
+                ? new Date(this.lastPollAt).toISOString()
+                : null,
+        };
     }
 
     contractCount(): number {
@@ -170,6 +210,7 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
                 code: k.code,
             }));
         if (!contracts.length) return [];
+        await this.quoteLimiter.acquire();
         const rows = await this.postJson<Snapshot[]>('/snapshots', {
             contracts,
         });
@@ -180,6 +221,10 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
     }
 
     async kbars(key: ContractKey, start: string, end: string): Promise<KBars> {
+        if (!this.intradayBudget.take('kbars')) {
+            throw new Error('shioaji intraday kbars budget exhausted');
+        }
+        await this.quoteLimiter.acquire();
         return this.postJson<KBars>('/kbars', {
             contract: {
                 security_type: key.security_type,
@@ -196,6 +241,10 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
         date: string,
         lastCount?: number,
     ): Promise<HistoryTicks> {
+        if (!this.intradayBudget.take('ticks')) {
+            throw new Error('shioaji intraday ticks budget exhausted');
+        }
+        await this.quoteLimiter.acquire();
         const raw = await this.postJson<{
             date: string;
             datetime: string[];
@@ -382,6 +431,7 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
 
     private handleBridgeEvent(ev: Record<string, unknown>): void {
         if (ev.type !== 'quote') return;
+        this.lastStreamEventAt = Date.now();
         const topic = String(ev.topic ?? '');
         const quote = (ev.quote ?? {}) as Record<string, unknown>;
         // Topics look like: QUT/id/TSE/2330 or MKT/... or BIDASK/...
