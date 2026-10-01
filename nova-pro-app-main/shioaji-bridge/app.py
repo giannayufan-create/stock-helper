@@ -406,6 +406,18 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/usage")
+def usage() -> dict[str, Any]:
+    """Shioaji daily data-traffic quota (kbars/ticks return empty once exhausted)."""
+    client = ensure_api()
+    try:
+        u = _as_dict(client.usage())
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "error": type(exc).__name__}
+    keys = ("connections", "bytes", "limit_bytes", "remaining_bytes")
+    return {"available": True, **{k: u.get(k) for k in keys}}
+
+
 @app.post("/snapshots")
 def snapshots(body: SnapshotsBody) -> list[dict[str, Any]]:
     client = ensure_api()

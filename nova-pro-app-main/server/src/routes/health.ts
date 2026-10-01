@@ -112,6 +112,29 @@ export function registerHealthRoutes(
         return diskCache.value;
     });
 
+    /** Shioaji data-traffic quota — empty kbars usually means it is exhausted. */
+    app.get('/api/v1/system/market-usage', async () => {
+        const provider = ctx.market.name();
+        if (provider !== 'shioaji') return { provider, available: false };
+        try {
+            const res = await fetch(`${ctx.config.shioajiBridgeUrl}/usage`, {
+                signal: AbortSignal.timeout(10_000),
+            });
+            const usage = res.ok
+                ? ((await res.json()) as Record<string, unknown>)
+                : { available: false, error: `bridge HTTP ${res.status}` };
+            const payload = { provider, ...usage };
+            assertNoSecretLeak(payload);
+            return payload;
+        } catch (err) {
+            return {
+                provider,
+                available: false,
+                error: err instanceof Error ? err.name : 'error',
+            };
+        }
+    });
+
     app.get('/api/v1/info', async (): Promise<ServerInfo> => ({
         name: 'nova-pro-server',
         version: SERVER_VERSION,
