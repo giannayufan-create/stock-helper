@@ -37,6 +37,9 @@ import type { DailyLiveAcceptanceReport } from './daily-types.ts';
 import type { StrategySignal } from '../strategy-signal/types.ts';
 import { countSignalTypes } from './daily-sampler.ts';
 
+const SIGNAL_COUNT_MEMO_MS = 5 * 60_000;
+const SAMPLES_MEMO_MS = 5 * 60_000;
+
 export class LiveAcceptanceService {
     private timer: ReturnType<typeof setInterval> | null = null;
     private lagTimer: ReturnType<typeof setInterval> | null = null;
@@ -59,6 +62,18 @@ export class LiveAcceptanceService {
     };
     private notifyPriority = { HIGH: 0, MEDIUM: 0, INFO: 0 };
     private lastDailyReport: DailyLiveAcceptanceReport | null = null;
+    // Both scan every signal of the day; the UI polls /today every 60s.
+    private signalCountMemo: {
+        ymd: string;
+        at: number;
+        value: DailyLiveAcceptanceReport['signals'];
+    } | null = null;
+    private samplesPreviewMemo: {
+        ymd: string;
+        at: number;
+        samples: DailyLiveAcceptanceReport['signal_samples'];
+        anomalies: DailyLiveAcceptanceReport['anomalies'];
+    } | null = null;
     private restartProbe: { started_at: string | null; seconds: number | null } =
         { started_at: null, seconds: null };
 
@@ -535,11 +550,7 @@ export class LiveAcceptanceService {
         const firestore = buildFirestoreSummary(this.ctx, ymd, {
             firestore_queue: this.peakFsQueue,
         });
-        const allRows = [
-            ...collectStrategyRows(this.ctx, ymd),
-            ...collectBpEventRows(this.ctx),
-        ];
-        const signals = last?.signals ?? countSignalTypes(allRows);
+        const signals = last?.signals ?? this.countTodaySignals(ymd);
         const anomalies = last?.anomalies ?? [];
         const kindSet = Array.from(new Set(anomalies.map((a) => a.kind)));
 
@@ -602,13 +613,38 @@ export class LiveAcceptanceService {
                 mutates_strategy: false,
             };
         }
-        const assembled = this.buildDailyArtifacts(null);
+        const nowMs = Date.now();
+        let memo = this.samplesPreviewMemo;
+        if (!memo || memo.ymd !== ymd || nowMs - memo.at >= SAMPLES_MEMO_MS) {
+            const { report } = this.buildDailyArtifacts(null);
+            memo = {
+                ymd,
+                at: nowMs,
+                samples: report.signal_samples,
+                anomalies: report.anomalies,
+            };
+            this.samplesPreviewMemo = memo;
+        }
         return {
             trading_day: ymd,
-            samples: assembled.report.signal_samples,
-            anomalies: assembled.report.anomalies,
+            samples: memo.samples,
+            anomalies: memo.anomalies,
             mutates_strategy: false,
         };
+    }
+
+    private countTodaySignals(ymd: string): DailyLiveAcceptanceReport['signals'] {
+        const nowMs = Date.now();
+        const memo = this.signalCountMemo;
+        if (memo && memo.ymd === ymd && nowMs - memo.at < SIGNAL_COUNT_MEMO_MS) {
+            return memo.value;
+        }
+        const value = countSignalTypes([
+            ...collectStrategyRows(this.ctx, ymd),
+            ...collectBpEventRows(this.ctx),
+        ]);
+        this.signalCountMemo = { ymd, at: nowMs, value };
+        return value;
     }
 
     /**

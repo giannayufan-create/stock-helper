@@ -33,6 +33,7 @@ import { registerOutcomeRoutes } from './routes/outcomes.ts';
 import { registerLimitUpBoardRoutes } from './routes/limit-up-board.ts';
 import { registerStrategyValidationRoutes } from './routes/strategy-validation.ts';
 import { registerRateLimits } from './lib/rate-limit.ts';
+import { registerOpenProtection } from './lib/open-protection.ts';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     const app = Fastify({ logger: { level: 'warn' } });
@@ -51,6 +52,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     });
     app.options('/*', async (_req, reply) => reply.code(204).send());
     registerRateLimits(app);
+    registerOpenProtection(app);
 
     registerHealthRoutes(app, ctx);
     registerConfigRoutes(app, ctx);

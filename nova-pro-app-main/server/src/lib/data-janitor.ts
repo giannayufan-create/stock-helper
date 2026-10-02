@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isOpenProtectedWindow } from './open-protection.ts';
 
 /** Directory under server/data → days of dated files to keep (today counts as day 1). */
 export const LOG_RETENTION_DAYS: Readonly<Record<string, number>> = {
@@ -154,7 +155,7 @@ export function startDataJanitor(dataDir: string): void {
         }
     };
     const run = () => {
-        report('', sweepOldLogs(dataDir));
+        if (!isOpenProtectedWindow()) report('', sweepOldLogs(dataDir));
         report(' (low-disk)', emergencySweep(dataDir));
     };
     run();
