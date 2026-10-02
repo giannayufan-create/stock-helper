@@ -13,6 +13,8 @@ import {
     serverDataDir,
     type DiskUsage,
 } from '../lib/data-janitor.ts';
+import { readRuntimeTimeline } from '../lib/live-acceptance/runtime-timeline.ts';
+import { join } from 'node:path';
 
 const SECRET_KEY_PATTERN =
     /private[_-]?key|client[_-]?secret|credential|BEGIN (RSA )?PRIVATE/i;
@@ -113,6 +115,37 @@ export function registerHealthRoutes(
     });
 
     /** Shioaji data-traffic quota — empty kbars usually means it is exhausted. */
+    app.get<{ Querystring: { date?: string; from?: string; to?: string } }>(
+        '/api/v1/system/runtime-timeline',
+        async (req, reply) => {
+            const date = req.query.date ?? '';
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                return reply.code(400).send({ detail: 'date=YYYY-MM-DD required' });
+            }
+            const tl = await readRuntimeTimeline(
+                join(serverDataDir(), 'live-acceptance', `${date}.jsonl`),
+            );
+            const from = req.query.from ?? '00:00';
+            const to = req.query.to ?? '23:59';
+            const m = process.memoryUsage();
+            const mb = (n: number) => Math.round((n / 1024 / 1024) * 10) / 10;
+            return {
+                date,
+                ...tl,
+                minutes: tl.minutes.filter(
+                    (x) => x.minute >= from && x.minute <= to,
+                ),
+                memory_now: {
+                    rss_mb: mb(m.rss),
+                    heap_used_mb: mb(m.heapUsed),
+                    heap_total_mb: mb(m.heapTotal),
+                    external_mb: mb(m.external),
+                    array_buffers_mb: mb(m.arrayBuffers),
+                },
+            };
+        },
+    );
+
     app.get('/api/v1/system/market-usage', async () => {
         const provider = ctx.market.name();
         if (provider !== 'shioaji') return { provider, available: false };
