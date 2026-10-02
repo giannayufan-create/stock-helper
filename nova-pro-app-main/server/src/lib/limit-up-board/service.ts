@@ -1,5 +1,6 @@
 // Live / EOD limit-up board — read-only. Never mutates A/B/C/BP/Rank.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { MarketManager } from '../../providers/manager.ts';
 import type { ScannerItem } from '../../types/dto.ts';
 import { LIMIT_UP_PCT, isLimitUp } from '../board-attack/labels.ts';
@@ -49,7 +50,7 @@ function scannerChangePct(row: ScannerItem): number | null {
 
 /** TW cash session Mon–Fri 08:50–13:40 Taipei (movers still useful near open/close). */
 function isTwCashSession(now = new Date()): boolean {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = dateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei',
         weekday: 'short',
         hour: '2-digit',

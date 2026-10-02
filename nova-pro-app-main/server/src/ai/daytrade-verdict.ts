@@ -2,6 +2,7 @@
 // Integrates session weights, trap dominance, screener alignment, risk sizing.
 // Also runs a lightweight rule micro-backtest on the provided bars.
 
+import { dateTimeFormat } from '../lib/intl-cache.ts';
 import type { ChipsSignal } from './chips-signal.ts';
 import type { InstIntent } from './inst-intent.ts';
 import type { MarketRegime } from './market-regime.ts';
@@ -45,7 +46,7 @@ export interface DaytradeVerdict {
 }
 
 function taipeiMinutes(now = new Date()): { mins: number; weekday: number } {
-    const fmt = new Intl.DateTimeFormat('en-US', {
+    const fmt = dateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei',
         hour: '2-digit',
         minute: '2-digit',

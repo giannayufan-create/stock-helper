@@ -1,6 +1,7 @@
 // server/src/lib/strategy-signal/repository.ts
 // JSONL only via this interface — no scattered fs.appendFile in B/C.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import {
     appendFileSync,
     existsSync,
@@ -32,7 +33,7 @@ function defaultRoot(): string {
 
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

@@ -1,6 +1,7 @@
 // server/src/lib/open-gate.ts — [B] OPEN GATE: open-quality gate for day-trade
 // Stages B0/B1/B2 + open_score 0~100 across gap/rvol/price/momentum/chase.
 
+import { dateTimeFormat } from './intl-cache.ts';
 import { mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,7 +81,7 @@ function taipeiParts(now = new Date()): {
     weekday: number;
     ymd: string;
 } {
-    const fmt = new Intl.DateTimeFormat('en-US', {
+    const fmt = dateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

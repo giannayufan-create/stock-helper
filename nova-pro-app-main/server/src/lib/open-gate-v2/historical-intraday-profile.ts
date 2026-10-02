@@ -2,6 +2,7 @@
 // Same-time RVOL: today cum vol / avg of past N days' cum vol at same minute.
 // Preload once; never re-scan 20d raw bars every evaluate tick.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import {
     existsSync,
     mkdirSync,
@@ -20,7 +21,7 @@ export interface MinuteCurve {
 }
 
 function taipeiYmd(d = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

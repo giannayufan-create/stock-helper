@@ -1,5 +1,6 @@
 // Trading-day helpers (Taipei). Official holiday overrides preferred over weekends-only.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { ConfidenceLevel, TradingDayInfo } from './types.ts';
 
 const TAIPEI = 'Asia/Taipei';
@@ -46,7 +47,7 @@ export type HolidayOverrides = {
 };
 
 export function taipeiYmd(d: Date = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: TAIPEI,
         year: 'numeric',
         month: '2-digit',
@@ -64,7 +65,7 @@ export function weekdayTaipei(ymd: string): number {
     // Noon UTC+8 avoids DST edge (TW has none) and parse ambiguity
     const { y, m, d } = parseYmd(ymd);
     const utc = Date.UTC(y, m - 1, d, 4, 0, 0); // 12:00 Taipei
-    const wd = new Intl.DateTimeFormat('en-US', {
+    const wd = dateTimeFormat('en-US', {
         timeZone: TAIPEI,
         weekday: 'short',
     }).format(new Date(utc));

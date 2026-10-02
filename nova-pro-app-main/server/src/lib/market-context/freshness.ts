@@ -1,5 +1,6 @@
 // server/src/lib/market-context/freshness.ts
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type {
     ConfidenceLevel,
     ContextDataPointMeta,
@@ -64,7 +65,7 @@ export function dayQuoteRealtimeLevel(
     now = new Date(),
 ): RealtimeLevel {
     if (!sessionDate) return 'UNKNOWN';
-    const taipei = new Intl.DateTimeFormat('en-CA', {
+    const taipei = dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

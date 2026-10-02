@@ -2,6 +2,7 @@
 // Never mix replay / synthetic / live into one success rate.
 // Full vs partial (--until) runs are stored separately and never overwrite each other.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import {
     mkdirSync,
     writeFileSync,
@@ -171,7 +172,7 @@ export function resolveTradeDateParam(
     raw: string | undefined,
 ): { ok: true; date: string } | { ok: false; error: string } {
     if (raw == null || raw === '') {
-        const today = new Intl.DateTimeFormat('en-CA', {
+        const today = dateTimeFormat('en-CA', {
             timeZone: 'Asia/Taipei',
         }).format(new Date());
         return { ok: true, date: today };

@@ -1,6 +1,7 @@
 // server/src/lib/open-gate-v2/open-gate-evaluator.ts
 // Final Patch: hysteresis, dual TTL, data_blocked, 09:30 B/C boundary.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { OpenGateConfig } from './config.ts';
 import type { DataHealthReport } from './data-health.ts';
 import { runLiquidityGate } from './liquidity-gate.ts';
@@ -27,7 +28,7 @@ function taipeiParts(now = new Date()): {
     weekday: number;
     ymd: string;
 } {
-    const fmt = new Intl.DateTimeFormat('en-US', {
+    const fmt = dateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

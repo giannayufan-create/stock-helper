@@ -1,6 +1,7 @@
 // server/src/lib/research-persistence/firestore-outcome-repository.ts
 // signal_outcomes/{signal_id} — independent of StrategySignal docs.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { SignalType } from '../strategy-signal/types.ts';
 import type { SignalOutcome } from '../signal-outcome/types.ts';
@@ -27,7 +28,7 @@ import {
 
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

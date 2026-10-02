@@ -1,6 +1,7 @@
 // server/src/lib/intraday-rank/service.ts
 // C orchestrator: discovery + watch pool + rank cadence (MarketRuntime-backed)
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { MarketManager } from '../../providers/manager.ts';
 import type { MarketRuntime } from '../market-runtime/index.ts';
 import type { OpenGateV2Service } from '../open-gate-v2/service.ts';
@@ -292,7 +293,7 @@ export class IntradayRankService {
             const clockNow = this.runtime.now();
             const replay = this.runtime.sourceInfo().source_mode === 'replay';
             const sessionMin = (() => {
-                const parts = new Intl.DateTimeFormat('en-US', {
+                const parts = dateTimeFormat('en-US', {
                     timeZone: 'Asia/Taipei',
                     hour: '2-digit',
                     minute: '2-digit',

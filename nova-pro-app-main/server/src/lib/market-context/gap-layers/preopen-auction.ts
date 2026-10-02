@@ -1,6 +1,7 @@
 // server/src/lib/market-context/gap-layers/preopen-auction.ts
 // Auction context only — never feeds strategy. No fabricated ticks.
 
+import { dateTimeFormat } from '../../intl-cache.ts';
 import { buildMeta } from '../freshness.ts';
 import { PreOpenBuffer } from './preopen-buffer.ts';
 import type {
@@ -10,7 +11,7 @@ import type {
 } from './types.ts';
 
 function taipeiParts(now = new Date()): { hm: number; weekday: number } {
-    const fmt = new Intl.DateTimeFormat('en-GB', {
+    const fmt = dateTimeFormat('en-GB', {
         timeZone: 'Asia/Taipei',
         hour: '2-digit',
         minute: '2-digit',

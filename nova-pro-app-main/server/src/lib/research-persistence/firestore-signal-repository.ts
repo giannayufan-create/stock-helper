@@ -1,6 +1,7 @@
 // server/src/lib/research-persistence/firestore-signal-repository.ts
 // Firestore strategy_signals/{signal_id} — immutable; non-blocking writes via queue.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { SignalType, StrategySignal } from '../strategy-signal/types.ts';
 import type { StrategySignalRepository } from '../strategy-signal/repository.ts';
@@ -28,7 +29,7 @@ import {
 
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

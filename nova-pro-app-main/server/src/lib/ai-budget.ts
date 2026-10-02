@@ -2,6 +2,8 @@
 // Process-wide Gemini call budget (billing guard). Every Gemini fetch takes one unit;
 // callers treat a refusal like "Gemini unavailable" and use their rule-based fallback.
 
+import { dateTimeFormat } from './intl-cache.ts';
+
 const DEFAULT_DAILY = 600;
 const DEFAULT_PER_MINUTE = 30;
 
@@ -11,7 +13,7 @@ function envInt(name: string, fallback: number): number {
 }
 
 function taipeiYmd(ms: number): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

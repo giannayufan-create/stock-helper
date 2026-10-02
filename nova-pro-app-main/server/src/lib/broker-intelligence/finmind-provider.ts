@@ -1,6 +1,7 @@
 // server/src/lib/broker-intelligence/finmind-provider.ts
 // FinMind 券商分點（盤後）。Never fabricates names; never mutates A/B/C.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type {
     BranchDayBundle,
     BranchFreshness,
@@ -47,7 +48,7 @@ export interface FinMindFetch {
 }
 
 function taipeiYmd(d = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

@@ -2,6 +2,7 @@
 // Retention for high-volume operational logs on the persistent data disk.
 // Research records (signals, raw signals, outcomes, EARLY shadow/reports) are never touched.
 
+import { dateTimeFormat } from './intl-cache.ts';
 import {
     readdirSync,
     rmSync,
@@ -34,7 +35,7 @@ export function serverDataDir(): string {
 }
 
 function taipeiYmd(ms: number): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

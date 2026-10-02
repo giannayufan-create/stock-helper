@@ -2,6 +2,7 @@
 // RADAR FULLSTACK RESCUE v3 orchestrator — Decision Support only.
 // NEVER mutates production A / B / C / BP scores.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { BuyPressureService } from '../buy-pressure/index.ts';
 import type { BuyPressureItem } from '../buy-pressure/types.ts';
 import type { EventIntelligenceService } from '../event-intelligence/index.ts';
@@ -56,7 +57,7 @@ function clamp(n: number, lo = 0, hi = 100): number {
 
 /** Taipei cash session 09:00–13:30 — used only for presentation state, not strategy. */
 function isTaipeiCashSession(now = new Date()): boolean {
-    const parts = new Intl.DateTimeFormat('en-GB', {
+    const parts = dateTimeFormat('en-GB', {
         timeZone: 'Asia/Taipei',
         hour: '2-digit',
         minute: '2-digit',
@@ -258,7 +259,7 @@ export class RadarRescueService {
                 ...this.funnel.list().map((f) => f.symbol),
                 ...this.earlyLiveShadow.list().map((r) => r.symbol),
             ];
-        const ymd = new Intl.DateTimeFormat('en-CA', {
+        const ymd = dateTimeFormat('en-CA', {
             timeZone: 'Asia/Taipei',
         }).format(new Date());
         const truth = await this.eod.buildForSymbols(pool, ymd);
@@ -280,7 +281,7 @@ export class RadarRescueService {
     }) {
         const trade_date =
             opts?.trade_date ??
-            new Intl.DateTimeFormat('en-CA', {
+            dateTimeFormat('en-CA', {
                 timeZone: 'Asia/Taipei',
             }).format(new Date());
         return this.earlyLiveShadow.settleAndPersist({

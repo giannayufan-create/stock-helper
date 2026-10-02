@@ -2,6 +2,7 @@
 // Separates: (a) post-signal price path, (b) simulated trade P&L,
 // (c) real fill P&L placeholders (null until wired).
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { RawSignalEvent } from '../strategy-signal/raw-signal-event.ts';
 import { DEFAULT_TW_COST_RATES, netPnlAfterCost } from './cost-model.ts';
 import { simulateTrade } from './simulator.ts';
@@ -107,7 +108,7 @@ export function computeSignalPathMetrics(
 
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

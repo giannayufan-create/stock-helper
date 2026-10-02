@@ -1,5 +1,6 @@
 // Session window + JSONL sink for market-day sampling.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { appendFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SessionWindow } from './types.ts';
@@ -7,7 +8,7 @@ import type { SessionWindow } from './types.ts';
 const TAIPEI = 'Asia/Taipei';
 
 export function taipeiHm(d: Date = new Date()): { h: number; m: number; ymd: string } {
-    const parts = new Intl.DateTimeFormat('en-CA', {
+    const parts = dateTimeFormat('en-CA', {
         timeZone: TAIPEI,
         year: 'numeric',
         month: '2-digit',

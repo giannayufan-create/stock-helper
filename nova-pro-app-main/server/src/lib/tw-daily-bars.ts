@@ -1,5 +1,7 @@
 // server/src/lib/tw-daily-bars.ts — Yahoo daily OHLCV for TW stocks (after-hours OK)
 
+import { dateTimeFormat } from './intl-cache.ts';
+
 export interface DailyBar {
     date: string; // YYYY-MM-DD
     open: number;
@@ -30,7 +32,7 @@ const CACHE_MS = 60 * 60 * 1000;
 const cache = new Map<string, { at: number; bars: DailyBar[] }>();
 
 function taipeiDate(tsSec: number): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

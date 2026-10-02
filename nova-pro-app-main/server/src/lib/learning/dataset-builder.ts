@@ -1,6 +1,7 @@
 // server/src/lib/learning/dataset-builder.ts
 // Join StrategySignal + Outcome → LearningDatasetRow (eligible only).
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { StrategySignal } from '../strategy-signal/types.ts';
 import type { SignalOutcome } from '../signal-outcome/types.ts';
 import { loadLearningConfig } from './config.ts';
@@ -24,7 +25,7 @@ function str(v: unknown): string | null {
 }
 
 function taipeiDate(iso: string): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

@@ -1,6 +1,7 @@
 // server/src/lib/open-gate-v2/open-confirm-repository.ts
 // Conditional JSONL append (not every 3s).
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +16,7 @@ function dataRoot(): string {
 
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

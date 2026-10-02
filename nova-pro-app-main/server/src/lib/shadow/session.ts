@@ -1,10 +1,11 @@
 // Shared Taipei session helpers — one formatter per process.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { isTradingDay } from '../market-calendar/trading-day.ts';
 
 const TAIPEI = 'Asia/Taipei';
 
-const clockFmt = new Intl.DateTimeFormat('en-US', {
+const clockFmt = dateTimeFormat('en-US', {
     timeZone: TAIPEI,
     hour: '2-digit',
     minute: '2-digit',
@@ -12,7 +13,7 @@ const clockFmt = new Intl.DateTimeFormat('en-US', {
     weekday: 'short',
 });
 
-const ymdFmt = new Intl.DateTimeFormat('en-CA', {
+const ymdFmt = dateTimeFormat('en-CA', {
     timeZone: TAIPEI,
     year: 'numeric',
     month: '2-digit',

@@ -1,6 +1,7 @@
 // server/src/lib/signal-outcome/repository.ts
 // Append-only JSONL outcome events — materialize latest per signal_id.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import {
     appendFileSync,
     existsSync,
@@ -31,7 +32,7 @@ const INDEX_REBUILD_MS = 60_000;
 
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

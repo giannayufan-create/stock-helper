@@ -1,6 +1,7 @@
 // server/src/lib/research-persistence/memory-signal-repository.ts
 // In-memory immutable store — mirrors Firestore semantics for tests / offline.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { SignalType, StrategySignal } from '../strategy-signal/types.ts';
 import type { StrategySignalRepository } from '../strategy-signal/repository.ts';
 import { signalsContentEqual, signalIdentityHash } from './hash.ts';
@@ -9,7 +10,7 @@ import { PersistenceHealthTracker } from './health-tracker.ts';
 
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

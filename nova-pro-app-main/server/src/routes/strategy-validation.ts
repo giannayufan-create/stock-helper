@@ -1,12 +1,13 @@
 // server/src/routes/strategy-validation.ts — read-only strategy validation summary.
 
+import { dateTimeFormat } from '../lib/intl-cache.ts';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.ts';
 import { StrategyValidationService } from '../lib/strategy-validation/service.ts';
 
 function taipeiYmd(offsetDays = 0): string {
     const d = new Date(Date.now() + offsetDays * 86_400_000);
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

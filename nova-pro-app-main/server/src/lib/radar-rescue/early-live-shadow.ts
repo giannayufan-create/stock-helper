@@ -2,6 +2,7 @@
 // Keeps 30s–5m observation in EarlySignalStore; this module tracks to session close.
 // NEVER places orders. NEVER mutates A/B/C/BP. NEVER marks FAIL before session end.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import {
     existsSync,
     mkdirSync,
@@ -161,7 +162,7 @@ export interface LiveEarlySettleResult {
 }
 
 function taipeiYmdFromMs(ms: number): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

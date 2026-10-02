@@ -1,5 +1,6 @@
 // server/src/lib/prediction-settle.ts — settle screener picks against daily bars
 
+import { dateTimeFormat } from './intl-cache.ts';
 import type { DailyBar } from './tw-daily-bars.ts';
 
 export type SettleStatus =
@@ -49,7 +50,7 @@ function classifyByMove(
 }
 
 export function taipeiDateStr(d = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',
@@ -59,7 +60,7 @@ export function taipeiDateStr(d = new Date()): string {
 
 /** Minutes from midnight in Asia/Taipei */
 export function taipeiMinutesNow(d = new Date()): number {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = dateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei',
         hour: '2-digit',
         minute: '2-digit',

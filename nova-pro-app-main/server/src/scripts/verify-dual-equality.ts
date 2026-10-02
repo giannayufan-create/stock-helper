@@ -3,6 +3,7 @@
 // Does NOT create fake StrategySignals.
 // Run: npx tsx src/scripts/verify-dual-equality.ts [fromYmd] [toYmd]
 
+import { dateTimeFormat } from '../lib/intl-cache.ts';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JsonlStrategySignalRepository } from '../lib/strategy-signal/repository.ts';
@@ -21,7 +22,7 @@ import {
 import { hasPrimaryFirebaseCredentials } from '../lib/research-persistence/config.ts';
 
 function taipeiToday(): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

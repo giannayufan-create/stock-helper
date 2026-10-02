@@ -1,6 +1,7 @@
 // server/src/lib/session-autonomy/session-clock.ts
 // Taipei wall-clock → TradingSessionState. Inject nowMs for headless tests.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { TradingSessionState } from './types.ts';
 
 export interface SessionClockParts {
@@ -11,7 +12,7 @@ export interface SessionClockParts {
 
 export function taipeiParts(nowMs: number): SessionClockParts {
     const d = new Date(nowMs);
-    const fmt = new Intl.DateTimeFormat('en-CA', {
+    const fmt = dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

@@ -1,5 +1,6 @@
 // server/src/routes/outcomes.ts — measured signal performance (read-only).
 
+import { dateTimeFormat } from '../lib/intl-cache.ts';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.ts';
 import {
@@ -10,7 +11,7 @@ import {
 
 function taipeiYmd(offsetDays = 0): string {
     const d = new Date(Date.now() + offsetDays * 86_400_000);
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

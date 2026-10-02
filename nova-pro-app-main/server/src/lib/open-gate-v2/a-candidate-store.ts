@@ -1,6 +1,7 @@
 // server/src/lib/open-gate-v2/a-candidate-store.ts
 // Persist A pool for headless hydrate — does NOT compute A scores.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ACandidate } from './types.ts';
@@ -15,7 +16,7 @@ export interface ACandidateSnapshot {
 }
 
 function taipeiYmd(d = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

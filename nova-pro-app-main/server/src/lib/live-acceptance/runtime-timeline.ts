@@ -2,6 +2,7 @@
 // Streams a day's live-acceptance JSONL and folds runtime samples into per-minute
 // buckets plus sampling gaps (process down / restarting / event loop frozen).
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { createReadStream, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
@@ -29,7 +30,7 @@ export interface RuntimeTimeline {
     gaps: TimelineGap[];
 }
 
-const TAIPEI_MINUTE = new Intl.DateTimeFormat('en-GB', {
+const TAIPEI_MINUTE = dateTimeFormat('en-GB', {
     timeZone: 'Asia/Taipei',
     hour: '2-digit',
     minute: '2-digit',

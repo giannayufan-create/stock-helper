@@ -1,5 +1,6 @@
 // server/src/lib/intraday-rank/repository.ts
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +14,7 @@ function root(): string {
 }
 
 function ymd(): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

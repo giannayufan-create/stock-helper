@@ -14,6 +14,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { dateTimeFormat } from '../../lib/intl-cache.ts';
 import type {
     ContractInfo,
     CreditEnquire,
@@ -68,7 +69,7 @@ const INIT_PROBE_TIMEOUT_MS = 25_000;
 
 /** TW cash session Mon–Fri 08:50–13:40 Taipei. Snapshot movers/actives 403 overnight. */
 function isTwCashSession(now = new Date()): boolean {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = dateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei',
         weekday: 'short',
         hour: '2-digit',

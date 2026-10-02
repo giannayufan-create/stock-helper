@@ -1,6 +1,7 @@
 // server/src/lib/broker-intelligence/broker-intelligence-service.ts
 // Context only — NEVER mutates A/B/C. No fabricated branch rows.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { scoreChips } from '../../ai/chips-signal.ts';
 import type { IntradayRankService } from '../intraday-rank/service.ts';
 import { getChipRow } from '../tw-chips.ts';
@@ -36,7 +37,7 @@ function lookbackDates(n: number): { start: string; end: string } {
     const end = new Date();
     const start = new Date(end.getTime() - n * 86400000 * 1.6);
     const fmt = (d: Date) =>
-        new Intl.DateTimeFormat('en-CA', {
+        dateTimeFormat('en-CA', {
             timeZone: 'Asia/Taipei',
             year: 'numeric',
             month: '2-digit',

@@ -2,6 +2,7 @@
 // Each trigger gets an independent signal_id; reopen incomplete windows after restart.
 // Horizon prices persist when first observed — never backfill early windows with a late restart price.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import {
     appendFileSync,
     mkdirSync,
@@ -13,7 +14,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 function taipeiYmd(d = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

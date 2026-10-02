@@ -1,6 +1,7 @@
 // server/src/lib/strategy-signal/factory.ts
 // Creates StrategySignal from B/C results — research decision only.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { OpenConfirmResult } from '../open-gate-v2/types.ts';
 import type { IntradayEventType, IntradayRankItem } from '../intraday-rank/types.ts';
@@ -45,7 +46,7 @@ function newId(prefix: string): string {
 }
 
 function sessionMinuteTaipei(iso: string): number {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = dateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei',
         hour: '2-digit',
         minute: '2-digit',

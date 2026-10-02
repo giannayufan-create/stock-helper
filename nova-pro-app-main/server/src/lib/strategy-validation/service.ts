@@ -1,6 +1,7 @@
 // server/src/lib/strategy-validation/service.ts
 // Read-only validation summary from RawSignalStore (+ optional demo bars).
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RawSignalEvent } from '../strategy-signal/raw-signal-event.ts';
@@ -31,7 +32,7 @@ function defaultRawRoot(): string {
 
 function taipeiYmd(offsetDays = 0): string {
     const d = new Date(Date.now() + offsetDays * 86_400_000);
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',
@@ -40,7 +41,7 @@ function taipeiYmd(offsetDays = 0): string {
 }
 
 function signalYmd(iso: string): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

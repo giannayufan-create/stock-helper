@@ -1,12 +1,13 @@
 // server/src/lib/radar-rescue/eod-truth.ts
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fetchTwDailyBarsBatch } from '../tw-daily-bars.ts';
 import type { EodTruthRow } from './types.ts';
 
 function taipeiYmd(d = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

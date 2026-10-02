@@ -1,6 +1,7 @@
 // server/src/lib/today-decision/service.ts
 // Assembles the Today board from existing layer outputs. Read-only.
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { AppContext } from '../../context.ts';
 import { summarizeUsOvernightBias } from '../session-autonomy/overnight-snapshot.ts';
 import type { GlobalAssetQuote } from '../market-intelligence/types.ts';
@@ -14,7 +15,7 @@ import type {
 } from './types.ts';
 
 function taipeiMinutes(now: Date): number {
-    const parts = new Intl.DateTimeFormat('en-GB', {
+    const parts = dateTimeFormat('en-GB', {
         timeZone: 'Asia/Taipei',
         hour: '2-digit',
         minute: '2-digit',

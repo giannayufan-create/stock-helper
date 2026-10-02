@@ -1,5 +1,6 @@
 // server/src/lib/radar-rescue/funnel-trace.ts
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import {
     appendFileSync,
     closeSync,
@@ -60,7 +61,7 @@ function forEachLine(file: string, onLine: (line: string) => void): void {
 }
 
 function taipeiYmd(d = new Date()): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

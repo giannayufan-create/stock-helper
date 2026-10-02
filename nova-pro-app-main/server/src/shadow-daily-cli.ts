@@ -2,6 +2,7 @@
 // Daily Shadow summary for Production vs SHADOW_B / SHADOW_C / SHADOW_BC.
 // Streams JSONL (never readFileSync whole multi-GB day files).
 
+import { dateTimeFormat } from './lib/intl-cache.ts';
 import {
     buildAllExperimentAnalytics,
     JsonlShadowRepository,
@@ -16,7 +17,7 @@ function arg(name: string): string | undefined {
 }
 
 function todayTaipei(): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',

@@ -1,5 +1,6 @@
 // server/src/ai/market-heat.ts — in-session vs after-hours buying heat
 
+import { dateTimeFormat } from '../lib/intl-cache.ts';
 import type { AiBar } from './score.ts';
 
 export interface MarketHeat {
@@ -12,7 +13,7 @@ export interface MarketHeat {
 }
 
 function taipeiParts(now = new Date()): { hh: number; mm: number; day: number } {
-    const fmt = new Intl.DateTimeFormat('en-US', {
+    const fmt = dateTimeFormat('en-US', {
         timeZone: 'Asia/Taipei',
         hour: '2-digit',
         minute: '2-digit',

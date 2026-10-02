@@ -2,6 +2,7 @@
 // Bridge: SHIOAJI_BRIDGE_URL (default http://127.0.0.1:18080)
 // Keys live in cloud env (SHIOAJI_API_KEY / SHIOAJI_SECRET_KEY); bridge logs in.
 
+import { dateTimeFormat } from '../../lib/intl-cache.ts';
 import type {
     ContractInfo,
     CreditEnquire,
@@ -37,7 +38,7 @@ const DEFAULT_BRIDGE =
     'http://127.0.0.1:18080';
 
 function todayTaipei(): string {
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',
@@ -51,13 +52,13 @@ function splitIso(iso: string): { date: string; time: string } {
         const t = todayTaipei();
         return { date: t, time: '00:00:00.000000' };
     }
-    const date = new Intl.DateTimeFormat('en-CA', {
+    const date = dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
     }).format(d);
-    const time = new Intl.DateTimeFormat('en-GB', {
+    const time = dateTimeFormat('en-GB', {
         timeZone: 'Asia/Taipei',
         hour: '2-digit',
         minute: '2-digit',

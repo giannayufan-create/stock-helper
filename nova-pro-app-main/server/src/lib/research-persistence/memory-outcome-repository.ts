@@ -1,5 +1,6 @@
 // server/src/lib/research-persistence/memory-outcome-repository.ts
 
+import { dateTimeFormat } from '../intl-cache.ts';
 import type { SignalType } from '../strategy-signal/types.ts';
 import type { SignalOutcome } from '../signal-outcome/types.ts';
 import type { SignalOutcomeRepository } from '../signal-outcome/repository.ts';
@@ -7,7 +8,7 @@ import { PersistenceHealthTracker } from './health-tracker.ts';
 
 function taipeiYmd(iso?: string): string {
     const d = iso ? new Date(iso) : new Date();
-    return new Intl.DateTimeFormat('en-CA', {
+    return dateTimeFormat('en-CA', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
         month: '2-digit',
