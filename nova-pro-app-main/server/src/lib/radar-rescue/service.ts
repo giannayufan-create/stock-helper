@@ -103,7 +103,9 @@ export class RadarRescueService {
         this.funnel = new FunnelTraceService(dataDir);
         this.eod = new EodTruthService(dataDir);
         this.earlySignals = new EarlySignalStore(dataDir);
-        this.earlyLiveShadow = new EarlyLiveShadowStore(dataDir);
+        this.earlyLiveShadow = new EarlyLiveShadowStore(dataDir, undefined, {
+            persistThrottleMs: 30_000,
+        });
         this.earlyReports = new EarlyDailyReportStore(dataDir);
         this.funnel.loadToday();
     }
@@ -592,10 +594,7 @@ export class RadarRescueService {
                 radarState === 'NEAR_LIMIT' ||
                 radarState === 'LIMIT_UP'
             ) {
-                for (const row of this.earlyLiveShadow.list()) {
-                    if (row.symbol !== symbol || row.settled) continue;
-                    this.earlyLiveShadow.noteState(row.signal_id, radarState);
-                }
+                this.earlyLiveShadow.noteStateForSymbol(symbol, radarState);
             }
 
             const focusScore = this.computeFocusScore(

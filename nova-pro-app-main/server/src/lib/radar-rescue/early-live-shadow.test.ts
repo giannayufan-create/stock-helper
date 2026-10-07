@@ -3,7 +3,15 @@
 // missing day ref, EOD gap, duplicate settle. Never FAIL mid-session.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expectedSessionEndKnownAt } from './early-backtest.ts';
@@ -445,7 +453,106 @@ async function main(): Promise<void> {
     testBatchTradesCaptureHigh();
     await testEodThrowThenRetrySuccess();
     testPendingReportNotInDefaultList();
+    testThrottledPersistAndForcedSettle();
+    testCorruptFileKeptOnLoad();
+    testRollingWindowNotReapplied();
     console.log('\nAll early-live-shadow tests passed');
+}
+
+function readShadowRows(dir: string): Array<{ signal_id: string; bars: unknown[] }> {
+    return JSON.parse(
+        readFileSync(join(dir, 'early_live_shadow', `${TRADE_DATE}.json`), 'utf8'),
+    );
+}
+
+function testThrottledPersistAndForcedSettle(): void {
+    let now = T0 + 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-throttle-'));
+    const store = new EarlyLiveShadowStore(dir, () => now, {
+        persistThrottleMs: 60_000,
+    });
+    store.recordTrigger({
+        signal_id: 'early_2330_thr',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    assert.equal(readShadowRows(dir)[0]!.bars.length, 0);
+    store.sampleTrades(
+        '2330',
+        [{ price: 101, trade_ts_ms: now, source: 'opengate_last' }],
+        now,
+    );
+    assert.equal(
+        readShadowRows(dir)[0]!.bars.length,
+        0,
+        'bar update inside throttle window stays in memory',
+    );
+    assert.equal(store.get('early_2330_thr')!.bars.length, 1);
+
+    now = expectedSessionEndKnownAt(TRADE_DATE) + 60_000;
+    store.settleAndPersist({
+        trade_date: TRADE_DATE,
+        nowMs: now,
+        sessionEnded: true,
+        reportsDir: dir,
+    });
+    assert.equal(readShadowRows(dir)[0]!.bars.length, 1, 'settle writes through');
+    assert.ok(!existsSync(join(dir, 'early_live_shadow', `${TRADE_DATE}.json.tmp`)));
+    console.log('OK throttled persist; settlement bypasses throttle');
+    rmSync(dir, { recursive: true, force: true });
+}
+
+function testCorruptFileKeptOnLoad(): void {
+    const now = T0 + 60_000;
+    const dir = mkdtempSync(join(tmpdir(), 'els-corrupt-'));
+    const shadowDir = join(dir, 'early_live_shadow');
+    mkdirSync(shadowDir, { recursive: true });
+    writeFileSync(join(shadowDir, `${TRADE_DATE}.json`), '[{"signal_id":"x"', 'utf8');
+    const store = new EarlyLiveShadowStore(dir, () => now);
+    assert.equal(store.list(TRADE_DATE).length, 0);
+    assert.ok(
+        readdirSync(shadowDir).some((f) => f.startsWith(`${TRADE_DATE}.json.corrupt-`)),
+        'unreadable file is preserved, not overwritten',
+    );
+    console.log('OK corrupt shadow file preserved on load');
+    rmSync(dir, { recursive: true, force: true });
+}
+
+function testRollingWindowNotReapplied(): void {
+    const now = T0 + 90_000; // every print below lands in the same 1m bar
+    const dir = mkdtempSync(join(tmpdir(), 'els-window-'));
+    const store = new EarlyLiveShadowStore(dir, () => now);
+    store.recordTrigger({
+        signal_id: 'early_2330_win',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    const window = [
+        { price: 101, trade_ts_ms: now - 2_000, source: 'opengate_last' as const },
+        { price: 104, trade_ts_ms: now - 1_000, source: 'opengate_last' as const },
+    ];
+    assert.equal(store.sampleTrades('2330', window, now).accepted, 2);
+    const again = store.sampleTrades(
+        '2330',
+        [...window, { price: 102, trade_ts_ms: now, source: 'opengate_last' as const }],
+        now,
+    );
+    assert.equal(again.accepted, 1, 'only the new print is applied');
+    const row = store.get('early_2330_win')!;
+    assert.equal(row.last_trade_ts_ms, now);
+    const bar = row.bars.find((b) => b.gap_kind == null)!;
+    assert.equal(bar.high, 104);
+    assert.equal(bar.close, 102);
+    console.log('OK rolling print window: old prints not re-applied');
+    rmSync(dir, { recursive: true, force: true });
 }
 
 void main();

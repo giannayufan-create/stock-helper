@@ -190,6 +190,7 @@ export class EarlySignalStore {
     ): void {
         if (price == null || !(price > 0)) return;
         const done: string[] = [];
+        let anyDirty = false;
 
         for (const [sid, o] of this.open) {
             if (o.row.symbol !== symbol) continue;
@@ -281,11 +282,11 @@ export class EarlySignalStore {
                 done.push(sid);
             }
 
-            if (dirty) this.persistOpenIndex();
+            if (dirty) anyDirty = true;
         }
 
         for (const sid of done) this.open.delete(sid);
-        if (done.length) this.persistOpenIndex();
+        if (anyDirty || done.length) this.persistOpenIndex();
     }
 
     openCount(): number {

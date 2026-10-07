@@ -9,6 +9,7 @@ import {
     readFileSync,
     writeFileSync,
     readdirSync,
+    renameSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -233,9 +234,13 @@ function summarize(outcomes: EarlyBacktestOutcome[]): EarlyBacktestSummary {
  */
 export class EarlyLiveShadowStore {
     private byId = new Map<string, LiveEarlyShadowRecord>();
+    private idsBySymbol = new Map<string, Set<string>>();
     private loadedDates = new Set<string>();
     private persistDepth = 0;
     private pendingPersist = new Set<string>();
+    private lastWriteAt = new Map<string, number>();
+    private flushTimer: ReturnType<typeof setTimeout> | null = null;
+    private persistThrottleMs: number;
     /** Per-symbol last accepted trade — blocks duplicate last_price. */
     private lastTradeBySymbol = new Map<
         string,
@@ -243,12 +248,37 @@ export class EarlyLiveShadowStore {
     >();
     private now: () => number;
 
+    /**
+     * persistThrottleMs > 0 caps whole-file rewrites per date (the file holds every
+     * signal with all its bars, so rewriting it per symbol per evaluate pins the CPU).
+     */
     constructor(
         private dataDir: string,
         clock: () => number = () => Date.now(),
+        opts: { persistThrottleMs?: number } = {},
     ) {
         this.now = clock;
+        this.persistThrottleMs = Math.max(0, opts.persistThrottleMs ?? 0);
         this.hydrateToday();
+    }
+
+    private putRow(r: LiveEarlyShadowRecord): void {
+        this.byId.set(r.signal_id, r);
+        let ids = this.idsBySymbol.get(r.symbol);
+        if (!ids) {
+            ids = new Set();
+            this.idsBySymbol.set(r.symbol, ids);
+        }
+        ids.add(r.signal_id);
+    }
+
+    private openRowsFor(symbol: string): LiveEarlyShadowRecord[] {
+        const out: LiveEarlyShadowRecord[] = [];
+        for (const id of this.idsBySymbol.get(symbol) ?? []) {
+            const r = this.byId.get(id);
+            if (r && !r.settled) out.push(r);
+        }
+        return out;
     }
 
     private dir(): string {
@@ -316,7 +346,7 @@ export class EarlyLiveShadowStore {
                         r.last_trade_ts_ms =
                             r.last_sample_at_ms ?? r.triggered_at_ms;
                     }
-                    this.byId.set(r.signal_id, r);
+                    this.putRow(r);
                     const prev = this.lastTradeBySymbol.get(r.symbol);
                     if (
                         !prev ||
@@ -331,6 +361,13 @@ export class EarlyLiveShadowStore {
             }
             return rows;
         } catch {
+            // Keep the unreadable file; the next write would otherwise replace it
+            // with only the signals seen after this restart.
+            try {
+                renameSync(path, `${path}.corrupt-${Date.now()}`);
+            } catch {
+                /* ignore */
+            }
             return [];
         }
     }
@@ -343,12 +380,45 @@ export class EarlyLiveShadowStore {
         this.writeDate(date);
     }
 
-    private writeDate(date: string): void {
+    /** Write immediately, bypassing the throttle (settlement must hit disk). */
+    private persistNow(date: string): void {
+        this.pendingPersist.delete(date);
+        this.writeDate(date, true);
+    }
+
+    private writeDate(date: string, force = false): void {
+        if (!force && this.persistThrottleMs > 0) {
+            const wait =
+                (this.lastWriteAt.get(date) ?? 0) +
+                this.persistThrottleMs -
+                Date.now();
+            if (wait > 0) {
+                this.pendingPersist.add(date);
+                this.scheduleFlush(wait);
+                return;
+            }
+        }
         mkdirSync(this.dir(), { recursive: true });
         const rows = [...this.byId.values()].filter(
             (r) => r.trade_date === date,
         );
-        writeFileSync(this.fileFor(date), JSON.stringify(rows), 'utf8');
+        const path = this.fileFor(date);
+        // tmp + rename: a process killed mid-write must not leave truncated JSON.
+        const tmp = `${path}.tmp`;
+        writeFileSync(tmp, JSON.stringify(rows), 'utf8');
+        renameSync(tmp, path);
+        this.lastWriteAt.set(date, Date.now());
+    }
+
+    private scheduleFlush(waitMs: number): void {
+        if (this.flushTimer) return;
+        this.flushTimer = setTimeout(() => {
+            this.flushTimer = null;
+            const dates = [...this.pendingPersist];
+            this.pendingPersist.clear();
+            for (const d of dates) this.writeDate(d, true);
+        }, waitMs);
+        this.flushTimer.unref?.();
     }
 
     /** Coalesce per-row writes inside fn into one synchronous write per date. */
@@ -430,7 +500,7 @@ export class EarlyLiveShadowStore {
             settled: false,
             settlement_run_id: null,
         };
-        this.byId.set(row.signal_id, row);
+        this.putRow(row);
         this.persistDate(trade_date);
         return row;
     }
@@ -460,6 +530,17 @@ export class EarlyLiveShadowStore {
         this.persistDate(row.trade_date);
     }
 
+    /** noteState for every open signal of `symbol` on today's trade date. */
+    noteStateForSymbol(symbol: string, state: string): void {
+        const today = taipeiYmdFromMs(this.now());
+        this.batchedPersist(() => {
+            for (const row of this.openRowsFor(symbol)) {
+                if (row.trade_date !== today) continue;
+                this.noteState(row.signal_id, state);
+            }
+        });
+    }
+
     /**
      * Accept a batch of prints in time order so the bar high reflects every trade.
      */
@@ -468,17 +549,27 @@ export class EarlyLiveShadowStore {
         ticks: Array<Partial<LiveTradeTick>>,
         nowMs = this.now(),
     ): { accepted: number; rejected: number } {
-        const ordered = [...ticks].sort((a, b) => {
-            const ta = Number(a.trade_ts_ms ?? 0);
-            const tb = Number(b.trade_ts_ms ?? 0);
-            if (ta !== tb) return ta - tb;
-            return Number(a.price ?? 0) - Number(b.price ?? 0);
-        });
+        // Callers resend a rolling window; prints before the last accepted one
+        // were already applied on an earlier call.
+        const lastTs = this.lastTradeBySymbol.get(symbol)?.trade_ts_ms ?? 0;
+        let rejected = 0;
+        const ordered = ticks
+            .filter((t) => {
+                const fresh = !(Number(t.trade_ts_ms ?? 0) < lastTs);
+                if (!fresh) rejected += 1;
+                return fresh;
+            })
+            .sort((a, b) => {
+                const ta = Number(a.trade_ts_ms ?? 0);
+                const tb = Number(b.trade_ts_ms ?? 0);
+                if (ta !== tb) return ta - tb;
+                return Number(a.price ?? 0) - Number(b.price ?? 0);
+            });
         return this.batchedPersist(() => {
             let accepted = 0;
-            let rejected = 0;
+            const rows = this.openRowsFor(symbol);
             for (const tick of ordered) {
-                const r = this.sampleTrade(symbol, tick, nowMs);
+                const r = this.sampleTradeInner(symbol, tick, nowMs, rows);
                 if (r.accepted) accepted += 1;
                 else rejected += 1;
             }
@@ -496,13 +587,16 @@ export class EarlyLiveShadowStore {
         tick: Partial<LiveTradeTick> | null | undefined,
         nowMs = this.now(),
     ): { accepted: boolean; reason?: LiveTradeRejectReason } {
-        return this.batchedPersist(() => this.sampleTradeInner(symbol, tick, nowMs));
+        return this.batchedPersist(() =>
+            this.sampleTradeInner(symbol, tick, nowMs, this.openRowsFor(symbol)),
+        );
     }
 
     private sampleTradeInner(
         symbol: string,
         tick: Partial<LiveTradeTick> | null | undefined,
         nowMs: number,
+        rows: LiveEarlyShadowRecord[],
     ): { accepted: boolean; reason?: LiveTradeRejectReason } {
         const last = this.lastTradeBySymbol.get(symbol) ?? null;
         const judged = evaluateLiveTradeTick(tick, nowMs, last);
@@ -514,8 +608,8 @@ export class EarlyLiveShadowStore {
         const knownAt = sampleToBarKnownAt(trade_ts_ms);
         let dirty = false;
 
-        for (const row of this.byId.values()) {
-            if (row.symbol !== symbol || row.settled) continue;
+        for (const row of rows) {
+            if (row.settled) continue;
             if (knownAt <= row.triggered_at_ms) continue;
 
             this.fillMissingBars(
@@ -587,8 +681,8 @@ export class EarlyLiveShadowStore {
     markSilentGaps(symbol: string | null, nowMs = this.now()): void {
         const knownAt = sampleToBarKnownAt(nowMs);
         this.batchedPersist(() => {
-            for (const row of this.byId.values()) {
-                if (symbol && row.symbol !== symbol) continue;
+            const rows = symbol ? this.openRowsFor(symbol) : this.byId.values();
+            for (const row of rows) {
                 if (row.settled) continue;
                 if (nowMs - row.last_trade_ts_ms <= LIVE_TRADE_MAX_AGE_MS) continue;
                 this.fillMissingBars(row, knownAt, row.trigger_price, nowMs);
@@ -977,7 +1071,7 @@ export class EarlyLiveShadowStore {
                     row.settled = true;
                     row.settlement_run_id = run_id;
                 }
-                this.persistDate(opts.trade_date);
+                this.persistNow(opts.trade_date);
                 this.markSettlementAttempt(opts.trade_date, nowMs, {
                     live_report_ready: true,
                     run_id,
@@ -987,7 +1081,7 @@ export class EarlyLiveShadowStore {
                     row.settled = false;
                     row.settlement_run_id = run_id;
                 }
-                this.persistDate(opts.trade_date);
+                this.persistNow(opts.trade_date);
                 this.markSettlementAttempt(opts.trade_date, nowMs, {
                     live_report_ready: false,
                     run_id,
@@ -997,7 +1091,7 @@ export class EarlyLiveShadowStore {
             for (const row of rows) {
                 row.settlement_run_id = null;
             }
-            this.persistDate(opts.trade_date);
+            this.persistNow(opts.trade_date);
             this.markSettlementAttempt(opts.trade_date, nowMs, {
                 live_report_ready: false,
                 run_id: null,
