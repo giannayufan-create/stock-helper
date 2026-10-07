@@ -29,6 +29,8 @@ export const LOG_RETENTION_DAYS: Readonly<Record<string, number>> = {
     'preopen-scans': 30,
     'preopen-reports': 120,
     'preopen-reports/eod': 10,
+    // Session CPU profiles (raw ~1-3MB each) for load hotspots.
+    'cpu-profiles': 7,
 };
 
 const DATE_IN_NAME = /(\d{4}-\d{2}-\d{2})/;

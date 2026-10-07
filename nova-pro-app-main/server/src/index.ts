@@ -51,6 +51,7 @@ import { startDataJanitor } from './lib/data-janitor.ts';
 import { startPreopenAnalysisScheduler } from './lib/preopen-scan/analysis-runner.ts';
 import { startLimitQueueSampler } from './lib/preopen-scan/limit-queue.ts';
 import { startFuglePrevCloseRefresher } from './lib/preopen-scan/fugle-preopen.ts';
+import { startCpuProfileScheduler } from './lib/cpu-profile.ts';
 import { refreshTxfNightQuote } from './lib/today-decision/txf-night-quote.ts';
 
 loadEnvFile();
@@ -459,6 +460,7 @@ async function main(): Promise<void> {
     const fugleKeyNow = () => runtimeConfig.get().fugleApiKey;
     startLimitQueueSampler(dataDir, fugleKeyNow);
     startFuglePrevCloseRefresher(fugleKeyNow, dataDir);
+    startCpuProfileScheduler(dataDir);
 
     // After port is open — headless A-pool hydrate / screener (may take minutes)
     void openGateRuntime.onBoot().catch((err) => {

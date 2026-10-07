@@ -25,6 +25,8 @@ export const DEFAULT_RATE_RULES: readonly RateRule[] = [
     { method: 'POST', path: '/api/v1/research/preopen-limitup/run', windowMs: 10 * 60_000, perClient: 3, global: 6 },
     // Real Fugle REST calls + optional extra WebSocket connection
     { method: 'GET', path: '/api/v1/system/fugle-plan', windowMs: 10 * 60_000, perClient: 3, global: 6 },
+    // Runs the in-process CPU profiler for up to 30s
+    { method: 'POST', path: '/api/v1/system/cpu-profiles/run', windowMs: 10 * 60_000, perClient: 2, global: 3 },
 ];
 
 /** Render sits behind Cloudflare: prefer the edge-set client IP over spoofable XFF heads. */

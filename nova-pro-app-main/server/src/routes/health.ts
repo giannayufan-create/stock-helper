@@ -27,6 +27,7 @@ import {
     refreshFuglePrevClose,
 } from '../lib/preopen-scan/fugle-preopen.ts';
 import { isTradingDay } from '../lib/market-calendar/trading-day.ts';
+import { AUTO_CAPTURE_MINUTES, captureCpuProfile, listCpuProfiles } from '../lib/cpu-profile.ts';
 import { sessionMinuteTaipei, taipeiYmd } from '../lib/shadow/session.ts';
 
 const SECRET_KEY_PATTERN =
@@ -342,6 +343,22 @@ export function registerHealthRoutes(
         assertNoSecretLeak(payload);
         if (JSON.stringify(payload).includes(key)) throw new Error('fugle probe refused: key in payload');
         return payload;
+    });
+
+    // Session CPU profiles: automatic 30s captures at 09:15 and 10:30 on trading days.
+    app.get('/api/v1/system/cpu-profiles', async (req, reply) => {
+        const name = (req.query as Record<string, string | undefined>).name;
+        const all = listCpuProfiles(serverDataDir());
+        if (!name) return { auto_minutes: AUTO_CAPTURE_MINUTES, profiles: all.map(({ top_functions, ...rest }) => rest) };
+        const one = all.find((p) => p.name === name);
+        return one ?? reply.code(404).send({ error: 'not_found' });
+    });
+
+    app.post('/api/v1/system/cpu-profiles/run', async (req, reply) => {
+        const seconds = Number((req.query as Record<string, string | undefined>).seconds) || 10;
+        const r = await captureCpuProfile(serverDataDir(), seconds, 'manual');
+        if ('error' in r) return reply.code(409).send(r);
+        return r;
     });
 
     app.get('/api/v1/info', async (): Promise<ServerInfo> => ({
