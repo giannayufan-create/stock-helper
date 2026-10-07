@@ -49,6 +49,11 @@ import {
 import { fetchRegulatoryLists } from './regulatory.ts';
 import { fetchTwOvernightPool } from '../../lib/tw-overnight-pool.ts';
 import {
+    isPreopenRankWindow,
+    recordPreopenScan,
+} from '../../lib/preopen-scan/capture.ts';
+import { fetchShioajiScanner } from '../shioaji/bridge-scanner.ts';
+import {
     dailyBarsToKBars,
     fetchTwDailyBars,
 } from '../../lib/tw-daily-bars.ts';
@@ -759,8 +764,21 @@ export class FugleMarketDataProvider implements MarketDataProvider {
         count: number,
         ascending: boolean,
     ): Promise<ScannerItem[]> {
+        // Fugle snapshot rankings are unavailable before 08:50 and do not reflect
+        // trial matching, so pre-open market-wide ranks come from Shioaji.
+        let triedShioaji = false;
+        if (isPreopenRankWindow()) {
+            triedShioaji = true;
+            const sj = await fetchShioajiScanner(type, count, ascending);
+            if (sj.length) {
+                recordPreopenScan(type, 'shioaji', sj, ascending);
+                return sj;
+            }
+        }
         if (!isTwCashSession()) {
-            return fetchTwOvernightPool(type, count);
+            const pool = await fetchTwOvernightPool(type, count);
+            recordPreopenScan(type, 'overnight', pool, ascending);
+            return pool;
         }
         const markets = ['TSE', 'OTC'];
         let rows: any[] = [];
@@ -836,7 +854,7 @@ export class FugleMarketDataProvider implements MarketDataProvider {
         }
 
         if (rows.length > 0) {
-            return rows.slice(0, count).map((row) =>
+            const items = rows.slice(0, count).map((row) =>
                 scannerItemFromRow(
                     row,
                     type === 'AmountRank'
@@ -846,13 +864,25 @@ export class FugleMarketDataProvider implements MarketDataProvider {
                           : Number(row.changePercent ?? row.change) || 0,
                 ),
             );
+            recordPreopenScan(type, 'fugle', items, ascending);
+            return items;
         }
 
-        // After hours / plan without snapshot rankings → Yahoo daily pool
+        // No Fugle ranking for this type (TickCount/DayRange) or plan → Shioaji live
+        // ranking, then the Yahoo daily pool.
+        if (!triedShioaji) {
+            const sj = await fetchShioajiScanner(type, count, ascending);
+            if (sj.length) {
+                recordPreopenScan(type, 'shioaji', sj, ascending);
+                return sj;
+            }
+        }
         console.warn(
             `Fugle snapshot empty for ${type}; using overnight Yahoo pool`,
         );
-        return fetchTwOvernightPool(type, count);
+        const pool = await fetchTwOvernightPool(type, count);
+        recordPreopenScan(type, 'overnight', pool, ascending);
+        return pool;
     }
 
     // credit/short-source data has no fugle source — frontend handles empty

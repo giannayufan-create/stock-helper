@@ -47,7 +47,8 @@
         "shadow:summary": "tsx src/shadow-cli.ts",
         "shadow:daily": "tsx src/shadow-daily-cli.ts",
         "board-attack:backtest": "tsx src/board-attack-cli.ts",
-        "test:board-attack": "tsx src/lib/board-attack/board-attack.test.ts"
+        "test:board-attack": "tsx src/lib/board-attack/board-attack.test.ts",
+        "test:preopen": "tsx src/lib/preopen-scan/preopen-scan.test.ts"
     },
     "dependencies": {
         "@fastify/static": "^10.1.3",

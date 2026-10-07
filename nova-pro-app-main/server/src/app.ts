@@ -32,6 +32,7 @@ import { registerTodayRoutes } from './routes/today.ts';
 import { registerOutcomeRoutes } from './routes/outcomes.ts';
 import { registerLimitUpBoardRoutes } from './routes/limit-up-board.ts';
 import { registerStrategyValidationRoutes } from './routes/strategy-validation.ts';
+import { registerPreopenScanRoutes } from './routes/preopen-scan.ts';
 import { registerRateLimits } from './lib/rate-limit.ts';
 import { registerOpenProtection } from './lib/open-protection.ts';
 
@@ -80,6 +81,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     registerOutcomeRoutes(app, ctx);
     registerLimitUpBoardRoutes(app, ctx);
     registerStrategyValidationRoutes(app, ctx);
+    registerPreopenScanRoutes(app, ctx);
 
     // provider events → SSE fan-out
     ctx.market.onTick((channel, tick) => ctx.hub.broadcast(channel, tick));

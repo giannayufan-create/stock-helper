@@ -25,6 +25,10 @@ export const LOG_RETENTION_DAYS: Readonly<Record<string, number>> = {
     // Re-fetchable bar cache (dated subfolders), not research records.
     strategy_validation_bars: 45,
     historical_profile: 3,
+    // Pre-open scan capture (~3MB/day) and its post-close limit-up reports.
+    'preopen-scans': 30,
+    'preopen-reports': 120,
+    'preopen-reports/eod': 10,
 };
 
 const DATE_IN_NAME = /(\d{4}-\d{2}-\d{2})/;

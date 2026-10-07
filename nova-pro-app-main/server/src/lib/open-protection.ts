@@ -37,6 +37,7 @@ export const HEAVY_RESEARCH_ROUTES: readonly string[] = [
     'GET /api/v1/research/context/combinations',
     'GET /api/v1/data/radar-rescue/early/daily-report',
     'POST /api/v1/data/radar-rescue/eod-truth/run',
+    'GET /api/v1/research/preopen-scans',
 ];
 
 export function registerOpenProtection(

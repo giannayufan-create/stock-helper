@@ -27,6 +27,7 @@ import type {
 import { bidaskChannelFor, tickChannelFor } from '../market-data.ts';
 import { fetchRegulatoryLists } from '../fugle/regulatory.ts';
 import { fetchTwOvernightPool } from '../../lib/tw-overnight-pool.ts';
+import { recordPreopenScan } from '../../lib/preopen-scan/capture.ts';
 import {
     IntradayQueryBudget,
     QuoteRateLimiter,
@@ -285,14 +286,19 @@ export class ShioajiMarketDataProvider implements MarketDataProvider {
                 count,
                 ascending,
             });
-            if (rows?.length) return rows;
+            if (rows?.length) {
+                recordPreopenScan(type, 'shioaji', rows, ascending);
+                return rows;
+            }
         } catch (err) {
             console.warn(
                 'shioaji scanner failed:',
                 err instanceof Error ? err.message : err,
             );
         }
-        return fetchTwOvernightPool(type, count);
+        const pool = await fetchTwOvernightPool(type, count);
+        recordPreopenScan(type, 'overnight', pool, ascending);
+        return pool;
     }
 
     async creditEnquire(_keys: ContractKey[]): Promise<CreditEnquire[]> {
