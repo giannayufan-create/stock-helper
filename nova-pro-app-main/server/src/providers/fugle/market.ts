@@ -55,7 +55,7 @@ import {
     shadowScanDue,
 } from '../../lib/preopen-scan/capture.ts';
 import { fuglePreopenRank, noteFuglePreopenDiag } from '../../lib/preopen-scan/fugle-preopen.ts';
-import { fetchShioajiScanner } from '../shioaji/bridge-scanner.ts';
+import { fetchShioajiScanner, shioajiOptionalAllowed } from '../shioaji/bridge-scanner.ts';
 import {
     dailyBarsToKBars,
     fetchTwDailyBars,
@@ -776,7 +776,7 @@ export class FugleMarketDataProvider implements MarketDataProvider {
             if (fg.diag.ok) {
                 const items = fg.items.slice(0, count);
                 recordPreopenScan(type, 'fugle', items, ascending);
-                if (shadowScanDue(type, 'shioaji')) {
+                if (shadowScanDue(type, 'shioaji') && (await shioajiOptionalAllowed())) {
                     void fetchShioajiScanner(type, Math.max(count, 50), ascending)
                         .then((sj) => recordShadowScan(type, 'shioaji', sj))
                         .catch(() => undefined);
@@ -796,6 +796,15 @@ export class FugleMarketDataProvider implements MarketDataProvider {
             const pool = await fetchTwOvernightPool(type, count);
             recordPreopenScan(type, 'overnight', pool, ascending);
             return pool;
+        }
+        // Fugle has no tick-count ranking; Shioaji does. Fugle volume stays the fallback.
+        if (type === 'TickCountRank' && !triedShioaji && (await shioajiOptionalAllowed())) {
+            triedShioaji = true;
+            const sj = await fetchShioajiScanner(type, count, ascending);
+            if (sj.length) {
+                recordPreopenScan(type, 'shioaji', sj, ascending);
+                return sj;
+            }
         }
         const markets = ['TSE', 'OTC'];
         let rows: any[] = [];

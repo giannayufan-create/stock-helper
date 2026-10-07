@@ -29,6 +29,47 @@ export async function fetchShioajiScanner(
     }
 }
 
+export interface ShioajiUsage {
+    available: boolean;
+    connections?: number;
+    bytes?: number;
+    limit_bytes?: number;
+    remaining_bytes?: number;
+    error?: string;
+}
+
+/** Daily data-traffic quota (resets 08:00 on trading days); null when the bridge is unreachable. */
+export async function fetchShioajiUsage(timeoutMs = 5_000): Promise<ShioajiUsage | null> {
+    try {
+        const res = await fetch(`${bridgeUrl()}/usage`, { signal: AbortSignal.timeout(timeoutMs) });
+        if (!res.ok) return null;
+        return (await res.json()) as ShioajiUsage;
+    } catch {
+        return null;
+    }
+}
+
+const OPTIONAL_MIN_REMAINING = 0.2;
+const USAGE_TTL_MS = 5 * 60_000;
+let usageCache: { at: number; ok: boolean } | null = null;
+
+/**
+ * Optional Shioaji calls (comparison rows, tick-count ranking) only while at least
+ * 20% of the daily traffic quota remains; unknown usage counts as allowed.
+ */
+export async function shioajiOptionalAllowed(now = Date.now()): Promise<boolean> {
+    if (usageCache && now - usageCache.at < USAGE_TTL_MS && now >= usageCache.at) return usageCache.ok;
+    const u = await fetchShioajiUsage();
+    const limit = Number(u?.limit_bytes) || 0;
+    const ok = !u?.available || !limit || Number(u.remaining_bytes) / limit >= OPTIONAL_MIN_REMAINING;
+    usageCache = { at: now, ok };
+    return ok;
+}
+
+export function resetShioajiUsageCache(): void {
+    usageCache = null;
+}
+
 /** Subset of the bridge /snapshots row; volumes are in lots (張). */
 export interface BridgeSnapshot {
     code: string;

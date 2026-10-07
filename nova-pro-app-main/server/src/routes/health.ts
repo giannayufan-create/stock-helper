@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import {
     fetchShioajiScanner,
     fetchShioajiSnapshots,
+    fetchShioajiUsage,
 } from '../providers/shioaji/bridge-scanner.ts';
 import { fugleSnapshotSymbols, probeFugleRest, probeFugleWsCap } from '../lib/fugle-plan-probe.ts';
 import {
@@ -220,6 +221,22 @@ export function registerHealthRoutes(
             checked_at: new Date().toISOString(),
             ...health,
         };
+        if (health.reachable) {
+            const u = await fetchShioajiUsage();
+            const mb = (v: unknown) => (Number.isFinite(Number(v)) ? Math.round((Number(v) / 1048576) * 10) / 10 : null);
+            payload.usage = u?.available
+                ? {
+                      connections: u.connections ?? null,
+                      used_mb: mb(u.bytes),
+                      limit_mb: mb(u.limit_bytes),
+                      remaining_mb: mb(u.remaining_bytes),
+                      used_pct:
+                          Number(u.limit_bytes) > 0
+                              ? Math.round((Number(u.bytes) / Number(u.limit_bytes)) * 1000) / 10
+                              : null,
+                  }
+                : { available: false, error: u?.error ?? 'unreachable' };
+        }
         if (probe && health.reachable) {
             const top = async (type: ScannerType, ascending: boolean) => {
                 const t = Date.now();
@@ -303,9 +320,13 @@ export function registerHealthRoutes(
             const live = await fuglePreopenRank(key, { now: new Date() });
             const mapped = await fuglePreopenRank(key, { ignoreFreshness: true, candidates: 10 });
             const codes = mapped.items.slice(0, 5).map((it) => it.code);
+            const nowP = new Date();
+            const smP = sessionMinuteTaipei(nowP);
+            // Shioaji forbids polling snapshots intraday; compare only outside the session.
+            const inSession = isTradingDay(taipeiYmd(nowP)) && smP >= -60 && smP < 300;
             const [fugleQueue, shioajiQueue] = await Promise.all([
-                fetchFugleQueue(key, codes, new Date(), { ignoreDate: true }),
-                fetchShioajiSnapshots(codes),
+                fetchFugleQueue(key, codes, nowP, { ignoreDate: true }),
+                inSession ? Promise.resolve([]) : fetchShioajiSnapshots(codes),
             ]);
             payload.preopen = {
                 prev_close: await refreshFuglePrevClose(key),

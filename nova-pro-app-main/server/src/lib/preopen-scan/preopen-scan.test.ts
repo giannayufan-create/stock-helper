@@ -205,22 +205,41 @@ try {
                 limit_up_bid: true,
                 limit_up_price_hit: true,
             }));
-        assert.equal(await sampleLimitQueue(tpe(DAY, '09:01:00'), dir, { shioaji: fake, fugle }), 2);
-        const q2 = readRows(file).filter((r) => r.type === 'LimitQueue' && r.t === tpe(DAY, '09:01:00').toISOString());
-        assert.deepEqual(
-            q2.map((r) => [r.source, r.role ?? 'primary']),
-            [
-                ['fugle', 'primary'],
-                ['shioaji', 'shadow'],
-            ],
-        );
-        const dto2 = buildPreopenLive(tpe(DAY, '09:01:10'), dir);
+        const rowsAt = (hms: string) =>
+            readRows(file)
+                .filter((r) => r.type === 'LimitQueue' && r.t === tpe(DAY, hms).toISOString())
+                .map((r) => [r.source, r.role ?? 'primary']);
+        asked.length = 0;
+        // before 09:05: Fugle only, no Shioaji snapshot polling
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:02:00'), dir, { shioaji: fake, fugle }), 2);
+        assert.deepEqual(rowsAt('09:02:00'), [['fugle', 'primary']]);
+        assert.equal(asked.length, 0);
+        // one comparison snapshot a day from 09:05, skipped while over the traffic budget
+        const over = async () => false;
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:05:00'), dir, { shioaji: fake, fugle, shioajiOptional: over }), 2);
+        assert.equal(asked.length, 0);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:05:20'), dir, { shioaji: fake, fugle }), 2);
+        assert.deepEqual(rowsAt('09:05:20'), [
+            ['fugle', 'primary'],
+            ['shioaji', 'shadow'],
+        ]);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:06:40'), dir, { shioaji: fake, fugle }), 2);
+        assert.deepEqual(rowsAt('09:06:40'), [['fugle', 'primary']]);
+        assert.equal(asked.length, 1);
+        const dto2 = buildPreopenLive(tpe(DAY, '09:06:50'), dir);
         assert.equal(dto2.queue_source, 'fugle');
         assert.equal(dto2.items[0]?.locked, true);
         assert.equal(dto2.items[0]?.queue_lots, 777);
-        assert.equal(await sampleLimitQueue(tpe(DAY, '09:01:20'), dir, { shioaji: fake, fugle: async () => [] }), 2);
-        assert.equal(buildPreopenLive(tpe(DAY, '09:01:30'), dir).queue_source, 'shioaji');
-        pass('limit_queue_fugle_primary_shioaji_shadow_and_fallback');
+        // Fugle empty: Shioaji fallback at most once a minute
+        const none = async () => [];
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:06:00'), dir, { shioaji: fake, fugle: none }), 0);
+        assert.equal(asked.length, 1);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:06:30'), dir, { shioaji: fake, fugle: none }), 2);
+        assert.equal(asked.length, 2);
+        assert.equal(buildPreopenLive(tpe(DAY, '09:06:35'), dir).queue_source, 'shioaji');
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:07:00'), dir, { shioaji: fake, fugle: none }), 0);
+        assert.equal(asked.length, 2);
+        pass('limit_queue_fugle_primary_shioaji_once_at_0905_and_rate_limited_fallback');
     }
 
     {
@@ -325,7 +344,7 @@ try {
         const scans = await app.inject({ url: `/api/v1/research/preopen-scans?date=${DAY}` });
         assert.equal(scans.statusCode, 200);
         assert.match(String(scans.headers['content-type']), /ndjson/);
-        assert.equal(scans.body.trim().split('\n').length, 12);
+        assert.equal(scans.body.trim().split('\n').length, 15);
         const liveRes = await app.inject({ url: '/api/v1/research/preopen-live' });
         assert.equal(liveRes.statusCode, 200);
         assert.match(liveRes.json().date, /^\d{4}-\d{2}-\d{2}$/);
