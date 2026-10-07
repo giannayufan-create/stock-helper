@@ -324,7 +324,65 @@ class Cand:
     in_amount_rank: bool
     radar_early_before_0930: bool
     eod: Eod | None = None
+    queue: "QueueStats | None" = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class QueueStats:
+    """09:00–09:10 limit-up bid queue (封單, lots) from best-bid snapshots."""
+
+    samples: int = 0
+    locked_open: bool = False
+    q_open: float | None = None
+    locked_0905: bool = False
+    q_0905: float | None = None
+    vol_0905: float | None = None
+    opened_after_lock: bool = False
+    ever_locked: bool = False
+
+
+def queue_samples(rows: list[dict[str, Any]]) -> dict[str, list[tuple[str, dict[str, Any]]]]:
+    out: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for r in rows:
+        if r.get("type") != "LimitQueue":
+            continue
+        hm = datetime.fromisoformat(r["t"].replace("Z", "+00:00")).astimezone(TPE).strftime("%H:%M:%S")
+        if hm < "09:00:00":
+            continue
+        for it in r.get("items") or []:
+            out.setdefault(str(it.get("code")), []).append((hm, it))
+    for v in out.values():
+        v.sort(key=lambda x: x[0])
+    return out
+
+
+def queue_stats(samples: list[tuple[str, dict[str, Any]]], limit_up: float | None) -> QueueStats | None:
+    if not samples or not limit_up:
+        return None
+    eps = 1e-6
+
+    def locked(it: dict[str, Any]) -> bool:
+        return (it.get("buy_price") or 0) + eps >= limit_up
+
+    q = QueueStats(samples=len(samples))
+    first = samples[0][1]
+    q.locked_open = locked(first)
+    q.q_open = first.get("buy_volume") if q.locked_open else None
+    upto = [it for hm, it in samples if hm < "09:06:00"]
+    if upto:
+        at = upto[-1]
+        q.locked_0905 = locked(at)
+        q.q_0905 = at.get("buy_volume") if q.locked_0905 else None
+        q.vol_0905 = at.get("total_volume")
+    was = False
+    for _, it in samples:
+        if locked(it):
+            was = True
+            q.ever_locked = True
+        elif was:
+            q.opened_after_lock = True
+    return q
 
 
 def build_candidates(
@@ -389,6 +447,9 @@ def build_candidates(
             )
         )
     # names seen earlier in the session but gone from the final list
+    qs = queue_samples(rows)
+    for c in cands:
+        c.queue = queue_stats(qs.get(c.code, []), c.eod.limit_up if c.eod else None)
     for code, hm in first_seen.items():
         if code in seen:
             continue
@@ -506,6 +567,31 @@ RULES: list[tuple[str, Any]] = [
     ("同時在成交金額排行", lambda c: c.in_amount_rank),
     ("雷達 09:30 前出 EARLY", lambda c: c.radar_early_before_0930),
     ("最後一輪掉出名單", lambda c: c.final_rank is None),
+    ("09:00 開盤即鎖漲停", lambda c: bool(c.queue and c.queue.locked_open)),
+    ("開盤鎖住、09:05 仍鎖住", lambda c: bool(c.queue and c.queue.locked_open and c.queue.locked_0905)),
+    ("開盤鎖住、10 分鐘內被打開", lambda c: bool(c.queue and c.queue.locked_open and c.queue.opened_after_lock)),
+    (
+        "09:05 封單 ≥ 開盤封單",
+        lambda c: bool(
+            c.queue and c.queue.q_open and c.queue.q_0905 is not None and c.queue.q_0905 >= c.queue.q_open
+        ),
+    ),
+    (
+        "09:05 封單縮到開盤一半以下或打開",
+        lambda c: bool(
+            c.queue
+            and c.queue.q_open
+            and (c.queue.q_0905 is None or c.queue.q_0905 < c.queue.q_open / 2)
+        ),
+    ),
+    ("09:05 封單 ≥ 1000 張", lambda c: bool(c.queue and (c.queue.q_0905 or 0) >= 1000)),
+    ("09:05 封單 200–1000 張", lambda c: bool(c.queue and 200 <= (c.queue.q_0905 or 0) < 1000)),
+    ("09:05 封單 < 200 張", lambda c: bool(c.queue and c.queue.q_0905 is not None and c.queue.q_0905 < 200)),
+    (
+        "09:05 封單 ≥ 當時成交量",
+        lambda c: bool(c.queue and c.queue.q_0905 and c.queue.vol_0905 and c.queue.q_0905 >= c.queue.vol_0905),
+    ),
+    ("09:00 沒鎖、10 分鐘內鎖上", lambda c: bool(c.queue and not c.queue.locked_open and c.queue.ever_locked)),
 ]
 
 COMBOS: list[tuple[str, Any]] = [
@@ -621,6 +707,7 @@ def direction(rules: list[dict[str, Any]], base_rate: float | None, days: int) -
 
 def cand_dict(c: Cand) -> dict[str, Any]:
     e = c.eod
+    q = c.queue
     return {
         "date": c.date,
         "code": c.code,
@@ -635,6 +722,12 @@ def cand_dict(c: Cand) -> dict[str, Any]:
         "in_volume_rank": c.in_volume_rank,
         "in_amount_rank": c.in_amount_rank,
         "radar_early_before_0930": c.radar_early_before_0930,
+        "queue_samples": q.samples if q else 0,
+        "queue_locked_open": q.locked_open if q else None,
+        "queue_open": q.q_open if q else None,
+        "queue_locked_0905": q.locked_0905 if q else None,
+        "queue_0905": q.q_0905 if q else None,
+        "queue_opened_after_lock": q.opened_after_lock if q else None,
         "eod_limit_up_price": e.limit_up if e else None,
         "eod_high": e.high if e else None,
         "eod_close": e.close if e else None,
@@ -646,6 +739,18 @@ def cand_dict(c: Cand) -> dict[str, Any]:
 
 def pct(v: float | None) -> str:
     return "—" if v is None else f"{v:.0%}"
+
+
+def queue_cell(c: dict[str, Any], at: str) -> str:
+    if not c.get("queue_samples"):
+        return "—"
+    locked = c.get(f"queue_locked_{at}")
+    vol = c.get(f"queue_{at}")
+    if locked and vol is not None:
+        return f"{vol:,.0f} 張"
+    if at == "0905" and c.get("queue_locked_open"):
+        return "打開"
+    return "未鎖"
 
 
 def write_outputs(report: dict[str, Any], cands: list[Cand], out_dir: str, stem: str) -> list[str]:
@@ -720,14 +825,15 @@ def render_markdown(r: dict[str, Any]) -> str:
             "",
             "## 盤前最後一輪前 20 名",
             "",
-            "| 排名 | 代號 | 名稱 | 試撮漲幅 | 試撮在漲停 | 收盤漲幅 | 收漲停 |",
-            "|---|---|---|---|---|---|---|",
+            "| 排名 | 代號 | 名稱 | 試撮漲幅 | 試撮在漲停 | 09:00 封單 | 09:05 封單 | 收盤漲幅 | 收漲停 |",
+            "|---|---|---|---|---|---|---|---|---|",
         ]
         for c in r["final_top"][:20]:
             lines.append(
                 f"| {c['final_rank']} | {c['code']} | {c['name']} | "
                 f"{'—' if c['trial_pct'] is None else str(c['trial_pct']) + '%'} | "
                 f"{'是' if c['at_limit_in_trial'] else ''} | "
+                f"{queue_cell(c, 'open')} | {queue_cell(c, '0905')} | "
                 f"{'—' if c['eod_change_pct'] is None else str(c['eod_change_pct']) + '%'} | "
                 f"{'是' if c['eod_closed_limit'] else ''} |"
             )
@@ -762,6 +868,8 @@ def analyze_day(ymd: str, args: argparse.Namespace) -> tuple[list[Cand], dict[st
     warnings = []
     if not snaps:
         warnings.append("盤前沒有任何來自永豐／富果的即時排名（只有昨日名單），這天不能評估盤前名單。")
+    if snaps and not any(r.get("type") == "LimitQueue" for r in rows):
+        warnings.append("09:00–09:10 沒有封單資料（永豐 snapshot 沒回應），封單相關條件這天無法評估。")
     if stale:
         warnings.append(f"有 {stale} 筆永豐排名的日期不是 {ymd}，盤前排名可能是前一日資料。")
     meta = {
@@ -773,6 +881,7 @@ def analyze_day(ymd: str, args: argparse.Namespace) -> tuple[list[Cand], dict[st
         "final_snapshot": final.hm if final else None,
         "final_source": final.source if final else None,
         "stale_rank_rows": stale,
+        "limit_queue_samples": sum(1 for r in rows if r.get("type") == "LimitQueue"),
         "warnings": warnings,
         "checkpoints": checkpoint_table(snaps, eod),
         "recall": recall(cands, eod),

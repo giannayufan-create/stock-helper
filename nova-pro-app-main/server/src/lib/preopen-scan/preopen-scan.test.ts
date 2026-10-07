@@ -13,10 +13,13 @@ import type { ScannerItem } from '../../types/dto.ts';
 import {
     isPreopenCaptureWindow,
     isPreopenRankWindow,
+    preopenLiveState,
     preopenScanFile,
     recordPreopenScan,
     resetPreopenCaptureThrottle,
+    resetPreopenLiveState,
 } from './capture.ts';
+import { isLimitQueueWindow, sampleLimitQueue } from './limit-queue.ts';
 import { listPreopenDates, preopenReportPath, runPreopenAnalysis } from './analysis-runner.ts';
 import { isPreopenRunBlocked, registerPreopenScanRoutes } from '../../routes/preopen-scan.ts';
 
@@ -117,6 +120,48 @@ try {
         got = readRows(file);
         assert.equal(got.length, 7);
         pass('last_three_minutes_before_open_are_not_throttled');
+
+        const st = preopenLiveState(DAY, dir);
+        assert.ok(st);
+        assert.equal(st.source, 'shioaji');
+        assert.equal(st.at, tpe(DAY, '08:59:45').toISOString());
+        assert.equal(st.top10_minutes['1111'], 4);
+        recordPreopenScan('ChangePercentRank', 'shioaji', [item('3333', 33, 3)], false, tpe(DAY, '09:01:00'), dir);
+        assert.equal(preopenLiveState(DAY, dir)?.items[0]?.code, '1111');
+        pass('live_state_tracks_last_preopen_ranking_and_top10_minutes');
+
+        resetPreopenLiveState();
+        const restored = preopenLiveState(DAY, dir);
+        assert.equal(restored?.at, tpe(DAY, '08:59:45').toISOString());
+        assert.equal(restored?.top10_minutes['2222'], 4);
+        assert.equal(preopenLiveState('2026-10-01', dir), null);
+        pass('live_state_restored_from_file_after_restart');
+
+        const asked: string[][] = [];
+        const fake = async (codes: readonly string[]) => {
+            asked.push([...codes]);
+            return codes.map((code) => ({
+                code,
+                close: 55,
+                high: 55,
+                buy_price: 55,
+                buy_volume: 1234,
+                sell_price: 0,
+                sell_volume: 0,
+                total_volume: 900,
+                change_rate: 10,
+            }));
+        };
+        assert.equal(await sampleLimitQueue(tpe(DAY, '08:59:50'), dir, fake), 0);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:10:00'), dir, fake), 0);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:00:20'), dir, fake), 2);
+        assert.deepEqual(asked, [['1111', '2222']]);
+        const q = readRows(file).filter((r) => r.type === 'LimitQueue');
+        assert.equal(q.length, 1);
+        assert.equal(q[0].items[0].buy_volume, 1234);
+        assert.equal(isLimitQueueWindow(tpe('2026-10-03', '09:01:00')), false);
+        assert.equal(await sampleLimitQueue(tpe('2026-10-01', '09:01:00'), dir, fake), 0);
+        pass('limit_queue_samples_final_list_0900_0910_only');
     }
 
     {
@@ -165,7 +210,11 @@ try {
         const scans = await app.inject({ url: `/api/v1/research/preopen-scans?date=${DAY}` });
         assert.equal(scans.statusCode, 200);
         assert.match(String(scans.headers['content-type']), /ndjson/);
-        assert.equal(scans.body.trim().split('\n').length, 7);
+        assert.equal(scans.body.trim().split('\n').length, 9);
+        const liveRes = await app.inject({ url: '/api/v1/research/preopen-live' });
+        assert.equal(liveRes.statusCode, 200);
+        assert.match(liveRes.json().date, /^\d{4}-\d{2}-\d{2}$/);
+        assert.equal(typeof liveRes.json().rank_window, 'boolean');
 
         const miss = await app.inject({ url: `/api/v1/research/preopen-limitup?date=${DAY}` });
         assert.equal(miss.statusCode, 404);
@@ -219,8 +268,21 @@ try {
         url: '/scanner',
         body: { scanner_type: 'ChangePercentRank', count: 50, ascending: false },
     });
+    const { fetchShioajiSnapshots } = await import('../../providers/shioaji/bridge-scanner.ts');
+    assert.equal((await fetchShioajiSnapshots(['1111', '6488'])).length, 1);
+    assert.deepEqual(hits[1], {
+        url: '/snapshots',
+        body: {
+            contracts: [
+                { security_type: 'STK', exchange: null, code: '1111' },
+                { security_type: 'STK', exchange: null, code: '6488' },
+            ],
+        },
+    });
+    assert.deepEqual(await fetchShioajiSnapshots([]), []);
     fail = true;
     assert.deepEqual(await fetchShioajiScanner('VolumeRank', 50, false), []);
+    assert.deepEqual(await fetchShioajiSnapshots(['1111']), []);
     await new Promise<void>((r) => srv.close(() => r()));
     assert.deepEqual(await fetchShioajiScanner('VolumeRank', 50, false, 1_000), []);
     pass('bridge_scanner_returns_rows_or_empty_on_error');

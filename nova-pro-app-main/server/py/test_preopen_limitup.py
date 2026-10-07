@@ -65,6 +65,20 @@ def scan_line(t: str, typ: str, source: str, items: list[tuple[str, float, float
     )
 
 
+def queue_line(t: str, items: list[tuple[str, float, float]]) -> str:
+    return json.dumps(
+        {
+            "t": t,
+            "type": "LimitQueue",
+            "source": "shioaji",
+            "items": [
+                {"code": code, "buy_price": bid, "buy_volume": vol, "sell_price": 0, "sell_volume": 0, "total_volume": 1000}
+                for code, bid, vol in items
+            ],
+        }
+    )
+
+
 class SyntheticDay(unittest.TestCase):
     """測試用假資料（只驗證程式流程，不代表任何真實結果）。"""
 
@@ -96,6 +110,9 @@ class SyntheticDay(unittest.TestCase):
                 "shioaji",
                 [("1111", 55.0, 5.0, 900), ("2222", 21.8, 1.8, 200)],
             ),
+            queue_line("2026-10-07T01:00:05.000Z", [("1111", 55.0, 3000), ("2222", 22.0, 500)]),
+            queue_line("2026-10-07T01:05:10.000Z", [("1111", 55.0, 4000), ("2222", 21.9, 80)]),
+            queue_line("2026-10-07T01:08:00.000Z", [("1111", 55.0, 4500), ("2222", 21.8, 60)]),
         ]
         with open(os.path.join(self.tmp, "preopen-scans", f"{ymd}.jsonl"), "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
@@ -124,6 +141,20 @@ class SyntheticDay(unittest.TestCase):
         self.assertTrue(top[0]["in_volume_rank"])
         dropped = [r for r in rep["rules"] if r["rule"] == "最後一輪掉出名單"][0]
         self.assertEqual(dropped["n"], 1)
+        rules = {r["rule"]: r for r in rep["rules"]}
+        self.assertEqual((rules["09:00 開盤即鎖漲停"]["n"], rules["09:00 開盤即鎖漲停"]["closed_limit"]), (2, 1))
+        self.assertEqual((rules["開盤鎖住、09:05 仍鎖住"]["n"], rules["開盤鎖住、09:05 仍鎖住"]["closed_limit"]), (1, 1))
+        self.assertEqual(rules["開盤鎖住、10 分鐘內被打開"]["members"], ["2026-10-07:2222"])
+        self.assertEqual(rules["09:05 封單 ≥ 開盤封單"]["members"], ["2026-10-07:1111"])
+        self.assertEqual(rules["09:05 封單 ≥ 1000 張"]["n"], 1)
+        self.assertEqual((top[0]["queue_open"], top[0]["queue_0905"]), (3000, 4000))
+        self.assertEqual(top[1]["queue_locked_0905"], False)
+        self.assertTrue(top[1]["queue_opened_after_lock"])
+        with open(os.path.join(out, f"{self.ymd}.md"), encoding="utf-8") as fh:
+            md = fh.read()
+        self.assertIn("3,000 張", md)
+        self.assertIn("打開", md)
+        self.assertEqual(rep["data_quality"]["per_day"][0]["limit_queue_samples"], 3)
         self.assertFalse(rep["mutates_strategy"])
         self.assertTrue(os.path.exists(os.path.join(out, f"{self.ymd}.md")))
         self.assertTrue(os.path.exists(os.path.join(out, f"{self.ymd}.csv")))

@@ -49,6 +49,7 @@ import { HistoricalDataLoader } from './lib/historical-replay/historical-data-lo
 import { fetchTwDailyBars } from './lib/tw-daily-bars.ts';
 import { startDataJanitor } from './lib/data-janitor.ts';
 import { startPreopenAnalysisScheduler } from './lib/preopen-scan/analysis-runner.ts';
+import { startLimitQueueSampler } from './lib/preopen-scan/limit-queue.ts';
 import { refreshTxfNightQuote } from './lib/today-decision/txf-night-quote.ts';
 
 loadEnvFile();
@@ -454,6 +455,7 @@ async function main(): Promise<void> {
 
     startDataJanitor(dataDir);
     startPreopenAnalysisScheduler(dataDir);
+    startLimitQueueSampler(dataDir);
 
     // After port is open — headless A-pool hydrate / screener (may take minutes)
     void openGateRuntime.onBoot().catch((err) => {

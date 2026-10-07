@@ -1,4 +1,5 @@
 // Pre-open scan capture + post-close limit-up analysis (read-only research).
+//   GET  /api/v1/research/preopen-live                    latest live pre-open ranking (memory)
 //   GET  /api/v1/research/preopen-scans?date=            raw ndjson rows
 //   GET  /api/v1/research/preopen-limitup?date=[&format=md|csv]
 //   GET  /api/v1/research/preopen-limitup/dates
@@ -10,7 +11,7 @@ import type { AppContext } from '../context.ts';
 import { serverDataDir } from '../lib/data-janitor.ts';
 import { isTradingDay } from '../lib/market-calendar/trading-day.ts';
 import { sessionMinuteTaipei, taipeiYmd } from '../lib/shadow/session.ts';
-import { preopenScanFile } from '../lib/preopen-scan/capture.ts';
+import { isPreopenRankWindow, preopenLiveState, preopenScanFile } from '../lib/preopen-scan/capture.ts';
 import {
     lastPreopenRun,
     listPreopenDates,
@@ -45,6 +46,16 @@ export function registerPreopenScanRoutes(
         return reply
             .header('Content-Type', 'application/x-ndjson; charset=utf-8')
             .send(createReadStream(file));
+    });
+
+    app.get('/api/v1/research/preopen-live', async () => {
+        const date = taipeiYmd();
+        const state = preopenLiveState(date, dataDir);
+        return {
+            date,
+            rank_window: isPreopenRankWindow(),
+            state,
+        };
     });
 
     app.get('/api/v1/research/preopen-limitup/dates', async () => ({
