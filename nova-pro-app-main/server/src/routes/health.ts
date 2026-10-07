@@ -15,6 +15,10 @@ import {
 } from '../lib/data-janitor.ts';
 import { readRuntimeTimeline } from '../lib/live-acceptance/runtime-timeline.ts';
 import { join } from 'node:path';
+import {
+    fetchShioajiScanner,
+    fetchShioajiSnapshots,
+} from '../providers/shioaji/bridge-scanner.ts';
 
 const SECRET_KEY_PATTERN =
     /private[_-]?key|client[_-]?secret|credential|BEGIN (RSA )?PRIVATE/i;
@@ -170,6 +174,73 @@ export function registerHealthRoutes(
                 error: err instanceof Error ? err.name : 'error',
             };
         }
+    });
+
+    // Bridge login state regardless of the active provider; probe=1 exercises the
+    // same scanner/snapshot calls the pre-open capture uses.
+    app.get('/api/v1/system/shioaji-bridge', async (req) => {
+        const probe = (req.query as Record<string, string | undefined>).probe === '1';
+        const redact = (s: unknown) => {
+            if (typeof s !== 'string') return s ?? null;
+            let out = s.slice(0, 300);
+            for (const v of [process.env.SHIOAJI_API_KEY, process.env.SHIOAJI_SECRET_KEY]) {
+                if (v && v.length >= 6) out = out.split(v).join('***');
+            }
+            return out;
+        };
+        let health: Record<string, unknown>;
+        try {
+            const res = await fetch(`${ctx.config.shioajiBridgeUrl}/health`, {
+                signal: AbortSignal.timeout(8_000),
+            });
+            const body = res.ok ? ((await res.json()) as Record<string, unknown>) : null;
+            health = body
+                ? {
+                      reachable: true,
+                      logged_in: body.logged_in === true,
+                      has_keys: body.has_keys === true,
+                      production: body.production === true,
+                      login_error: redact(body.login_error),
+                      subs: body.subs ?? null,
+                  }
+                : { reachable: false, error: `bridge HTTP ${res.status}` };
+        } catch (err) {
+            health = { reachable: false, error: err instanceof Error ? err.name : 'error' };
+        }
+        const payload: Record<string, unknown> = {
+            active_provider: ctx.market.name(),
+            checked_at: new Date().toISOString(),
+            ...health,
+        };
+        if (probe && health.reachable) {
+            const t0 = Date.now();
+            const rank = await fetchShioajiScanner('ChangePercentRank', 5, false);
+            const t1 = Date.now();
+            const snap = await fetchShioajiSnapshots(['2330']);
+            payload.probe = {
+                scanner_rows: rank.length,
+                scanner_ms: t1 - t0,
+                scanner_top: rank.slice(0, 5).map((r) => ({
+                    code: r.code,
+                    name: r.name,
+                    date: r.date,
+                    close: r.close,
+                    change_price: r.change_price,
+                })),
+                snapshot_rows: snap.length,
+                snapshot_ms: Date.now() - t1,
+                snapshot_2330: snap[0]
+                    ? {
+                          close: snap[0].close,
+                          buy_price: snap[0].buy_price,
+                          buy_volume: snap[0].buy_volume,
+                          total_volume: snap[0].total_volume,
+                      }
+                    : null,
+            };
+        }
+        assertNoSecretLeak(payload);
+        return payload;
     });
 
     app.get('/api/v1/info', async (): Promise<ServerInfo> => ({
