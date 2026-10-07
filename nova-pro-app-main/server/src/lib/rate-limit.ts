@@ -23,6 +23,8 @@ export const DEFAULT_RATE_RULES: readonly RateRule[] = [
     { method: 'POST', path: '/api/v1/config/market', windowMs: 10 * 60_000, perClient: 5, global: 10 },
     // Spawns Python + TWSE/TPEx closing fetch
     { method: 'POST', path: '/api/v1/research/preopen-limitup/run', windowMs: 10 * 60_000, perClient: 3, global: 6 },
+    // Real Fugle REST calls + optional extra WebSocket connection
+    { method: 'GET', path: '/api/v1/system/fugle-plan', windowMs: 10 * 60_000, perClient: 3, global: 6 },
 ];
 
 /** Render sits behind Cloudflare: prefer the edge-set client IP over spoofable XFF heads. */

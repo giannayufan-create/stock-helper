@@ -19,6 +19,9 @@ import {
     fetchShioajiScanner,
     fetchShioajiSnapshots,
 } from '../providers/shioaji/bridge-scanner.ts';
+import { fugleSnapshotSymbols, probeFugleRest, probeFugleWsCap } from '../lib/fugle-plan-probe.ts';
+import { isTradingDay } from '../lib/market-calendar/trading-day.ts';
+import { sessionMinuteTaipei, taipeiYmd } from '../lib/shadow/session.ts';
 
 const SECRET_KEY_PATTERN =
     /private[_-]?key|client[_-]?secret|credential|BEGIN (RSA )?PRIVATE/i;
@@ -255,6 +258,44 @@ export function registerHealthRoutes(
             };
         }
         assertNoSecretLeak(payload);
+        return payload;
+    });
+
+    // What the configured Fugle key can do, by real calls. ws=1 opens a separate
+    // connection to test the subscription cap; refused during the trading session.
+    app.get('/api/v1/system/fugle-plan', async (req, reply) => {
+        const key = ctx.runtimeConfig.get().fugleApiKey;
+        if (!key) return { has_key: false };
+        const q = req.query as Record<string, string | undefined>;
+        const quotes = await probeFugleRest(key, '/snapshot/quotes/TSE?type=COMMONSTOCK');
+        const movers = await probeFugleRest(
+            key,
+            '/snapshot/movers/TSE?direction=up&change=percent&type=COMMONSTOCK',
+        );
+        const actives = await probeFugleRest(key, '/snapshot/actives/TSE?trade=value&type=COMMONSTOCK');
+        const intraday = await probeFugleRest(key, '/intraday/quote/2330');
+        const payload: Record<string, unknown> = {
+            has_key: true,
+            checked_at: new Date().toISOString(),
+            rest: { quotes, movers, actives, intraday },
+        };
+        if (q.ws === '1') {
+            const now = new Date();
+            const sm = sessionMinuteTaipei(now);
+            if (isTradingDay(taipeiYmd(now)) && sm >= -60 && sm < 300) {
+                return reply.code(409).send({ error: 'market_hours', message: '盤中不做訂閱上限測試，14:00 後再試' });
+            }
+            const n = Math.min(Math.max(Number(q.n) || 310, 1), 1000);
+            const pool = [
+                ...(await fugleSnapshotSymbols(key, 'TSE')),
+                ...(await fugleSnapshotSymbols(key, 'OTC')),
+            ];
+            payload.ws = pool.length >= n
+                ? await probeFugleWsCap(key, pool.slice(0, n))
+                : { error: 'not_enough_symbols', available: pool.length };
+        }
+        assertNoSecretLeak(payload);
+        if (JSON.stringify(payload).includes(key)) throw new Error('fugle probe refused: key in payload');
         return payload;
     });
 
