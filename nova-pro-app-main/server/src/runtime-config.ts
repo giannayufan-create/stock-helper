@@ -32,7 +32,8 @@ export class RuntimeConfigStore {
                     : seeded === 'fugle'
                       ? 'fugle'
                       : 'fugle',
-            fugleApiKey: loaded.fugleApiKey ?? envSeed.fugleApiKey ?? '',
+            // FUGLE_API_KEY on the host wins over a key saved in config.json.
+            fugleApiKey: envSeed.fugleApiKey || loaded.fugleApiKey || '',
         };
     }
 
