@@ -294,15 +294,11 @@ export class FugleMarketDataProvider implements MarketDataProvider {
                 });
             }
             const tick = tickFromTrade(symbol, data, state);
-            // Pre-open detection was tuned on Shioaji, whose bridge never flags
-            // trial matches; day open/high/low above still exclude them.
-            tick.simtrade = false;
             const appCode = fromFugleSymbol(symbol);
             if (appCode !== symbol) tick.code = appCode;
             for (const cb of this.tickCbs) cb(channels.tick, tick);
         } else if (msg.channel === 'books') {
             const bidask = bidaskFromBooks(symbol, data);
-            bidask.simtrade = false;
             const entry = this.quoteCache.get(symbol);
             if (entry) {
                 entry.state.bid = Number(data.bids?.[0]?.price) || entry.state.bid;

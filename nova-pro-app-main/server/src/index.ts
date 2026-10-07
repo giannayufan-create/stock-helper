@@ -71,33 +71,11 @@ async function main(): Promise<void> {
     let started = false;
     const bootErrors: string[] = [];
 
-    const fugleKey = saved.fugleApiKey || config.fugleApiKey;
-    const startFugle = async () => {
-        if (started || !fugleKey) return;
-        const fugle = new FugleMarketDataProvider(fugleKey);
-        try {
-            await fugle.init();
-            manager.start(fugle, 'fugle');
-            started = true;
-            runtimeConfig.set({ marketProvider: 'fugle', fugleApiKey: fugleKey });
-            console.log('market: fugle');
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            bootErrors.push(`fugle: ${msg}`);
-            console.error(`fugle init failed (${msg})`);
-        }
-    };
-
-    // Fugle (paid realtime plan) is primary whenever a key is configured;
-    // Shioaji is the fallback.
-    await startFugle();
-
     // Prefer SHIOAJI_ENABLED (new name) so Render need not change MARKET_PROVIDER
     if (
-        !started &&
-        (config.shioajiEnabled ||
-            config.marketProvider === 'shioaji' ||
-            (saved.marketProvider === 'shioaji' && config.shioajiApiKey))
+        config.shioajiEnabled ||
+        config.marketProvider === 'shioaji' ||
+        (saved.marketProvider === 'shioaji' && config.shioajiApiKey)
     ) {
         if (!config.shioajiApiKey || !config.shioajiSecretKey) {
             console.warn(
@@ -128,7 +106,21 @@ async function main(): Promise<void> {
         }
     }
 
-    if (!started && !fugleKey) {
+    const fugleKey = saved.fugleApiKey || config.fugleApiKey;
+    if (!started && fugleKey) {
+        const fugle = new FugleMarketDataProvider(fugleKey);
+        try {
+            await fugle.init();
+            manager.start(fugle, 'fugle');
+            started = true;
+            runtimeConfig.set({ marketProvider: 'fugle', fugleApiKey: fugleKey });
+            console.log('market: fugle');
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            bootErrors.push(`fugle: ${msg}`);
+            console.error(`fugle init failed (${msg}) — mock disabled`);
+        }
+    } else if (!started && !fugleKey) {
         bootErrors.push('fugle: FUGLE_API_KEY missing');
     }
     if (!started) {
