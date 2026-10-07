@@ -2,7 +2,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { SERVER_VERSION, type AppContext } from '../context.ts';
-import type { Health, ServerInfo } from '../types/dto.ts';
+import type { Health, ScannerType, ServerInfo } from '../types/dto.ts';
 import {
     getFirebaseStatus,
     getAdminInitError,
@@ -213,20 +213,35 @@ export function registerHealthRoutes(
             ...health,
         };
         if (probe && health.reachable) {
-            const t0 = Date.now();
-            const rank = await fetchShioajiScanner('ChangePercentRank', 5, false);
+            const top = async (type: ScannerType, ascending: boolean) => {
+                const t = Date.now();
+                const rows = await fetchShioajiScanner(type, 3, ascending);
+                return {
+                    type,
+                    ascending,
+                    rows: rows.length,
+                    ms: Date.now() - t,
+                    top: rows.map((r) => ({
+                        code: r.code,
+                        name: r.name.trim(),
+                        date: r.date,
+                        close: r.close,
+                        change_price: r.change_price,
+                        total_volume: r.total_volume,
+                        total_amount: r.total_amount,
+                    })),
+                };
+            };
+            const scanners = [
+                await top('ChangePercentRank', false),
+                await top('ChangePercentRank', true),
+                await top('VolumeRank', false),
+                await top('AmountRank', false),
+            ];
             const t1 = Date.now();
             const snap = await fetchShioajiSnapshots(['2330']);
             payload.probe = {
-                scanner_rows: rank.length,
-                scanner_ms: t1 - t0,
-                scanner_top: rank.slice(0, 5).map((r) => ({
-                    code: r.code,
-                    name: r.name,
-                    date: r.date,
-                    close: r.close,
-                    change_price: r.change_price,
-                })),
+                scanners,
                 snapshot_rows: snap.length,
                 snapshot_ms: Date.now() - t1,
                 snapshot_2330: snap[0]

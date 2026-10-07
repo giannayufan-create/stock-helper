@@ -546,7 +546,9 @@ def scanner(body: ScannerBody) -> list[dict[str, Any]]:
         rows = client.scanners(
             scanner_type=scanner_type,
             count=min(max(body.count, 1), 100),
-            ascending=body.ascending,
+            # Shioaji ascending=True returns the top of the ranking (largest first);
+            # callers send ascending=False for largest first.
+            ascending=not body.ascending,
         )
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"scanner 失敗: {err}") from err
