@@ -12,6 +12,18 @@ export const LIMIT_QUEUE_TYPE = 'LimitQueue';
 const SAMPLE_MS = 20_000;
 const MAX_CODES = 50;
 
+export interface LimitQueueSample {
+    date: string;
+    at: string;
+    items: BridgeSnapshot[];
+}
+
+let latest: LimitQueueSample | null = null;
+
+export function latestLimitQueue(ymd: string = taipeiYmd()): LimitQueueSample | null {
+    return latest?.date === ymd ? latest : null;
+}
+
 export function isLimitQueueWindow(d: Date = new Date()): boolean {
     if (!isTradingDay(taipeiYmd(d))) return false;
     const sm = sessionMinuteTaipei(d);
@@ -29,6 +41,7 @@ export async function sampleLimitQueue(
     if (!codes.length) return 0;
     const rows = await fetchSnapshots(codes);
     if (!rows.length) return 0;
+    latest = { date: taipeiYmd(d), at: d.toISOString(), items: rows };
     appendPreopenRow(
         {
             t: d.toISOString(),

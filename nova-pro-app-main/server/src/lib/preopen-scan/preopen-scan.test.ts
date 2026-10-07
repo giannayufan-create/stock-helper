@@ -21,7 +21,7 @@ import {
 } from './capture.ts';
 import { isLimitQueueWindow, sampleLimitQueue } from './limit-queue.ts';
 import { listPreopenDates, preopenReportPath, runPreopenAnalysis } from './analysis-runner.ts';
-import { isPreopenRunBlocked, registerPreopenScanRoutes } from '../../routes/preopen-scan.ts';
+import { buildPreopenLive, isPreopenRunBlocked, registerPreopenScanRoutes } from '../../routes/preopen-scan.ts';
 
 let passed = 0;
 function pass(name: string) {
@@ -162,6 +162,32 @@ try {
         assert.equal(isLimitQueueWindow(tpe('2026-10-03', '09:01:00')), false);
         assert.equal(await sampleLimitQueue(tpe('2026-10-01', '09:01:00'), dir, fake), 0);
         pass('limit_queue_samples_final_list_0900_0910_only');
+
+        const dto = buildPreopenLive(tpe(DAY, '09:00:30'), dir);
+        assert.equal(dto.phase, 'open');
+        assert.equal(dto.queue_at, tpe(DAY, '09:00:20').toISOString());
+        assert.deepEqual(
+            { ...dto.items[0] },
+            {
+                rank: 1,
+                code: '1111',
+                name: '1111',
+                trial_price: 55,
+                trial_pct: 10,
+                limit_up_price: 55,
+                at_limit: true,
+                trial_volume: 100,
+                top10_minutes: 4,
+                locked: true,
+                queue_lots: 1234,
+                last_price: 55,
+            },
+        );
+        assert.equal(buildPreopenLive(tpe(DAY, '08:10:00'), dir).phase, 'before');
+        assert.equal(buildPreopenLive(tpe(DAY, '08:45:00'), dir).phase, 'trial');
+        assert.equal(buildPreopenLive(tpe(DAY, '10:00:00'), dir).phase, 'after');
+        assert.equal(buildPreopenLive(tpe('2026-10-01', '09:00:30'), dir).items.length, 0);
+        pass('live_dto_has_limit_price_and_queue');
     }
 
     {
@@ -214,7 +240,7 @@ try {
         const liveRes = await app.inject({ url: '/api/v1/research/preopen-live' });
         assert.equal(liveRes.statusCode, 200);
         assert.match(liveRes.json().date, /^\d{4}-\d{2}-\d{2}$/);
-        assert.equal(typeof liveRes.json().rank_window, 'boolean');
+        assert.ok(Array.isArray(liveRes.json().items));
 
         const miss = await app.inject({ url: `/api/v1/research/preopen-limitup?date=${DAY}` });
         assert.equal(miss.statusCode, 404);

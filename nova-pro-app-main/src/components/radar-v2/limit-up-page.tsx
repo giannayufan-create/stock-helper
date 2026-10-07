@@ -8,6 +8,7 @@ import {
     type LimitUpBoardItem,
 } from '../../lib/limit-up-board';
 import { isHostedApi } from '../../lib/runtime';
+import { PreopenLiveSection } from './preopen-live-section';
 import { vars } from '../../theme.css';
 import * as s from './radar.css';
 import { radarColor } from './tokens';
@@ -100,6 +101,7 @@ export function LimitUpPage({
 
     return (
         <div style={{ paddingTop: 0 }}>
+            <PreopenLiveSection onOpenSymbol={onOpenSymbol} />
             <div
                 style={{
                     display: 'flex',

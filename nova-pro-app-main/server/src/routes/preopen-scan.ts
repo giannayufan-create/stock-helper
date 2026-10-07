@@ -12,6 +12,8 @@ import { serverDataDir } from '../lib/data-janitor.ts';
 import { isTradingDay } from '../lib/market-calendar/trading-day.ts';
 import { sessionMinuteTaipei, taipeiYmd } from '../lib/shadow/session.ts';
 import { isPreopenRankWindow, preopenLiveState, preopenScanFile } from '../lib/preopen-scan/capture.ts';
+import { isLimitQueueWindow, latestLimitQueue } from '../lib/preopen-scan/limit-queue.ts';
+import { twLimitUpPrice } from '../lib/strategy-validation/bar-source.ts';
 import {
     lastPreopenRun,
     listPreopenDates,
@@ -26,6 +28,76 @@ export function isPreopenRunBlocked(d: Date = new Date()): boolean {
     if (!isTradingDay(taipeiYmd(d))) return false;
     const sm = sessionMinuteTaipei(d);
     return sm >= -35 && sm < 275;
+}
+
+export interface PreopenLiveItem {
+    rank: number;
+    code: string;
+    name: string;
+    trial_price: number;
+    trial_pct: number | null;
+    limit_up_price: number | null;
+    at_limit: boolean;
+    trial_volume: number;
+    top10_minutes: number;
+    /** 09:00+ best-bid snapshot; queue_lots is the bid size when the bid sits at limit-up. */
+    locked: boolean | null;
+    queue_lots: number | null;
+    last_price: number | null;
+}
+
+export interface PreopenLiveDto {
+    date: string;
+    phase: 'before' | 'trial' | 'open' | 'after';
+    ranked_at: string | null;
+    source: string | null;
+    queue_at: string | null;
+    items: PreopenLiveItem[];
+}
+
+export function buildPreopenLive(now: Date, dataDir: string): PreopenLiveDto {
+    const date = taipeiYmd(now);
+    const sm = sessionMinuteTaipei(now);
+    const phase: PreopenLiveDto['phase'] = !isTradingDay(date)
+        ? 'after'
+        : sm < -30
+          ? 'before'
+          : isPreopenRankWindow(now)
+            ? 'trial'
+            : isLimitQueueWindow(now)
+              ? 'open'
+              : 'after';
+    const state = preopenLiveState(date, dataDir);
+    const queue = latestLimitQueue(date);
+    const byCode = new Map((queue?.items ?? []).map((q) => [q.code, q]));
+    const items: PreopenLiveItem[] = (state?.items ?? []).map((it) => {
+        const ref = it.close - it.change_price;
+        const limit = it.close > 0 && ref > 0 ? twLimitUpPrice(ref) : null;
+        const q = byCode.get(it.code);
+        const locked = q && limit != null ? q.buy_price + 1e-6 >= limit : null;
+        return {
+            rank: it.rank,
+            code: it.code,
+            name: it.name,
+            trial_price: it.close,
+            trial_pct: ref > 0 ? Math.round((it.change_price / ref) * 10_000) / 100 : null,
+            limit_up_price: limit,
+            at_limit: limit != null && it.close + 1e-6 >= limit,
+            trial_volume: it.total_volume,
+            top10_minutes: state?.top10_minutes[it.code] ?? 0,
+            locked,
+            queue_lots: locked ? q!.buy_volume : null,
+            last_price: q ? q.close : null,
+        };
+    });
+    return {
+        date,
+        phase,
+        ranked_at: state?.at ?? null,
+        source: state?.source ?? null,
+        queue_at: queue?.at ?? null,
+        items,
+    };
 }
 
 export function registerPreopenScanRoutes(
@@ -48,15 +120,7 @@ export function registerPreopenScanRoutes(
             .send(createReadStream(file));
     });
 
-    app.get('/api/v1/research/preopen-live', async () => {
-        const date = taipeiYmd();
-        const state = preopenLiveState(date, dataDir);
-        return {
-            date,
-            rank_window: isPreopenRankWindow(),
-            state,
-        };
-    });
+    app.get('/api/v1/research/preopen-live', async () => buildPreopenLive(new Date(), dataDir));
 
     app.get('/api/v1/research/preopen-limitup/dates', async () => ({
         ...listPreopenDates(dataDir),
