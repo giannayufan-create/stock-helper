@@ -267,11 +267,24 @@ def load_scans(ymd: str, data_dir: str | None, base: str | None) -> list[dict[st
     return rows
 
 
-def change_snaps(rows: list[dict[str, Any]]) -> list[Snap]:
-    """One snapshot per minute and source; callers ask for 30/50/100 rows, keep the longest list."""
+def is_shadow(r: dict[str, Any]) -> bool:
+    """Rows recorded only to compare sources (role "shadow") never drive the analysis."""
+    return r.get("role") == "shadow"
+
+
+def change_snaps(rows: list[dict[str, Any]], source: str | None = None) -> list[Snap]:
+    """One snapshot per minute and source; callers ask for 30/50/100 rows, keep the longest list.
+
+    Default: the rows that were actually used (no shadow). With `source`: every row of that
+    source, shadow included, for the source comparison.
+    """
     best: dict[tuple[str, str], Snap] = {}
     for r in rows:
         if r.get("type") != "ChangePercentRank":
+            continue
+        if source is None and is_shadow(r):
+            continue
+        if source is not None and r.get("source") != source:
             continue
         t = datetime.fromisoformat(r["t"].replace("Z", "+00:00")).astimezone(TPE)
         s = Snap(t=t, hm=t.strftime("%H:%M"), source=r.get("source", "?"), items=r.get("items") or [])
@@ -342,10 +355,16 @@ class QueueStats:
     ever_locked: bool = False
 
 
-def queue_samples(rows: list[dict[str, Any]]) -> dict[str, list[tuple[str, dict[str, Any]]]]:
+def queue_samples(
+    rows: list[dict[str, Any]], source: str | None = None
+) -> dict[str, list[tuple[str, dict[str, Any]]]]:
     out: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for r in rows:
         if r.get("type") != "LimitQueue":
+            continue
+        if source is None and is_shadow(r):
+            continue
+        if source is not None and r.get("source") != source:
             continue
         hm = datetime.fromisoformat(r["t"].replace("Z", "+00:00")).astimezone(TPE).strftime("%H:%M:%S")
         if hm < "09:00:00":
@@ -408,7 +427,9 @@ def build_candidates(
     vol_codes: set[str] = set()
     amt_codes: set[str] = set()
     for r in rows:
-        if r.get("source") not in ("shioaji", "fugle"):
+        if r.get("type") not in ("VolumeRank", "AmountRank"):
+            continue
+        if r.get("source") not in ("shioaji", "fugle") or is_shadow(r):
             continue
         codes = {it["code"] for it in r.get("items") or []}
         if r.get("type") == "VolumeRank":
@@ -500,6 +521,94 @@ def radar_early_codes(ymd: str, data_dir: str | None, base: str | None) -> set[s
             if ms and datetime.fromtimestamp(ms / 1000, TPE) < cutoff:
                 codes.add(str(s.get("symbol")))
     return codes
+
+
+# ---------------------------------------------------------------- Fugle vs Shioaji
+
+
+def source_compare(rows: list[dict[str, Any]], eod: dict[str, Eod]) -> dict[str, Any] | None:
+    """Same-day comparison of the two live sources: ranking overlap, trial %, hit rate, bid queue."""
+    fg = live_snaps(change_snaps(rows, "fugle"))
+    sj = live_snaps(change_snaps(rows, "shioaji"))
+    fq = queue_samples(rows, "fugle")
+    sq = queue_samples(rows, "shioaji")
+    if not (fg and sj) and not (fq and sq):
+        return None
+
+    def closed(items: list[dict[str, Any]]) -> int:
+        return sum(1 for it in items if it["code"] in eod and eod[it["code"]].closed_limit)
+
+    ranks = []
+    for cp in CHECKPOINTS:
+        a, b = snap_at(fg, cp), snap_at(sj, cp)
+        if not a or not b:
+            continue
+        a10, b10 = a.items[:10], b.items[:10]
+        a20, b20 = a.items[:20], b.items[:20]
+        pa = {it["code"]: trial_pct(it) for it in a20}
+        pb = {it["code"]: trial_pct(it) for it in b20}
+        both = [c for c in pa if c in pb and pa[c] is not None and pb[c] is not None]
+        ranks.append(
+            {
+                "checkpoint": cp,
+                "fugle_at": a.hm,
+                "shioaji_at": b.hm,
+                "top10_overlap": len({i["code"] for i in a10} & {i["code"] for i in b10}),
+                "top20_overlap": len(set(pa) & set(pb)),
+                "trial_pct_mismatch": sum(1 for c in both if abs(pa[c] - pb[c]) > 0.05),
+                "trial_pct_compared": len(both),
+                "fugle_top10_closed_limit": closed(a10),
+                "shioaji_top10_closed_limit": closed(b10),
+                "fugle_top20_closed_limit": closed(a20),
+                "shioaji_top20_closed_limit": closed(b20),
+            }
+        )
+
+    agree = disagree = 0
+    diffs: list[float] = []
+    for code, fs in fq.items():
+        e = eod.get(code)
+        if not e or not e.limit_up:
+            continue
+        by_t = {hm: it for hm, it in sq.get(code, [])}
+        for hm, a in fs:
+            b = by_t.get(hm)
+            if b is None:
+                continue
+            la = (a.get("buy_price") or 0) + 1e-6 >= e.limit_up
+            lb = (b.get("buy_price") or 0) + 1e-6 >= e.limit_up
+            if la == lb:
+                agree += 1
+                if la and a.get("buy_volume") is not None and b.get("buy_volume") is not None:
+                    diffs.append(abs(a["buy_volume"] - b["buy_volume"]))
+            else:
+                disagree += 1
+    diffs.sort()
+    return {
+        "ranks": ranks,
+        "queue": {
+            "paired_samples": agree + disagree,
+            "locked_agree": agree,
+            "locked_disagree": disagree,
+            "queue_lots_abs_diff_median": diffs[len(diffs) // 2] if diffs else None,
+            "queue_lots_abs_diff_max": diffs[-1] if diffs else None,
+        },
+    }
+
+
+def fugle_checks(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    ok = 0
+    reasons: dict[str, int] = {}
+    for r in rows:
+        if r.get("type") != "FugleDiag":
+            continue
+        for d in r.get("items") or []:
+            if d.get("ok"):
+                ok += 1
+            else:
+                k = str(d.get("reason"))
+                reasons[k] = reasons.get(k, 0) + 1
+    return {"ok": ok, "rejected": reasons}
 
 
 # ---------------------------------------------------------------- statistics
@@ -837,6 +946,28 @@ def render_markdown(r: dict[str, Any]) -> str:
                 f"{'—' if c['eod_change_pct'] is None else str(c['eod_change_pct']) + '%'} | "
                 f"{'是' if c['eod_closed_limit'] else ''} |"
             )
+    sc = r.get("source_compare")
+    if sc:
+        lines += ["", "## 富果 vs 永豐（同一天、同一時間點）", ""]
+        if sc["ranks"]:
+            lines += [
+                "| 時間 | 前10 重疊 | 前20 重疊 | 試撮漲幅不一致 | 前10 收漲停 富果/永豐 | 前20 收漲停 富果/永豐 |",
+                "|---|---|---|---|---|---|",
+            ]
+            for x in sc["ranks"]:
+                lines.append(
+                    f"| {x['checkpoint']} | {x['top10_overlap']}/10 | {x['top20_overlap']}/20 | "
+                    f"{x['trial_pct_mismatch']}/{x['trial_pct_compared']} | "
+                    f"{x['fugle_top10_closed_limit']}/{x['shioaji_top10_closed_limit']} | "
+                    f"{x['fugle_top20_closed_limit']}/{x['shioaji_top20_closed_limit']} |"
+                )
+        qq = sc["queue"]
+        if qq["paired_samples"]:
+            lines.append(
+                f"- 封單：同時間配對 {qq['paired_samples']} 筆，鎖漲停判斷一致 {qq['locked_agree']}、"
+                f"不一致 {qq['locked_disagree']}；封單張數差距中位數 {qq['queue_lots_abs_diff_median']}、"
+                f"最大 {qq['queue_lots_abs_diff_max']}。"
+            )
     if rec["missed"]:
         lines += ["", "## 漏網：收漲停但盤前沒出現", ""]
         for m in rec["missed"][:30]:
@@ -869,7 +1000,12 @@ def analyze_day(ymd: str, args: argparse.Namespace) -> tuple[list[Cand], dict[st
     if not snaps:
         warnings.append("盤前沒有任何來自永豐／富果的即時排名（只有昨日名單），這天不能評估盤前名單。")
     if snaps and not any(r.get("type") == "LimitQueue" for r in rows):
-        warnings.append("09:00–09:10 沒有封單資料（永豐 snapshot 沒回應），封單相關條件這天無法評估。")
+        warnings.append("09:00–09:10 沒有封單資料（富果、永豐都沒回應），封單相關條件這天無法評估。")
+    checks = fugle_checks(rows)
+    if checks["rejected"] and not checks["ok"]:
+        warnings.append(
+            "富果盤前資料整段沒通過檢查，盤前名單全部來自永豐；原因：" + "、".join(f"{k}×{v}" for k, v in checks["rejected"].items())
+        )
     if stale:
         warnings.append(f"有 {stale} 筆永豐排名的日期不是 {ymd}，盤前排名可能是前一日資料。")
     meta = {
@@ -881,7 +1017,10 @@ def analyze_day(ymd: str, args: argparse.Namespace) -> tuple[list[Cand], dict[st
         "final_snapshot": final.hm if final else None,
         "final_source": final.source if final else None,
         "stale_rank_rows": stale,
-        "limit_queue_samples": sum(1 for r in rows if r.get("type") == "LimitQueue"),
+        "limit_queue_samples": sum(1 for r in rows if r.get("type") == "LimitQueue" and not is_shadow(r)),
+        "limit_queue_sources": sorted({r.get("source", "?") for r in rows if r.get("type") == "LimitQueue" and not is_shadow(r)}),
+        "fugle_checks": checks,
+        "source_compare": source_compare(rows, eod),
         "warnings": warnings,
         "checkpoints": checkpoint_table(snaps, eod),
         "recall": recall(cands, eod),
@@ -968,7 +1107,9 @@ def main(argv: list[str] | None = None) -> int:
         "dates": [d["date"] for d in per_day],
         "generated_at": datetime.now(TPE).strftime("%Y-%m-%d %H:%M:%S"),
         "data_quality": {
-            "per_day": [{k: v for k, v in d.items() if k not in ("checkpoints", "recall")} for d in per_day],
+            "per_day": [
+                {k: v for k, v in d.items() if k not in ("checkpoints", "recall", "source_compare")} for d in per_day
+            ],
             "warnings": [w for d in per_day for w in d["warnings"]],
         },
         "overall": overall,
@@ -976,6 +1117,7 @@ def main(argv: list[str] | None = None) -> int:
         "rules": rules,
         "recall": recall_all,
         "final_top": final_top,
+        "source_compare": last["source_compare"],
         "direction": direction(rules, overall["closed_rate"], len(per_day)),
         "mutates_strategy": False,
     }

@@ -20,6 +20,7 @@ import {
     resetPreopenLiveState,
 } from './capture.ts';
 import { isLimitQueueWindow, sampleLimitQueue } from './limit-queue.ts';
+import { FUGLE_PREOPEN_CANDIDATES, fuglePreopenRank, resetFuglePreopenCache } from './fugle-preopen.ts';
 import { listPreopenDates, preopenReportPath, runPreopenAnalysis } from './analysis-runner.ts';
 import { buildPreopenLive, isPreopenRunBlocked, registerPreopenScanRoutes } from '../../routes/preopen-scan.ts';
 
@@ -152,15 +153,15 @@ try {
                 change_rate: 10,
             }));
         };
-        assert.equal(await sampleLimitQueue(tpe(DAY, '08:59:50'), dir, fake), 0);
-        assert.equal(await sampleLimitQueue(tpe(DAY, '09:10:00'), dir, fake), 0);
-        assert.equal(await sampleLimitQueue(tpe(DAY, '09:00:20'), dir, fake), 2);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '08:59:50'), dir, { shioaji: fake }), 0);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:10:00'), dir, { shioaji: fake }), 0);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:00:20'), dir, { shioaji: fake }), 2);
         assert.deepEqual(asked, [['1111', '2222']]);
         const q = readRows(file).filter((r) => r.type === 'LimitQueue');
         assert.equal(q.length, 1);
         assert.equal(q[0].items[0].buy_volume, 1234);
         assert.equal(isLimitQueueWindow(tpe('2026-10-03', '09:01:00')), false);
-        assert.equal(await sampleLimitQueue(tpe('2026-10-01', '09:01:00'), dir, fake), 0);
+        assert.equal(await sampleLimitQueue(tpe('2026-10-01', '09:01:00'), dir, { shioaji: fake }), 0);
         pass('limit_queue_samples_final_list_0900_0910_only');
 
         const dto = buildPreopenLive(tpe(DAY, '09:00:30'), dir);
@@ -188,6 +189,94 @@ try {
         assert.equal(buildPreopenLive(tpe(DAY, '10:00:00'), dir).phase, 'after');
         assert.equal(buildPreopenLive(tpe('2026-10-01', '09:00:30'), dir).items.length, 0);
         pass('live_dto_has_limit_price_and_queue');
+
+        const fugle = async (codes: readonly string[]) =>
+            codes.map((code) => ({
+                code,
+                close: 55,
+                high: 55,
+                buy_price: 0,
+                buy_volume: 777,
+                sell_price: 0,
+                sell_volume: 0,
+                total_volume: 900,
+                change_rate: 10,
+                reference: 50,
+                limit_up_bid: true,
+                limit_up_price_hit: true,
+            }));
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:01:00'), dir, { shioaji: fake, fugle }), 2);
+        const q2 = readRows(file).filter((r) => r.type === 'LimitQueue' && r.t === tpe(DAY, '09:01:00').toISOString());
+        assert.deepEqual(
+            q2.map((r) => [r.source, r.role ?? 'primary']),
+            [
+                ['fugle', 'primary'],
+                ['shioaji', 'shadow'],
+            ],
+        );
+        const dto2 = buildPreopenLive(tpe(DAY, '09:01:10'), dir);
+        assert.equal(dto2.queue_source, 'fugle');
+        assert.equal(dto2.items[0]?.locked, true);
+        assert.equal(dto2.items[0]?.queue_lots, 777);
+        assert.equal(await sampleLimitQueue(tpe(DAY, '09:01:20'), dir, { shioaji: fake, fugle: async () => [] }), 2);
+        assert.equal(buildPreopenLive(tpe(DAY, '09:01:30'), dir).queue_source, 'shioaji');
+        pass('limit_queue_fugle_primary_shioaji_shadow_and_fallback');
+    }
+
+    {
+        const now = tpe(DAY, '08:45:00');
+        const us = (d: Date) => d.getTime() * 1000;
+        const snapRows = Array.from({ length: 80 }, (_, i) => ({
+            symbol: String(1000 + i),
+            lastPrice: 10 + i / 10,
+            changePercent: i / 10,
+            lastUpdated: us(now),
+        }));
+        let snapDate = DAY;
+        let trialAt = now;
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async (url: string) => {
+            const path = String(url);
+            if (path.includes('/snapshot/quotes/')) {
+                const body = path.includes('/TSE') ? { date: snapDate, data: snapRows } : { date: snapDate, data: [] };
+                return new Response(JSON.stringify(body), { status: 200 });
+            }
+            const code = path.split('/').pop()!;
+            const i = Number(code) - 1000;
+            return new Response(
+                JSON.stringify({
+                    date: DAY,
+                    name: `n${code}`,
+                    referencePrice: 10,
+                    lastTrial: { price: 10 + i / 10, size: 5, time: us(trialAt), bid: 10, ask: 11 },
+                }),
+                { status: 200 },
+            );
+        }) as typeof fetch;
+        try {
+            resetFuglePreopenCache();
+            const ok = await fuglePreopenRank('k', { now, dataDir: dir });
+            assert.equal(ok.diag.ok, true);
+            assert.equal(ok.diag.candidates, FUGLE_PREOPEN_CANDIDATES);
+            assert.equal(ok.items[0]?.code, '1079');
+            assert.equal(ok.items[0]?.rank_value, 79);
+            assert.equal(ok.items[0]?.change_price, 7.9);
+
+            resetFuglePreopenCache();
+            snapDate = '2026-10-01';
+            assert.equal((await fuglePreopenRank('k', { now, dataDir: dir })).diag.reason, 'snapshot_date_2026-10-01');
+
+            resetFuglePreopenCache();
+            snapDate = DAY;
+            trialAt = new Date(now.getTime() - 10 * 60_000);
+            const stale = await fuglePreopenRank('k', { now, dataDir: dir });
+            assert.equal(stale.diag.reason, 'too_few_confirmed');
+            assert.equal(stale.diag.rejected.trial_stale, FUGLE_PREOPEN_CANDIDATES);
+            resetFuglePreopenCache();
+        } finally {
+            globalThis.fetch = realFetch;
+        }
+        pass('fugle_preopen_ranks_by_reference_and_rejects_stale_or_wrong_date');
     }
 
     {
@@ -236,7 +325,7 @@ try {
         const scans = await app.inject({ url: `/api/v1/research/preopen-scans?date=${DAY}` });
         assert.equal(scans.statusCode, 200);
         assert.match(String(scans.headers['content-type']), /ndjson/);
-        assert.equal(scans.body.trim().split('\n').length, 9);
+        assert.equal(scans.body.trim().split('\n').length, 12);
         const liveRes = await app.inject({ url: '/api/v1/research/preopen-live' });
         assert.equal(liveRes.statusCode, 200);
         assert.match(liveRes.json().date, /^\d{4}-\d{2}-\d{2}$/);

@@ -23,7 +23,12 @@ export interface PreopenLiveDto {
     ranked_at: string | null;
     source: string | null;
     queue_at: string | null;
+    queue_source?: string | null;
     items: PreopenLiveItem[];
+}
+
+export function sourceLabel(source: string | null | undefined): string {
+    return source === 'fugle' ? '富果' : source === 'shioaji' ? '永豐' : '';
 }
 
 export function fetchPreopenLive(timeoutMs = 15_000) {

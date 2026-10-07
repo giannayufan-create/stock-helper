@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
     fetchPreopenLive,
     inPreopenUiWindow,
+    sourceLabel,
     type PreopenLiveDto,
     type PreopenLiveItem,
 } from '../../lib/preopen-live';
@@ -125,6 +126,8 @@ export function PreopenLiveSection({ onOpenSymbol }: { onOpenSymbol: (symbol: st
                 </div>
                 <div style={{ fontSize: 12, color: vars.color.mutedForeground, fontVariantNumeric: 'tabular-nums' }}>
                     {isOpen ? `封單 ${fmtTime(dto?.queue_at ?? null)}` : `試撮 ${fmtTime(dto?.ranked_at ?? null)}`}
+                    {sourceLabel(isOpen ? dto?.queue_source : dto?.source) &&
+                        ` · ${sourceLabel(isOpen ? dto?.queue_source : dto?.source)}`}
                 </div>
             </div>
             <div style={{ marginTop: 4, marginBottom: 10, fontSize: 12, color: vars.color.mutedForeground }}>

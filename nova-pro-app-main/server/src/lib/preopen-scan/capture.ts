@@ -103,9 +103,15 @@ function restoreFromFile(ymd: string, dataDir: string): PreopenLiveState | null 
     for (const line of text.split('\n')) {
         if (!line.includes('"ChangePercentRank"')) continue;
         try {
-            const row = JSON.parse(line) as { t: string; type: string; source: PreopenScanSource; items: PreopenRankItem[] };
+            const row = JSON.parse(line) as {
+                t: string;
+                type: string;
+                source: PreopenScanSource;
+                role?: string;
+                items: PreopenRankItem[];
+            };
             const d = new Date(row.t);
-            if (row.type !== 'ChangePercentRank' || row.source === 'overnight') continue;
+            if (row.type !== 'ChangePercentRank' || row.source === 'overnight' || row.role === 'shadow') continue;
             if (sessionMinuteTaipei(d) >= 0) continue;
             noteTop10(top10, row.items, d);
             last = { date: ymd, at: row.t, source: row.source, items: row.items, top10_minutes: {} };
@@ -151,7 +157,10 @@ function toRankItems(items: readonly ScannerItem[]): PreopenRankItem[] {
     }));
 }
 
-export function appendPreopenRow(row: { t: string; type: string; source: string; items: unknown[] }, dataDir = serverDataDir()): void {
+export function appendPreopenRow(
+    row: { t: string; type: string; source: string; role?: 'shadow'; items: unknown[] },
+    dataDir = serverDataDir(),
+): void {
     try {
         const file = preopenScanFile(taipeiYmd(new Date(row.t)), dataDir);
         mkdirSync(join(dataDir, PREOPEN_SCAN_DIR), { recursive: true });
@@ -179,4 +188,23 @@ export function recordPreopenScan(
     }
     if (throttled(type, source, d)) return;
     appendPreopenRow({ t: d.toISOString(), type, source, items: rows }, dataDir);
+}
+
+/** Second source recorded for comparison only: never touches the live list. */
+export function shadowScanDue(type: ScannerType, source: PreopenScanSource, d: Date = new Date()): boolean {
+    if (!isPreopenCaptureWindow(d)) return false;
+    const prev = lastRecordedAt.get(`shadow|${type}|${source}`);
+    return prev === undefined || d.getTime() - prev >= MIN_GAP_MS || d.getTime() < prev;
+}
+
+export function recordShadowScan(
+    type: ScannerType,
+    source: PreopenScanSource,
+    items: readonly ScannerItem[],
+    d: Date = new Date(),
+    dataDir = serverDataDir(),
+): void {
+    if (!items.length || !isPreopenCaptureWindow(d)) return;
+    lastRecordedAt.set(`shadow|${type}|${source}`, d.getTime());
+    appendPreopenRow({ t: d.toISOString(), type, source, role: 'shadow', items: toRankItems(items) }, dataDir);
 }

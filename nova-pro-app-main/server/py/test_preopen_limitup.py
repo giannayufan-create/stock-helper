@@ -177,6 +177,62 @@ class SyntheticDay(unittest.TestCase):
         self.assertEqual(rep["overall"]["n"], 0)
         self.assertTrue(any("昨日名單" in w for w in rep["data_quality"]["warnings"]))
 
+    def test_fugle_primary_shioaji_shadow_compare(self) -> None:
+        def shadow(line: str) -> str:
+            d = json.loads(line)
+            d["role"] = "shadow"
+            return json.dumps(d)
+
+        def fq(line: str) -> str:
+            d = json.loads(line)
+            d["source"] = "fugle"
+            return json.dumps(d)
+
+        lines = [
+            scan_line(
+                "2026-10-07T00:59:00.000Z",
+                "ChangePercentRank",
+                "fugle",
+                [("1111", 55.0, 5.0, 900), ("4444", 11.0, 1.0, 50)],
+            ),
+            shadow(
+                scan_line(
+                    "2026-10-07T00:59:00.000Z",
+                    "ChangePercentRank",
+                    "shioaji",
+                    [("1111", 55.0, 5.0, 900), ("2222", 21.8, 1.8, 200)],
+                )
+            ),
+            fq(queue_line("2026-10-07T01:00:05.000Z", [("1111", 55.0, 3000), ("4444", 11.0, 10)])),
+            shadow(queue_line("2026-10-07T01:00:05.000Z", [("1111", 55.0, 2990), ("4444", 10.9, 0)])),
+            json.dumps({"t": "2026-10-07T00:58:00.000Z", "type": "FugleDiag", "source": "fugle", "items": [{"ok": True}]}),
+        ]
+        with open(os.path.join(self.tmp, "preopen-scans", f"{self.ymd}.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        out = os.path.join(self.tmp, "out3")
+        code = p.main(
+            ["--date", self.ymd, "--data-dir", self.tmp, "--out-dir", out, "--eod-cache", os.path.join(self.tmp, "eod")]
+        )
+        self.assertEqual(code, 0)
+        with open(os.path.join(out, f"{self.ymd}.json"), encoding="utf-8") as fh:
+            rep = json.load(fh)
+        self.assertEqual([c["code"] for c in rep["final_top"]], ["1111", "4444"])
+        day = rep["data_quality"]["per_day"][0]
+        self.assertEqual(day["final_source"], "fugle")
+        self.assertEqual(day["limit_queue_samples"], 1)
+        self.assertEqual(day["limit_queue_sources"], ["fugle"])
+        self.assertEqual(day["fugle_checks"], {"ok": 1, "rejected": {}})
+        sc = rep["source_compare"]
+        self.assertEqual(sc["ranks"][-1]["top10_overlap"], 1)
+        self.assertEqual(sc["ranks"][-1]["fugle_top10_closed_limit"], 2)
+        self.assertEqual(sc["ranks"][-1]["shioaji_top10_closed_limit"], 1)
+        self.assertEqual(sc["queue"]["paired_samples"], 2)
+        self.assertEqual(sc["queue"]["locked_agree"], 1)
+        self.assertEqual(sc["queue"]["locked_disagree"], 1)
+        self.assertEqual(sc["queue"]["queue_lots_abs_diff_median"], 10)
+        with open(os.path.join(out, f"{self.ymd}.md"), encoding="utf-8") as fh:
+            self.assertIn("富果 vs 永豐", fh.read())
+
 
 @unittest.skipUnless(os.environ.get("PREOPEN_NET") == "1", "set PREOPEN_NET=1 for network checks")
 class RealEodValidation(unittest.TestCase):

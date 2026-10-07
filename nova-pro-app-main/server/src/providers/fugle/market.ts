@@ -51,7 +51,10 @@ import { fetchTwOvernightPool } from '../../lib/tw-overnight-pool.ts';
 import {
     isPreopenRankWindow,
     recordPreopenScan,
+    recordShadowScan,
+    shadowScanDue,
 } from '../../lib/preopen-scan/capture.ts';
+import { fuglePreopenRank, noteFuglePreopenDiag } from '../../lib/preopen-scan/fugle-preopen.ts';
 import { fetchShioajiScanner } from '../shioaji/bridge-scanner.ts';
 import {
     dailyBarsToKBars,
@@ -764,9 +767,23 @@ export class FugleMarketDataProvider implements MarketDataProvider {
         count: number,
         ascending: boolean,
     ): Promise<ScannerItem[]> {
-        // Fugle snapshot rankings are unavailable before 08:50 and do not reflect
-        // trial matching, so pre-open market-wide ranks come from Shioaji.
+        // Pre-open change ranking: Fugle trial matches when they pass the freshness
+        // checks (Shioaji recorded alongside for comparison), otherwise Shioaji.
         let triedShioaji = false;
+        if (isPreopenRankWindow() && type === 'ChangePercentRank' && !ascending) {
+            const fg = await fuglePreopenRank(this.apiKey);
+            noteFuglePreopenDiag(fg.diag);
+            if (fg.diag.ok) {
+                const items = fg.items.slice(0, count);
+                recordPreopenScan(type, 'fugle', items, ascending);
+                if (shadowScanDue(type, 'shioaji')) {
+                    void fetchShioajiScanner(type, Math.max(count, 50), ascending)
+                        .then((sj) => recordShadowScan(type, 'shioaji', sj))
+                        .catch(() => undefined);
+                }
+                return items;
+            }
+        }
         if (isPreopenRankWindow()) {
             triedShioaji = true;
             const sj = await fetchShioajiScanner(type, count, ascending);

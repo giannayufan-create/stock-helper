@@ -13,6 +13,11 @@ import { isTradingDay } from '../lib/market-calendar/trading-day.ts';
 import { sessionMinuteTaipei, taipeiYmd } from '../lib/shadow/session.ts';
 import { isPreopenRankWindow, preopenLiveState, preopenScanFile } from '../lib/preopen-scan/capture.ts';
 import { isLimitQueueWindow, latestLimitQueue } from '../lib/preopen-scan/limit-queue.ts';
+import {
+    lastFuglePreopenDiag,
+    type FuglePreopenDiag,
+    type FugleQueueRow,
+} from '../lib/preopen-scan/fugle-preopen.ts';
 import { twLimitUpPrice } from '../lib/strategy-validation/bar-source.ts';
 import {
     lastPreopenRun,
@@ -52,7 +57,15 @@ export interface PreopenLiveDto {
     ranked_at: string | null;
     source: string | null;
     queue_at: string | null;
+    queue_source: string | null;
+    /** Latest Fugle pre-open check today: why Fugle was or was not used. */
+    fugle_check: { at: string; ok: boolean; reason: string | null; confirmed: number } | null;
     items: PreopenLiveItem[];
+}
+
+function fugleCheck(diag: FuglePreopenDiag | null, date: string): PreopenLiveDto['fugle_check'] {
+    if (!diag || taipeiYmd(new Date(diag.at)) !== date) return null;
+    return { at: diag.at, ok: diag.ok, reason: diag.reason, confirmed: diag.confirmed };
 }
 
 export function buildPreopenLive(now: Date, dataDir: string): PreopenLiveDto {
@@ -74,7 +87,8 @@ export function buildPreopenLive(now: Date, dataDir: string): PreopenLiveDto {
         const ref = it.close - it.change_price;
         const limit = it.close > 0 && ref > 0 ? twLimitUpPrice(ref) : null;
         const q = byCode.get(it.code);
-        const locked = q && limit != null ? q.buy_price + 1e-6 >= limit : null;
+        const fugleFlag = q && 'limit_up_bid' in q ? (q as FugleQueueRow).limit_up_bid : false;
+        const locked = q && limit != null ? fugleFlag || q.buy_price + 1e-6 >= limit : null;
         return {
             rank: it.rank,
             code: it.code,
@@ -96,6 +110,8 @@ export function buildPreopenLive(now: Date, dataDir: string): PreopenLiveDto {
         ranked_at: state?.at ?? null,
         source: state?.source ?? null,
         queue_at: queue?.at ?? null,
+        queue_source: queue?.source ?? null,
+        fugle_check: fugleCheck(lastFuglePreopenDiag(), date),
         items,
     };
 }

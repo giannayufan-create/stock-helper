@@ -20,6 +20,11 @@ import {
     fetchShioajiSnapshots,
 } from '../providers/shioaji/bridge-scanner.ts';
 import { fugleSnapshotSymbols, probeFugleRest, probeFugleWsCap } from '../lib/fugle-plan-probe.ts';
+import {
+    fetchFugleQueue,
+    fuglePreopenRank,
+    refreshFuglePrevClose,
+} from '../lib/preopen-scan/fugle-preopen.ts';
 import { isTradingDay } from '../lib/market-calendar/trading-day.ts';
 import { sessionMinuteTaipei, taipeiYmd } from '../lib/shadow/session.ts';
 
@@ -293,6 +298,25 @@ export function registerHealthRoutes(
             payload.ws = pool.length >= n
                 ? await probeFugleWsCap(key, pool.slice(0, n))
                 : { error: 'not_enough_symbols', available: pool.length };
+        }
+        if (q.preopen === '1') {
+            const live = await fuglePreopenRank(key, { now: new Date() });
+            const mapped = await fuglePreopenRank(key, { ignoreFreshness: true, candidates: 10 });
+            const codes = mapped.items.slice(0, 5).map((it) => it.code);
+            const [fugleQueue, shioajiQueue] = await Promise.all([
+                fetchFugleQueue(key, codes, new Date(), { ignoreDate: true }),
+                fetchShioajiSnapshots(codes),
+            ]);
+            payload.preopen = {
+                prev_close: await refreshFuglePrevClose(key),
+                live_check: live.diag,
+                mapping_check: { diag: mapped.diag, top5: mapped.items.slice(0, 5) },
+                queue_compare: codes.map((code) => ({
+                    code,
+                    fugle: fugleQueue.find((r) => r.code === code) ?? null,
+                    shioaji: shioajiQueue.find((r) => r.code === code) ?? null,
+                })),
+            };
         }
         assertNoSecretLeak(payload);
         if (JSON.stringify(payload).includes(key)) throw new Error('fugle probe refused: key in payload');
