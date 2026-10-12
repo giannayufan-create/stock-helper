@@ -493,15 +493,16 @@ def ticks(body: TicksBody) -> dict[str, Any]:
     volume = arr("volume")
     bid = arr("bid_price") or arr("bid")
     ask = arr("ask_price") or arr("ask")
+    bid_vol = arr("bid_volume")
+    ask_vol = arr("ask_volume")
+    tick_type = arr("tick_type")
     n = len(close)
     if body.last_cnt and body.last_cnt > 0:
         n = min(n, body.last_cnt)
         sl = slice(-n, None)
         ts, close, volume = ts[sl], close[sl], volume[sl]
-        if bid:
-            bid = bid[sl]
-        if ask:
-            ask = ask[sl]
+        bid, ask = bid[sl], ask[sl]
+        bid_vol, ask_vol, tick_type = bid_vol[sl], ask_vol[sl], tick_type[sl]
 
     datetimes: list[str] = []
     for t in ts:
@@ -522,6 +523,10 @@ def ticks(body: TicksBody) -> dict[str, Any]:
         "volume": [int(num(x)) for x in volume],
         "bid_price": [num(x) for x in bid] if bid else [],
         "ask_price": [num(x) for x in ask] if ask else [],
+        "bid_volume": [int(num(x)) for x in bid_vol],
+        "ask_volume": [int(num(x)) for x in ask_vol],
+        # Shioaji: 1 = trade at ask (buyer-initiated), 2 = at bid, 0 = undetermined
+        "tick_type": [int(num(x)) for x in tick_type],
     }
 
 

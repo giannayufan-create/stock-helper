@@ -25,6 +25,8 @@ export const DEFAULT_RATE_RULES: readonly RateRule[] = [
     { method: 'POST', path: '/api/v1/research/preopen-limitup/run', windowMs: 10 * 60_000, perClient: 3, global: 6 },
     // Real Fugle REST calls + optional extra WebSocket connection
     { method: 'GET', path: '/api/v1/system/fugle-plan', windowMs: 10 * 60_000, perClient: 3, global: 6 },
+    // Historical Shioaji ticks (shared daily quota; route also keeps a quota floor)
+    { method: 'GET', path: '/api/v1/research/shioaji-ticks', windowMs: 60 * 60_000, perClient: 300, global: 400 },
     // Runs the in-process CPU profiler for up to 30s
     { method: 'POST', path: '/api/v1/system/cpu-profiles/run', windowMs: 10 * 60_000, perClient: 2, global: 3 },
 ];
