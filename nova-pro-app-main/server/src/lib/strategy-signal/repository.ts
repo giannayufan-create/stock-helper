@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SignalType, StrategySignal } from './types.ts';
 import { signalsContentEqual } from '../research-persistence/hash.ts';
+import { forEachJsonlLine } from '../jsonl-lines.ts';
 
 export interface StrategySignalRepository {
     save(signal: StrategySignal): void;
@@ -83,10 +84,11 @@ export class JsonlStrategySignalRepository implements StrategySignalRepository {
         for (const f of readdirSync(this.root)) {
             if (!f.endsWith('.jsonl')) continue;
             const ymd = f.replace(/\.jsonl$/, '');
-            for (const s of this.listByDate(ymd)) {
-                this.known.add(s.signal_id);
-                this.dayById.set(s.signal_id, ymd);
-            }
+            forEachJsonlLine(join(this.root, f), (line) => {
+                const id = (JSON.parse(line) as StrategySignal).signal_id;
+                this.known.add(id);
+                this.dayById.set(id, ymd);
+            });
         }
         this.persistKnown();
     }
@@ -127,23 +129,46 @@ export class JsonlStrategySignalRepository implements StrategySignalRepository {
     findById(signalId: string): StrategySignal | null {
         const ymd = this.dayById.get(signalId);
         if (ymd) {
-            for (const s of this.listByDate(ymd)) {
-                if (s.signal_id === signalId) return s;
+            const hit = this.findInDay(ymd, signalId);
+            if (hit) return hit;
+        }
+        if (!existsSync(this.root)) return null;
+        for (const f of readdirSync(this.root)) {
+            if (!f.endsWith('.jsonl')) continue;
+            const day = f.replace(/\.jsonl$/, '');
+            if (day === ymd) continue;
+            const hit = this.findInDay(day, signalId);
+            if (hit) {
+                this.dayById.set(signalId, day);
+                this.known.add(signalId);
+                return hit;
             }
         }
-        for (const s of this.listAllCached()) {
-            if (s.signal_id === signalId) return s;
-        }
         return null;
+    }
+
+    private findInDay(ymd: string, signalId: string): StrategySignal | null {
+        const file = join(this.root, `${ymd}.jsonl`);
+        if (!existsSync(file)) return null;
+        let hit: StrategySignal | null = null;
+        forEachJsonlLine(file, (line) => {
+            if (!line.includes(signalId)) return;
+            const s = JSON.parse(line) as StrategySignal;
+            if (s.signal_id !== signalId) return;
+            hit = s;
+            return false;
+        });
+        return hit;
     }
 
     listByDate(ymd: string): StrategySignal[] {
         const file = join(this.root, `${ymd}.jsonl`);
         if (!existsSync(file)) return [];
-        return readFileSync(file, 'utf8')
-            .split('\n')
-            .filter(Boolean)
-            .map((line) => JSON.parse(line) as StrategySignal);
+        const out: StrategySignal[] = [];
+        forEachJsonlLine(file, (line) => {
+            out.push(JSON.parse(line) as StrategySignal);
+        });
+        return out;
     }
 
     listByType(type: SignalType, ymd?: string): StrategySignal[] {
