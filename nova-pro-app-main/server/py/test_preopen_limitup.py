@@ -273,8 +273,8 @@ class RealEodValidation(unittest.TestCase):
     def test_formula_matches_tpex_next_day_limit(self) -> None:
         raw = json.loads(
             p.http_get(
-                "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/"
-                "stk_quote_result.php?l=zh-tw&d=115/10/07&o=json"
+                "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes"
+                "?date=2026%2F10%2F07&id=&response=json"
             )
         )
         t = raw["tables"][0]

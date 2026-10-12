@@ -180,11 +180,11 @@ def fetch_twse(ymd: str) -> dict[str, Eod]:
 
 
 def fetch_tpex(ymd: str) -> dict[str, Eod]:
-    y, m, d = ymd.split("-")
-    roc = f"{int(y) - 1911}/{m}/{d}"
+    # dailyQuotes honours the date; daily_close_quotes/stk_quote_result.php ignores `d`
+    # and always serves the latest session, so past days could never be analysed.
     url = (
-        "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/"
-        f"stk_quote_result.php?l=zh-tw&d={roc}&o=json"
+        "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes"
+        f"?date={ymd.replace('-', '%2F')}&id=&response=json"
     )
     data = json.loads(http_get(url))
     if str(data.get("date", "")) != ymd.replace("-", ""):
@@ -1047,7 +1047,7 @@ def analyze_day(ymd: str, args: argparse.Namespace) -> tuple[list[Cand], dict[st
     if snaps and not any(r.get("type") == "LimitQueue" for r in rows):
         warnings.append("09:00–09:10 沒有封單資料（富果、永豐都沒回應），封單相關條件這天無法評估。")
     checks = fugle_checks(rows)
-    if checks["rejected"] and not checks["ok"]:
+    if checks["rejected"] and not checks["ok"] and snaps:
         warnings.append(
             "富果盤前資料整段沒通過檢查，盤前名單全部來自永豐；原因：" + "、".join(f"{k}×{v}" for k, v in checks["rejected"].items())
         )
