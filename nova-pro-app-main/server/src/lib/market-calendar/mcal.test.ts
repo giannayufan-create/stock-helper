@@ -16,7 +16,7 @@ import {
     resolveMonthlyExpiry,
     taipeiYmd,
 } from './index.ts';
-import { monthBounds, nextMonthBounds } from './trading-day.ts';
+import { isTradingDay, monthBounds, nextMonthBounds } from './trading-day.ts';
 import type { CorporateAction } from './types.ts';
 import { loadOpenGateConfig } from '../open-gate-v2/config.ts';
 import { loadIntradayRankConfig } from '../intraday-rank/config.ts';
@@ -301,6 +301,14 @@ console.log('=== Market Calendar Tests A–H ===');
     assert.equal(today.this_month, '2026-09');
     assert.equal(today.next_month, '2026-10');
     console.log('PASS month + next-month calendar windows');
+}
+
+{
+    // 10/10/2026 is a Saturday: the market closed Friday 10/09 and traded Monday 10/12
+    // (TWSE MI_INDEX has a full table for 20261012 and an empty one for 20261009).
+    assert.equal(isTradingDay('2026-10-09'), false);
+    assert.equal(isTradingDay('2026-10-12'), true);
+    console.log('PASS 2026 National Day: 10/09 closed, 10/12 open');
 }
 
 console.log('\nAll Market Calendar Tests A–H PASSED');

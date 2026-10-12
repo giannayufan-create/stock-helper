@@ -34,7 +34,6 @@ const STATIC_HOLIDAYS: Record<string, string> = {
     '2026-06-19': '端午節',
     '2026-09-25': '中秋節',
     '2026-10-09': '國慶日連假',
-    '2026-10-12': '國慶日補假',
 };
 
 /** Official overrides merged at runtime (holiday closed OR make-up trading). */
