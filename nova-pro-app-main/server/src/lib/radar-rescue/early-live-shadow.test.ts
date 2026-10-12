@@ -20,6 +20,7 @@ import { EarlySignalStore } from './early-signal-store.ts';
 import {
     EarlyLiveShadowStore,
     MAX_PAST_DAY_LOAD_BYTES,
+    MAX_ROWS_PER_DAY,
     catchUpLiveEarlyDate,
     evaluateLiveTradeTick,
     sampleToBarKnownAt,
@@ -459,7 +460,57 @@ async function main(): Promise<void> {
     testRollingWindowNotReapplied();
     testUnsettledPastDayDoesNotGrow();
     testOversizedPastDayNotLoaded();
+    testOversizedTodayMovedAsideAndRowCap();
     console.log('\nAll early-live-shadow tests passed');
+}
+
+function testOversizedTodayMovedAsideAndRowCap(): void {
+    const dir = mkdtempSync(join(tmpdir(), 'els-today-'));
+    const shadowDir = join(dir, 'early_live_shadow');
+    mkdirSync(shadowDir, { recursive: true });
+    const path = join(shadowDir, `${TRADE_DATE}.json`);
+    const bars = [];
+    for (let i = 0; i < 120_000; i++) {
+        bars.push({ t: T0 + i * 60_000, open: 1, high: 1, low: 1, close: 1, gap_kind: null });
+    }
+    const big = JSON.stringify([
+        { signal_id: 'early_big', symbol: '2330', trade_date: TRADE_DATE, triggered_at_ms: T0, trigger_price: 100, settled: false, bars },
+    ]);
+    writeFileSync(path, big, 'utf8');
+    const store = new EarlyLiveShadowStore(dir, () => T0);
+    assert.equal(store.get('early_big'), null);
+    const aside = readdirSync(shadowDir).filter((f) => f.includes('.oversize-'));
+    assert.equal(aside.length, 1, 'today file moved aside');
+    assert.equal(readFileSync(join(shadowDir, aside[0]!), 'utf8'), big);
+
+    for (let i = 0; i < MAX_ROWS_PER_DAY + 5; i++) {
+        store.recordTrigger({
+            signal_id: `early_cap_${i}`,
+            symbol: String(1000 + i),
+            triggered_at_ms: T0,
+            trigger_price: 100,
+            state_at_trigger: 'EARLY',
+            trade_date: TRADE_DATE,
+        });
+    }
+    assert.equal(store.list(TRADE_DATE).length, MAX_ROWS_PER_DAY);
+    assert.equal(store.get(`early_cap_${MAX_ROWS_PER_DAY}`), null);
+    const reloaded = new EarlyLiveShadowStore(dir, () => T0);
+    assert.equal(reloaded.list(TRADE_DATE).length, MAX_ROWS_PER_DAY);
+    assert.equal(
+        reloaded.recordTrigger({
+            signal_id: 'early_after_restart',
+            symbol: '9999',
+            triggered_at_ms: T0,
+            trigger_price: 100,
+            state_at_trigger: 'EARLY',
+            trade_date: TRADE_DATE,
+        }),
+        null,
+        'cap counts rows loaded from disk',
+    );
+    console.log('OK oversized today file moved aside; rows per day capped');
+    rmSync(dir, { recursive: true, force: true });
 }
 
 function testOversizedPastDayNotLoaded(): void {

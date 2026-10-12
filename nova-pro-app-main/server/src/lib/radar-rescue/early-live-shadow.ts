@@ -50,6 +50,13 @@ export const LIVE_TRADE_MAX_AGE_MS = 90_000;
 /** Normal past-day files are under 1MB; a bloated one must not be parsed at boot. */
 export const MAX_PAST_DAY_LOAD_BYTES = 8 * 1024 * 1024;
 
+/**
+ * Each row carries up to ~270 one-minute bars (~24KB serialized), and the whole day
+ * is rewritten as one file, so rows per day are capped to keep the file under the
+ * load limit above (10/07 had 104 EARLY triggers; 10/08 reached a 32.6MB file).
+ */
+export const MAX_ROWS_PER_DAY = 300;
+
 export type LiveTradeRejectReason =
     | 'invalid'
     | 'stale'
@@ -240,6 +247,8 @@ export class EarlyLiveShadowStore {
     private byId = new Map<string, LiveEarlyShadowRecord>();
     private idsBySymbol = new Map<string, Set<string>>();
     private loadedDates = new Set<string>();
+    private rowsPerDay = new Map<string, number>();
+    private capWarned = new Set<string>();
     private persistDepth = 0;
     private pendingPersist = new Set<string>();
     private lastWriteAt = new Map<string, number>();
@@ -267,6 +276,12 @@ export class EarlyLiveShadowStore {
     }
 
     private putRow(r: LiveEarlyShadowRecord): void {
+        if (!this.byId.has(r.signal_id)) {
+            this.rowsPerDay.set(
+                r.trade_date,
+                (this.rowsPerDay.get(r.trade_date) ?? 0) + 1,
+            );
+        }
         this.byId.set(r.signal_id, r);
         let ids = this.idsBySymbol.get(r.symbol);
         if (!ids) {
@@ -340,16 +355,25 @@ export class EarlyLiveShadowStore {
         this.loadedDates.add(date);
         const path = this.fileFor(date);
         if (!existsSync(path)) return [];
-        if (date !== taipeiYmdFromMs(this.now())) {
-            const bytes = statSync(path).size;
-            if (bytes > MAX_PAST_DAY_LOAD_BYTES) {
-                // Parsing would need several times its size in heap (~256MB on Render).
-                // The file stays on disk untouched; nothing writes a past date's file.
-                console.warn(
-                    `[early-live-shadow] ${date}: ${(bytes / 1048576).toFixed(1)}MB file not loaded (limit ${MAX_PAST_DAY_LOAD_BYTES / 1048576}MB)`,
-                );
-                return [];
+        const bytes = statSync(path).size;
+        if (bytes > MAX_PAST_DAY_LOAD_BYTES) {
+            // Parsing would need several times its size in heap (~256MB on Render).
+            // Today's file would be overwritten by the next write, so move it aside;
+            // a past date's file is never written again and stays where it is.
+            let note = 'left in place';
+            if (date === taipeiYmdFromMs(this.now())) {
+                const aside = `${path}.oversize-${Date.now()}`;
+                try {
+                    renameSync(path, aside);
+                    note = `moved to ${aside}`;
+                } catch {
+                    note = 'rename failed';
+                }
             }
+            console.warn(
+                `[early-live-shadow] ${date}: ${(bytes / 1048576).toFixed(1)}MB file not loaded (limit ${MAX_PAST_DAY_LOAD_BYTES / 1048576}MB), ${note}`,
+            );
+            return [];
         }
         try {
             const rows = JSON.parse(
@@ -498,12 +522,22 @@ export class EarlyLiveShadowStore {
         day_reference_source?: DayReferenceSource;
         price_feed_source?: LivePriceFeedSource;
         trade_date?: string;
-    }): LiveEarlyShadowRecord {
+    }): LiveEarlyShadowRecord | null {
         const existing = this.byId.get(input.signal_id);
         if (existing) return existing;
 
         const trade_date =
             input.trade_date ?? taipeiYmdFromMs(input.triggered_at_ms);
+        this.ensureDate(trade_date);
+        if ((this.rowsPerDay.get(trade_date) ?? 0) >= MAX_ROWS_PER_DAY) {
+            if (!this.capWarned.has(trade_date)) {
+                this.capWarned.add(trade_date);
+                console.warn(
+                    `[early-live-shadow] ${trade_date}: ${MAX_ROWS_PER_DAY} rows reached; later triggers not shadow-tracked`,
+                );
+            }
+            return null;
+        }
         const row: LiveEarlyShadowRecord = {
             signal_id: input.signal_id,
             symbol: input.symbol,
