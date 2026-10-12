@@ -221,12 +221,15 @@ export function kbarsFromCandles(
     return out;
 }
 
-/** snapshot movers/actives rows → ScannerItem */
-export function scannerItemFromRow(row: any, rankValue: number): ScannerItem {
+/**
+ * snapshot movers/actives rows → ScannerItem. `date` is the snapshot's own trading
+ * date: before 09:00 Fugle still serves the previous session.
+ */
+export function scannerItemFromRow(row: any, rankValue: number, date: string): ScannerItem {
     return {
         code: String(row.symbol ?? ''),
         name: String(row.name ?? ''),
-        date: new Date().toISOString().slice(0, 10),
+        date,
         close: num(row.closePrice ?? row.lastPrice),
         open: num(row.openPrice),
         high: num(row.highPrice),

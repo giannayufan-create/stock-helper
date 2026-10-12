@@ -27,6 +27,8 @@ export const LOG_RETENTION_DAYS: Readonly<Record<string, number>> = {
     historical_profile: 3,
     // Pre-open scan capture (~3MB/day) and its post-close limit-up reports.
     'preopen-scans': 30,
+    // Per-symbol trial-match quotes with five-level books (~2–3MB/day).
+    'preopen-trials': 60,
     'preopen-reports': 120,
     'preopen-reports/eod': 10,
     // Session CPU profiles (raw ~1-3MB each) for load hotspots.

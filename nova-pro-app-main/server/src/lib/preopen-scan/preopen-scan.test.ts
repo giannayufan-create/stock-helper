@@ -422,4 +422,25 @@ try {
     pass('bridge_scanner_returns_rows_or_empty_on_error');
 }
 
+{
+    // 10/08 regression: Fugle snapshots before 09:00 still carry the previous session.
+    const staleDir = mkdtempSync(join(tmpdir(), 'preopen-stale-'));
+    try {
+        resetPreopenCaptureThrottle();
+        resetPreopenLiveState();
+        const prevDay = { ...item('6442', 1815, 165), date: '2026-10-07' } as ScannerItem;
+        recordPreopenScan('ChangePercentRank', 'fugle', [prevDay], false, tpe(DAY, '08:50:02'), staleDir);
+        const got = readRows(preopenScanFile(DAY, staleDir));
+        assert.deepEqual(got.map((r) => r.source), ['overnight']);
+        assert.equal(preopenLiveState(DAY, staleDir), null);
+        recordPreopenScan('ChangePercentRank', 'fugle', [item('1111', 55, 5)], false, tpe(DAY, '08:51:02'), staleDir);
+        assert.equal(readRows(preopenScanFile(DAY, staleDir))[1].source, 'fugle');
+        assert.equal(preopenLiveState(DAY, staleDir)?.items[0]?.code, '1111');
+        pass('previous_session_rows_recorded_as_overnight_never_live');
+    } finally {
+        resetPreopenLiveState();
+        rmSync(staleDir, { recursive: true, force: true });
+    }
+}
+
 console.log(`\nOK ${passed} tests`);

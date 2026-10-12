@@ -234,6 +234,40 @@ class SyntheticDay(unittest.TestCase):
             self.assertIn("富果 vs 永豐", fh.read())
 
 
+class StaleLiveRows(unittest.TestCase):
+    """10/08: every pre-09:00 fugle ranking was the 10/07 close stamped with 10/08."""
+
+    def row(self, hms: str, typ: str, source: str, date: str = "2026-10-08", **extra) -> dict:
+        items = extra.pop("items", [{"code": "6442", "date": date, "close": 1815, "change_price": 165}])
+        return {"t": f"2026-10-08T{hms}+08:00", "type": typ, "source": source, "items": items, **extra}
+
+    def diag(self, hms: str, ok: bool) -> dict:
+        return self.row(hms, "FugleDiag", "fugle", items=[{"ok": ok, "reason": None if ok else "snapshot_date_2026-10-07"}])
+
+    def test_drops_fugle_preopen_rows_without_passing_diag(self) -> None:
+        rows = [
+            self.diag("08:50:01", False),
+            self.row("08:50:02", "ChangePercentRank", "fugle"),
+            self.row("08:50:02", "VolumeRank", "fugle"),
+            self.diag("08:51:01", True),
+            self.row("08:51:03", "ChangePercentRank", "fugle"),
+            self.row("08:51:03", "AmountRank", "fugle"),
+            self.row("08:51:04", "ChangePercentRank", "shioaji", date="2026-10-07"),
+            self.row("08:52:00", "ChangePercentRank", "overnight", date="2026-10-07"),
+            self.row("09:01:00", "VolumeRank", "fugle"),
+        ]
+        kept, dropped = p.drop_stale_rows("2026-10-08", rows)
+        self.assertEqual(dropped, 4)
+        self.assertEqual(
+            [(r["t"][11:19], r["type"], r["source"]) for r in kept if r["type"] != "FugleDiag"],
+            [
+                ("08:51:03", "ChangePercentRank", "fugle"),
+                ("08:52:00", "ChangePercentRank", "overnight"),
+                ("09:01:00", "VolumeRank", "fugle"),
+            ],
+        )
+
+
 @unittest.skipUnless(os.environ.get("PREOPEN_NET") == "1", "set PREOPEN_NET=1 for network checks")
 class RealEodValidation(unittest.TestCase):
     def test_formula_matches_tpex_next_day_limit(self) -> None:

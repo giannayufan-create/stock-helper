@@ -1,6 +1,7 @@
 // Pre-open scan capture + post-close limit-up analysis (read-only research).
 //   GET  /api/v1/research/preopen-live                    latest live pre-open ranking (memory)
 //   GET  /api/v1/research/preopen-scans?date=            raw ndjson rows
+//   GET  /api/v1/research/preopen-trials?date=           per-symbol trial quotes + five-level books (ndjson)
 //   GET  /api/v1/research/preopen-limitup?date=[&format=md|csv]
 //   GET  /api/v1/research/preopen-limitup/dates
 //   POST /api/v1/research/preopen-limitup/run?date=       outside market hours only
@@ -13,6 +14,7 @@ import { isTradingDay } from '../lib/market-calendar/trading-day.ts';
 import { sessionMinuteTaipei, taipeiYmd } from '../lib/shadow/session.ts';
 import { isPreopenRankWindow, preopenLiveState, preopenScanFile } from '../lib/preopen-scan/capture.ts';
 import { isLimitQueueWindow, latestLimitQueue } from '../lib/preopen-scan/limit-queue.ts';
+import { preopenTrialsFile } from '../lib/preopen-scan/trial-recorder.ts';
 import {
     lastFuglePreopenDiag,
     type FuglePreopenDiag,
@@ -130,6 +132,18 @@ export function registerPreopenScanRoutes(
         const file = preopenScanFile(date, dataDir);
         if (!existsSync(file)) {
             return reply.code(404).send({ error: 'not_found', date, message: '這天沒有盤前掃描紀錄' });
+        }
+        return reply
+            .header('Content-Type', 'application/x-ndjson; charset=utf-8')
+            .send(createReadStream(file));
+    });
+
+    app.get('/api/v1/research/preopen-trials', async (req, reply) => {
+        const date = pickDate(req.query as Record<string, string | undefined>);
+        if (!date) return reply.code(400).send({ error: 'invalid_date' });
+        const file = preopenTrialsFile(date, dataDir);
+        if (!existsSync(file)) {
+            return reply.code(404).send({ error: 'not_found', date, message: '這天沒有盤前試撮逐檔紀錄' });
         }
         return reply
             .header('Content-Type', 'application/x-ndjson; charset=utf-8')

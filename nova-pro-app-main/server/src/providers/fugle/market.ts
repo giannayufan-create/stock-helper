@@ -55,6 +55,7 @@ import {
     shadowScanDue,
 } from '../../lib/preopen-scan/capture.ts';
 import { fuglePreopenRank, noteFuglePreopenDiag } from '../../lib/preopen-scan/fugle-preopen.ts';
+import { taipeiYmd } from '../../lib/shadow/session.ts';
 import { fetchShioajiScanner, shioajiOptionalAllowed } from '../shioaji/bridge-scanner.ts';
 import {
     dailyBarsToKBars,
@@ -90,6 +91,12 @@ function isTwCashSession(now = new Date()): boolean {
     const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
     const hm = hour * 60 + minute;
     return hm >= 8 * 60 + 50 && hm <= 13 * 60 + 40;
+}
+
+/** Snapshot rows tagged with the response's trading date (Taipei today when absent). */
+function withSnapshotDate(res: any): any[] {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(res?.date ?? '')) ? String(res.date) : taipeiYmd();
+    return (res?.data ?? []).map((row: any) => ({ ...row, __snapshotDate: date }));
 }
 
 // the SDK's ws.connect() promise only settles on (un)authenticated events —
@@ -830,7 +837,7 @@ export class FugleMarketDataProvider implements MarketDataProvider {
                         );
                         return [];
                     }
-                    return r?.data ?? [];
+                    return withSnapshotDate(r);
                 });
                 rows.sort((a, b) =>
                     ascending
@@ -861,7 +868,7 @@ export class FugleMarketDataProvider implements MarketDataProvider {
                         );
                         return [];
                     }
-                    return r?.data ?? [];
+                    return withSnapshotDate(r);
                 });
                 rows.sort((a, b) =>
                     trade === 'value'
@@ -888,6 +895,7 @@ export class FugleMarketDataProvider implements MarketDataProvider {
                         : type === 'VolumeRank'
                           ? Number(row.tradeVolume) || 0
                           : Number(row.changePercent ?? row.change) || 0,
+                    row.__snapshotDate,
                 ),
             );
             recordPreopenScan(type, 'fugle', items, ascending);

@@ -180,6 +180,7 @@ export function recordPreopenScan(
 ): void {
     if (ascending || !items.length || !isPreopenCaptureWindow(d)) return;
     const rows = toRankItems(items);
+    if (source !== 'overnight' && rows.some((r) => r.date && r.date !== taipeiYmd(d))) source = 'overnight';
     if (type === 'ChangePercentRank' && source !== 'overnight' && sessionMinuteTaipei(d) < 0) {
         const ymd = taipeiYmd(d);
         if (live?.date !== ymd) liveTop10 = new Map();

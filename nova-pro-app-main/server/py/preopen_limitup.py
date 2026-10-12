@@ -267,6 +267,50 @@ def load_scans(ymd: str, data_dir: str | None, base: str | None) -> list[dict[st
     return rows
 
 
+def drop_stale_rows(ymd: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Remove "live" rows that actually carry the previous session.
+
+    Before 09:00 Fugle's market snapshot still serves the previous session, and until
+    2026-10-12 those rows were stamped with today's date (10/08 file: every fugle row
+    before 09:00 equals the 10/07 close). A pre-09:00 fugle ChangePercentRank is real
+    trial data only when the latest FugleDiag at that moment passed; other pre-09:00
+    fugle rankings come straight from the snapshot. Rows dated another day are dropped too.
+    """
+    diags: list[tuple[datetime, bool]] = []
+    for r in rows:
+        if r.get("type") == "FugleDiag":
+            t = datetime.fromisoformat(r["t"].replace("Z", "+00:00"))
+            diags.append((t, any(d.get("ok") for d in r.get("items") or [])))
+    diags.sort(key=lambda x: x[0])
+
+    def diag_ok_at(t: datetime) -> bool:
+        ok = False
+        for dt, good in diags:
+            if dt > t + timedelta(seconds=5):
+                break
+            ok = good
+        return ok
+
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for r in rows:
+        src = r.get("source")
+        if src in ("shioaji", "fugle") and isinstance(r.get("items"), list) and r.get("type") != "FugleDiag":
+            dates = {str(it.get("date") or "").replace("/", "-")[:10] for it in r["items"][:5]}
+            dates.discard("")
+            if dates and dates != {ymd}:
+                dropped += 1
+                continue
+        if src == "fugle" and r.get("type") not in ("FugleDiag", "LimitQueue"):
+            t = datetime.fromisoformat(r["t"].replace("Z", "+00:00"))
+            if t.astimezone(TPE).strftime("%H:%M") < "09:00":
+                if r.get("type") != "ChangePercentRank" or not diag_ok_at(t):
+                    dropped += 1
+                    continue
+        kept.append(r)
+    return kept, dropped
+
+
 def is_shadow(r: dict[str, Any]) -> bool:
     """Rows recorded only to compare sources (role "shadow") never drive the analysis."""
     return r.get("role") == "shadow"
@@ -984,6 +1028,7 @@ def analyze_day(ymd: str, args: argparse.Namespace) -> tuple[list[Cand], dict[st
     rows = load_scans(ymd, args.data_dir, args.base)
     if not rows:
         raise FileNotFoundError(ymd)
+    rows, stale_live = drop_stale_rows(ymd, rows)
     eod = load_eod(ymd, args.eod_cache)
     radar = radar_early_codes(ymd, args.data_dir, args.base)
     cands, final, snaps = build_candidates(ymd, rows, eod, radar)
@@ -1008,6 +1053,8 @@ def analyze_day(ymd: str, args: argparse.Namespace) -> tuple[list[Cand], dict[st
         )
     if stale:
         warnings.append(f"有 {stale} 筆永豐排名的日期不是 {ymd}，盤前排名可能是前一日資料。")
+    if stale_live:
+        warnings.append(f"已排除 {stale_live} 筆標成即時、實際是前一交易日的排名（富果盤前快照仍是昨日資料）。")
     meta = {
         "date": ymd,
         "scan_rows": len(rows),
@@ -1017,6 +1064,7 @@ def analyze_day(ymd: str, args: argparse.Namespace) -> tuple[list[Cand], dict[st
         "final_snapshot": final.hm if final else None,
         "final_source": final.source if final else None,
         "stale_rank_rows": stale,
+        "stale_live_rows_dropped": stale_live,
         "limit_queue_samples": sum(1 for r in rows if r.get("type") == "LimitQueue" and not is_shadow(r)),
         "limit_queue_sources": sorted({r.get("source", "?") for r in rows if r.get("type") == "LimitQueue" and not is_shadow(r)}),
         "fugle_checks": checks,
