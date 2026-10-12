@@ -60,6 +60,13 @@ if [ ! -x ./node_modules/.bin/tsx ] && [ ! -f ./node_modules/tsx/dist/cli.mjs ];
   exit 1
 fi
 
+if [ -d ./data ]; then
+  echo "data dir MB (largest):"
+  du -sm ./data/* 2>/dev/null | sort -n | tail -10 || true
+  echo "early_live_shadow largest files:"
+  ls -laS ./data/early_live_shadow 2>/dev/null | head -6 || true
+fi
+
 echo "starting Node API with LOCAL tsx (fastify present)"
 if [ -x ./node_modules/.bin/tsx ]; then
   exec ./node_modules/.bin/tsx src/index.ts

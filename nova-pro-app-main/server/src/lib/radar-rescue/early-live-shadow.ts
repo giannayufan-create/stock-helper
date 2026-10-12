@@ -340,8 +340,15 @@ export class EarlyLiveShadowStore {
             const rows = JSON.parse(
                 readFileSync(path, 'utf8'),
             ) as LiveEarlyShadowRecord[];
+            const sessionEnd = expectedSessionEndKnownAt(date);
+            let trimmed = 0;
             for (const r of rows) {
                 if (r?.signal_id) {
+                    if (Array.isArray(r.bars)) {
+                        const before = r.bars.length;
+                        r.bars = r.bars.filter((b) => b.t <= sessionEnd);
+                        trimmed += before - r.bars.length;
+                    }
                     if (r.last_trade_ts_ms == null) {
                         r.last_trade_ts_ms =
                             r.last_sample_at_ms ?? r.triggered_at_ms;
@@ -357,6 +364,19 @@ export class EarlyLiveShadowStore {
                             price: r.trigger_price,
                         });
                     }
+                }
+            }
+            if (trimmed > 0) {
+                console.warn(
+                    `[early-live-shadow] ${date}: dropped ${trimmed} bars after session close`,
+                );
+                try {
+                    this.persistNow(date);
+                } catch (err) {
+                    console.warn(
+                        `[early-live-shadow] ${date}: rewrite after trim failed:`,
+                        err instanceof Error ? err.message : String(err),
+                    );
                 }
             }
             return rows;
@@ -611,6 +631,7 @@ export class EarlyLiveShadowStore {
         for (const row of rows) {
             if (row.settled) continue;
             if (knownAt <= row.triggered_at_ms) continue;
+            if (knownAt > expectedSessionEndKnownAt(row.trade_date)) continue;
 
             this.fillMissingBars(
                 row,
@@ -685,25 +706,42 @@ export class EarlyLiveShadowStore {
             for (const row of rows) {
                 if (row.settled) continue;
                 if (nowMs - row.last_trade_ts_ms <= LIVE_TRADE_MAX_AGE_MS) continue;
-                this.fillMissingBars(row, knownAt, row.trigger_price, nowMs);
+                const added = this.fillMissingBars(
+                    row,
+                    knownAt,
+                    row.trigger_price,
+                    nowMs,
+                );
                 row.last_sample_at_ms = nowMs;
-                this.persistDate(row.trade_date);
+                if (added > 0) this.persistDate(row.trade_date);
             }
         });
     }
 
+    /**
+     * Placeholder bars stop at the row's own session close: an unsettled row from an
+     * earlier day otherwise gains one bar per minute forever (nights/weekends), and the
+     * whole file is reloaded into memory at boot.
+     */
     private fillMissingBars(
         row: LiveEarlyShadowRecord,
         upToKnownAt: number,
         placeholderPrice: number,
         nowMs: number,
-    ): void {
-        if (!(row.last_trade_ts_ms > 0)) return;
-        if (nowMs - row.last_trade_ts_ms <= LIVE_TRADE_MAX_AGE_MS) return;
+    ): number {
+        if (!(row.last_trade_ts_ms > 0)) return 0;
+        if (nowMs - row.last_trade_ts_ms <= LIVE_TRADE_MAX_AGE_MS) return 0;
+        const limit = Math.min(
+            upToKnownAt,
+            expectedSessionEndKnownAt(row.trade_date) + 1,
+        );
         const gapStart = sampleToBarKnownAt(row.last_trade_ts_ms) + 60_000;
-        for (let t = gapStart; t < upToKnownAt; t += 60_000) {
+        if (gapStart >= limit) return 0;
+        const have = new Set(row.bars.map((b) => b.t));
+        let added = 0;
+        for (let t = gapStart; t < limit; t += 60_000) {
             if (t <= row.triggered_at_ms) continue;
-            if (row.bars.some((b) => b.t === t)) continue;
+            if (have.has(t)) continue;
             row.bars.push({
                 t,
                 open: placeholderPrice,
@@ -712,8 +750,10 @@ export class EarlyLiveShadowStore {
                 close: placeholderPrice,
                 gap_kind: 'DATA_MISSING',
             });
+            added += 1;
         }
-        row.bars.sort((a, b) => a.t - b.t);
+        if (added > 0) row.bars.sort((a, b) => a.t - b.t);
+        return added;
     }
 
     /**

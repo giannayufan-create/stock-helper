@@ -456,7 +456,76 @@ async function main(): Promise<void> {
     testThrottledPersistAndForcedSettle();
     testCorruptFileKeptOnLoad();
     testRollingWindowNotReapplied();
+    testUnsettledPastDayDoesNotGrow();
     console.log('\nAll early-live-shadow tests passed');
+}
+
+function testUnsettledPastDayDoesNotGrow(): void {
+    const sessionEnd = expectedSessionEndKnownAt(TRADE_DATE);
+    let now = T0;
+    const dir = mkdtempSync(join(tmpdir(), 'els-nogrow-'));
+    const day1 = new EarlyLiveShadowStore(dir, () => now);
+    day1.recordTrigger({
+        signal_id: 'early_2330_stuck',
+        symbol: '2330',
+        triggered_at_ms: T0,
+        trigger_price: 100,
+        state_at_trigger: 'EARLY',
+        day_reference_price: 100,
+        trade_date: TRADE_DATE,
+    });
+    const lastTrade = T0 + 5 * 60_000;
+    now = lastTrade;
+    day1.sampleTrade(
+        '2330',
+        { price: 101, trade_ts_ms: lastTrade, source: 'injected' },
+        lastTrade,
+    );
+
+    // Settlement never succeeds; radar keeps polling the symbol for days.
+    const threeDaysLater = Date.parse('2026-06-18T02:00:00.000Z');
+    now = threeDaysLater;
+    day1.markSilentGaps('2330', threeDaysLater);
+    const row = day1.get('early_2330_stuck')!;
+    const expectedMax = (sessionEnd - T0) / 60_000 + 1;
+    assert.ok(row.bars.length <= expectedMax, `bars ${row.bars.length}`);
+    assert.ok(row.bars.every((b) => b.t <= sessionEnd), 'no bar after close');
+    const afterGap = row.bars.length;
+    day1.markSilentGaps('2330', threeDaysLater + 3_600_000);
+    assert.equal(day1.get('early_2330_stuck')!.bars.length, afterGap);
+
+    // A fresh print on a later day must not land in the old day's row.
+    const laterTrade = threeDaysLater + 10_000;
+    day1.sampleTrade(
+        '2330',
+        { price: 120, trade_ts_ms: laterTrade, source: 'injected' },
+        laterTrade,
+    );
+    assert.equal(day1.get('early_2330_stuck')!.bars.length, afterGap);
+
+    // A file already bloated by the old behavior is trimmed on load and rewritten.
+    const path = join(dir, 'early_live_shadow', `${TRADE_DATE}.json`);
+    const rows = JSON.parse(readFileSync(path, 'utf8')) as Array<{
+        bars: Array<Record<string, unknown>>;
+    }>;
+    for (let t = sessionEnd + 60_000; t < sessionEnd + 3 * 86_400_000; t += 60_000) {
+        rows[0]!.bars.push({
+            t,
+            open: 100,
+            high: 100,
+            low: 100,
+            close: 100,
+            gap_kind: 'DATA_MISSING',
+        });
+    }
+    writeFileSync(path, JSON.stringify(rows), 'utf8');
+    const bloatedBytes = readFileSync(path).length;
+    const reloaded = new EarlyLiveShadowStore(dir, () => threeDaysLater);
+    const r2 = reloaded.get('early_2330_stuck')!;
+    assert.equal(r2.bars.length, afterGap);
+    assert.ok(readFileSync(path).length < bloatedBytes / 10, 'file shrunk on disk');
+    console.log('OK unsettled past day: bars capped at close; bloated file trimmed');
+    rmSync(dir, { recursive: true, force: true });
 }
 
 function readShadowRows(dir: string): Array<{ signal_id: string; bars: unknown[] }> {
