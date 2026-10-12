@@ -179,13 +179,31 @@ export class JsonlStrategySignalRepository implements StrategySignalRepository {
     }
 
     listRange(fromYmd: string, toYmd: string): StrategySignal[] {
+        return this.daysInRange(fromYmd, toYmd).flatMap((d) =>
+            this.listByDate(d),
+        );
+    }
+
+    /** One parsed signal at a time; a month of signals does not fit in heap. */
+    forEachInRange(
+        fromYmd: string,
+        toYmd: string,
+        onSignal: (s: StrategySignal) => void,
+    ): void {
+        for (const d of this.daysInRange(fromYmd, toYmd)) {
+            forEachJsonlLine(join(this.root, `${d}.jsonl`), (line) => {
+                onSignal(JSON.parse(line) as StrategySignal);
+            });
+        }
+    }
+
+    private daysInRange(fromYmd: string, toYmd: string): string[] {
         if (!existsSync(this.root)) return [];
-        const files = readdirSync(this.root)
+        return readdirSync(this.root)
             .filter((f) => f.endsWith('.jsonl'))
             .map((f) => f.replace(/\.jsonl$/, ''))
             .filter((d) => d >= fromYmd && d <= toYmd)
             .sort();
-        return files.flatMap((d) => this.listByDate(d));
     }
 
     private listAllCached(): StrategySignal[] {

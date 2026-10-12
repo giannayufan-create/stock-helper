@@ -8,6 +8,7 @@ import {
     heatBuckets,
     scoreBucketsC,
 } from '../lib/signal-outcome/index.ts';
+import { listSummarySignals } from '../lib/signal-outcome/summary-signals.ts';
 
 function taipeiYmd(offsetDays = 0): string {
     const d = new Date(Date.now() + offsetDays * 86_400_000);
@@ -29,7 +30,7 @@ export function registerOutcomeRoutes(app: FastifyInstance, ctx: AppContext) {
         const to = q.to ?? taipeiYmd();
         const from = q.from ?? taipeiYmd(-30);
 
-        const signals = repos.signals.listRange(from, to);
+        const signals = listSummarySignals(repos.signals, from, to);
         const outcomes = repos.outcomes.materializeRange(from, to);
 
         const measured = outcomes.filter(
