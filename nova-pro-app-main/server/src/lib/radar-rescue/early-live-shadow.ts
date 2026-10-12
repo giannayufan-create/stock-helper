@@ -10,6 +10,7 @@ import {
     writeFileSync,
     readdirSync,
     renameSync,
+    statSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -45,6 +46,9 @@ export type DayReferenceSource =
 
 /** Max age for a trade print to enter a live observation bar. */
 export const LIVE_TRADE_MAX_AGE_MS = 90_000;
+
+/** Normal past-day files are under 1MB; a bloated one must not be parsed at boot. */
+export const MAX_PAST_DAY_LOAD_BYTES = 8 * 1024 * 1024;
 
 export type LiveTradeRejectReason =
     | 'invalid'
@@ -336,6 +340,17 @@ export class EarlyLiveShadowStore {
         this.loadedDates.add(date);
         const path = this.fileFor(date);
         if (!existsSync(path)) return [];
+        if (date !== taipeiYmdFromMs(this.now())) {
+            const bytes = statSync(path).size;
+            if (bytes > MAX_PAST_DAY_LOAD_BYTES) {
+                // Parsing would need several times its size in heap (~256MB on Render).
+                // The file stays on disk untouched; nothing writes a past date's file.
+                console.warn(
+                    `[early-live-shadow] ${date}: ${(bytes / 1048576).toFixed(1)}MB file not loaded (limit ${MAX_PAST_DAY_LOAD_BYTES / 1048576}MB)`,
+                );
+                return [];
+            }
+        }
         try {
             const rows = JSON.parse(
                 readFileSync(path, 'utf8'),

@@ -19,6 +19,7 @@ import { EarlyDailyReportStore } from './early-daily-report.ts';
 import { EarlySignalStore } from './early-signal-store.ts';
 import {
     EarlyLiveShadowStore,
+    MAX_PAST_DAY_LOAD_BYTES,
     catchUpLiveEarlyDate,
     evaluateLiveTradeTick,
     sampleToBarKnownAt,
@@ -457,7 +458,44 @@ async function main(): Promise<void> {
     testCorruptFileKeptOnLoad();
     testRollingWindowNotReapplied();
     testUnsettledPastDayDoesNotGrow();
+    testOversizedPastDayNotLoaded();
     console.log('\nAll early-live-shadow tests passed');
+}
+
+function testOversizedPastDayNotLoaded(): void {
+    const dir = mkdtempSync(join(tmpdir(), 'els-oversize-'));
+    const shadowDir = join(dir, 'early_live_shadow');
+    mkdirSync(shadowDir, { recursive: true });
+    const path = join(shadowDir, `${TRADE_DATE}.json`);
+    const bars = [];
+    for (let i = 0; i < 120_000; i++) {
+        bars.push({ t: T0 + i * 60_000, open: 1, high: 1, low: 1, close: 1, gap_kind: 'DATA_MISSING' });
+    }
+    writeFileSync(
+        path,
+        JSON.stringify([
+            {
+                signal_id: 'early_big',
+                symbol: '2330',
+                trade_date: TRADE_DATE,
+                triggered_at_ms: T0,
+                trigger_price: 100,
+                settled: false,
+                bars,
+            },
+        ]),
+        'utf8',
+    );
+    const before = readFileSync(path);
+    assert.ok(before.length > MAX_PAST_DAY_LOAD_BYTES, `fixture ${before.length}`);
+    const nextDay = Date.parse('2026-06-16T02:00:00.000Z');
+    const store = new EarlyLiveShadowStore(dir, () => nextDay);
+    assert.equal(store.get('early_big'), null);
+    assert.equal(store.list(TRADE_DATE).length, 0);
+    store.datesNeedingSettlement(nextDay);
+    assert.ok(readFileSync(path).equals(before), 'file untouched');
+    console.log('OK oversized past-day file skipped at boot; left on disk');
+    rmSync(dir, { recursive: true, force: true });
 }
 
 function testUnsettledPastDayDoesNotGrow(): void {
