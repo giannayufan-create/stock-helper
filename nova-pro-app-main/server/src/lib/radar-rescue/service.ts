@@ -55,6 +55,24 @@ function clamp(n: number, lo = 0, hi = 100): number {
     return Math.max(lo, Math.min(hi, n));
 }
 
+/**
+ * Min gap between recorded EARLY signals for one symbol. The attack state flickers
+ * (EARLY→WEAKENING→EARLY) and each flicker opens a new track: on 10/08 the median
+ * re-trigger gap was 40s and 99.3% were within 30 min (4,354 signals on 111 symbols).
+ * Only the recorded/evaluated signal is deduped; the live radar state is unchanged.
+ */
+export const EARLY_RECORD_MIN_GAP_MS = 30 * 60_000;
+
+export function earlyRecordDue(
+    lastRecordedMs: number | undefined,
+    triggeredAtMs: number,
+): boolean {
+    return (
+        lastRecordedMs == null ||
+        triggeredAtMs - lastRecordedMs >= EARLY_RECORD_MIN_GAP_MS
+    );
+}
+
 /** Taipei cash session 09:00–13:30 — used only for presentation state, not strategy. */
 function isTaipeiCashSession(now = new Date()): boolean {
     const parts = dateTimeFormat('en-GB', {
@@ -84,6 +102,7 @@ export class RadarRescueService {
     private prevBp = new Map<string, number>();
     private prevVwap = new Map<string, number>();
     private earlyTracks = new Map<string, EarlyTrack>();
+    private lastEarlyRecordMs = new Map<string, number>();
     private earlySignals: EarlySignalStore;
     private earlyLiveShadow: EarlyLiveShadowStore;
     private earlyReports: EarlyDailyReportStore;
@@ -516,8 +535,13 @@ export class RadarRescueService {
                 (radarState === 'EARLY' || radarState === 'PRE_ATTACK') &&
                 attack.track &&
                 (!prevTrack ||
-                    attack.track.triggered_at_ms !== prevTrack.triggered_at_ms)
+                    attack.track.triggered_at_ms !== prevTrack.triggered_at_ms) &&
+                earlyRecordDue(
+                    this.lastEarlyRecordMs.get(symbol),
+                    attack.track.triggered_at_ms,
+                )
             ) {
+                this.lastEarlyRecordMs.set(symbol, attack.track.triggered_at_ms);
                 const ms = this.openGate?.getMarketState(symbol);
                 const dayRef =
                     ms?.prev_close != null && ms.prev_close > 0
